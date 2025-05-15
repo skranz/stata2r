@@ -1,0 +1,11 @@
+Package: stata2r
+Type: Package
+Title: stata2r translation for data manipulation commands
+Version: 0.1.0
+Author: Sebastian Kranz
+Maintainer: Sebastian Kranz <sebastian.kranz@uni-ulm.de>
+Description: Experiment: develop package using an ai agent via aicode
+License: GPL >= 2.0
+Encoding: UTF-8
+LazyData: true
+Depends: stringi, collapse, dplyr

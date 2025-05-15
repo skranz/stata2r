@@ -1,0 +1,177 @@
+include_files = '''
+R/*.R
+'''
+
+exclude_files = '''
+*f2p_*.toml
+'''
+
+opt_max_files = 50
+
+template = '''
+
+
+################################################
+# R project DESCRIPTION file:
+################################################
+
+{{DESCRIPTION}}
+
+################################################
+# R code files in the project
+################################################
+
+{{R}}
+
+# Example do files
+
+{{DO}}
+
+{{task}}
+'''
+
+task = '''
+##############################
+# YOUR TASK
+##############################
+
+You are a professional R programmer who also knows Stata well.
+
+You see the skeleton of an R package above. It shall translate
+Stata code that modifies data sets to R such that the R code
+generates the same data set than the Stata code.
+
+- Stata commands that neither modify the data nor generate scalars
+that are used in later commands that modify the data set shall be ignored.
+Sometimes it can depend on the whole Stata code whether or not a command generates,
+a scalar that is later used to modify a data set.
+
+- Update the general given functions do_parse, do_cmd_to_r,
+ mark_data_manip_cmd
+
+- Do not change any code in main.R.
+
+- Where approbriate, generate custom translation functions for
+  specific Stata commands like t_generate for the command generate.
+  All such specific translation functions shall start with prefix t_
+  followed by the Stata command name.
+
+- Note that Stata allows command abbreviations.
+  E.g. 'gen' and 'generate' are the same commands. Just call t_generate
+  for both.
+
+- Where approbiate, generate custom implementations for Stata functions
+  like sfun_missing, also in a separate file. Those functions and files
+  shall be prefixed with sfun_
+
+- Try to generate a separate R file for every function you generate.
+  Except perhaps for very small tool functions. The reason is
+  that your output format always specifies the complete content of
+  an R file. If files are too large you need more token and there
+  is a larger risk that things break.
+
+- Your code shall not install any R packages, nor perform any file operations,
+  nor any network operations. The R code translated from Stata can read or write
+  data set files, however.
+
+# Style of the R translation
+
+The R code that the translation functions generate shall follow these conventions:
+
+- Stata just has a single global data set. Assume it is call `data`. Certain functions like
+preverse or restore can generate other data sets. Think of a suitable name.
+
+- Where sensible your translation functions shall write R code that
+  uses the `collapse` package. It is often faster than `dplyr`.
+
+- For string operations try to use `stringi` functions.
+
+- Try to avoid loops, vectorize if possible.
+
+- Use `=` instead of `<-` as assignment operator.
+
+# Format of your response
+
+Your output format shall be like the following example (the example begins and end with *** lines)
+
+***
+!CHANGE_FILE R/t_generate.R
+# This will be the new content of a file
+t_generate = function(...) {
+  # ... real code here ...
+}
+!END_CHANGE_FILE R/t_generate.R
+
+!CHANGE_FILE R/t_drop.R
+t_drop = function(...) {
+  # ... real code here ...
+}
+!END_CHANGE_FILE R/t_drop.R
+***
+
+Thus, if you rewrite an R file  we have the format
+
+!CHANGE_FILE {file_path}
+{new_file_content}
+!END_CHANGE_FILE {file_path}
+
+Use also a !CHANGE_FILE block to create a new file that does not yet exist.
+
+You can include as many !CHANGE_FILE blocks as you like.
+
+Don't forget the ! in the lines that begin and and a block, otherwise.
+
+Typically, you don't want to remove any file. But in the rare case that you want to,
+use the syntax:
+
+!REMOVE_FILE {file_path}
+
+You don't need to add any further comments in your output.
+
+
+
+
+
+
+'''
+
+###########################################################
+# file_template Will be applied to each found file
+# and the results will be pasted together
+###########################################################
+
+file_template = '''
+### FILE: {{filename}}
+```
+{{filetext}}
+```
+### END OF FILE: {{filename}}
+
+-----------------------------------------------------------
+'''
+
+################################################
+# Special handling for R code
+################################################
+[[R]]
+include_files  = '''
+R/*.R
+R/*.r
+'''
+
+[[DO]]
+include_files  = '''
+inst/cases/custom_1/*.do
+inst/cases/custom_2/*.do
+'''
+
+
+
+[[DESCRIPTION]]
+include_files = "DESCRIPTION"
+file_template = '''
+```
+{{filetext}}
+```
+'''
+
