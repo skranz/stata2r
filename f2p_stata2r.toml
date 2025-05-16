@@ -159,8 +159,10 @@ include_files  = '''
 R/*.R
 R/*.r
 '''
+
 exclude_files = '''
 R/aic_stata2r.R
+R/main.R
 '''
 
 

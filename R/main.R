@@ -3,6 +3,7 @@
 # do_code is a text file with one line per stata command line
 # there are no comments
 do_to_r = function(do_code) {
+  restore.point("do_to_r")
   do_code = stringi::stri_split_fixed(do_code, "\n")
 
   # transforms do_code to a dataframe with
@@ -16,7 +17,7 @@ do_to_r = function(do_code) {
   # and can be ignored
   cmd_df = mark_data_manip_cmd(cmd_df)
 
-  r_df = bind_rows(lapply(seq_len(NROW(do_df)), function(i)  {
+  r_df = bind_rows(lapply(seq_len(NROW(cmd_df)), function(i)  {
     cmd_obj = cmd_df[i,]
     # r_obj will be a single row tibble
     # at least with the field r_code

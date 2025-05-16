@@ -1,0 +1,13 @@
+In total 0 of 2 tests failed.
+
+
+---
+Outcome of test 'source_r': ok
+All R files could be sourced.
+
+
+
+---
+Outcome of test 'source_r': ok
+All R files could be sourced.
+
