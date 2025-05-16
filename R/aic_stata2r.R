@@ -48,7 +48,7 @@ aic_make_prompt_stata2r = function(aic) {
   } else {
     test_str = ""
   }
-  cfg$test = test_str
+  cfg$tests = test_str
   task = aic$cfg$task
   if (num_test_failed > 0) {
     task = paste0(task,
