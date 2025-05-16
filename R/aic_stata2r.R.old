@@ -3,7 +3,6 @@ example = function() {
   main_dir = "C:/libraries/aicoder"
   source("C:/libraries/aicoder/stata2r/R/aic_stata2r.R")
   aic = aic_new_stata2r(main_dir)
-  aic = aic_changes_stata2r(aic)
   aic = aic_test_stata2r(aic)
   aic = aic_make_prompt_stata2r(aic)
   aic_view_prompt(aic)
