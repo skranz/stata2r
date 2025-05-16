@@ -1,4 +1,4 @@
-In total 0 of 2 tests failed.
+In total 1 of 2 tests failed.
 
 
 ---
@@ -8,6 +8,74 @@ All R files could be sourced.
 
 
 ---
-Outcome of test 'source_r': ok
-All R files could be sourced.
+Outcome of test 'test_do1.R': not ok
+
+
+Details:
+library(stata2r)
+
+setwd("C:/libraries/aicoder/stata2r/aicoder_work/tests/do1")
+
+
+
+# do code that will be translated
+
+do_code = readLines("C:/libraries/aicoder/stata2r/aicoder_work/tests/do1/do1.do", warn=FALSE)
+
+cat(do_code, sep="\n")
+
+[1] "use \"data.dta\", clear\nsort group i\nby group: gen seq = _n\ngen logi = log(i)\ngen sqrt_i = sqrt(i)\ngen group_num = cond(group==\"A\",1,cond(group==\"B\",2,3))\negen mean_i_grp = mean(i), by(group)\negen total_i = total(i)\nbysort group: egen rank_i = rank(i)\ngen flag = (i>20) if group==\"A\"\nreplace flag = 0 if missing(flag)\nkeep if flag==1 | group==\"B\"\ndrop if i>35\ncollapse (mean) i (sum) total_i_sum = i, by(group)\nrename i mean_i_overall\nexpand 2 if group==\"C\"\nduplicates drop\nencode group, gen(group_code)\ndecode group_code, gen(group_str)\nsort group_code\ntempfile t1\nsave \"`t1'\"\nkeep if group_code==1\nmerge 1:m group_code using \"`t1'\", keep(match master) nogenerate\nappend using \"`t1'\"\nreshape wide mean_i_overall total_i_sum, i(group_code) j(group_str)\nreshape long mean_i_overall total_i_sum, i(group_code) j(group_str)\ngen id = _n\nbysort group_code (mean_i_overall): gen diff_mean = mean_i_overall - mean_i_overall[_n-1]\nrecode group_code (1=10)(2=20)(3=30)\ndrop if missing(mean_i_overall)\nkeep in 1/10\norder id group_code mean_i_overall\ncollapse (sum) sum_mean = mean_i_overall, by(group_code)\negen total_sum = total(sum_mean)\ngen proportion = sum_mean/total_sum\nsort proportion\nlist in 1/5\nsave \"result_data.dta\"\n"
+
+
+
+
+# transforms do_code to a dataframe with
+
+# one row for each code line possible
+
+# perform some preparsing
+
+# the field do_code should contain the original code
+
+cmd_df = do_parse(do_code)
+
+
+
+# will add field "do_translate"
+
+# if FALSE the stata command does not modify the data set
+
+# and can be ignored
+
+cmd_df = mark_data_manip_cmd(cmd_df)
+
+str(cmd_df)
+
+[1] "'data.frame':\t39 obs. of  8 variables:\n $ line              : int  1 2 3 4 5 6 7 8 9 10 ...\n $ do_code           : chr  \"use \\\"data.dta\\\", clear\" \"sort group i\" \"by group: gen seq = _n\" \"gen logi = log(i)\" ...\n $ stata_cmd_original: chr  \"use\" \"sort\" \"gen\" \"gen\" ...\n $ stata_cmd         : chr  \"use\" \"sort\" \"gen\" \"gen\" ...\n $ rest_of_cmd       : chr  \"\\\"data.dta\\\", clear\" \"group i\" \"seq = _n\" \"logi = log(i)\" ...\n $ by_vars           : chr  NA NA \"group\" NA ...\n $ is_by_prefix      : logi  FALSE FALSE TRUE FALSE FALSE FALSE ...\n $ do_translate      : logi  TRUE TRUE TRUE TRUE TRUE TRUE ...\n"
+
+
+r_li = vector("list", NROW(cmd_df))
+
+
+
+for (i in seq_along(r_li)) {
+  cat("\n", i,"of", length(r_li), "translate", cmd_df$do_code[[i]],"\n")
+  cmd_obj = cmd_df[i,]
+  r_obj = do_cmd_to_r(cmd_obj=cmd_obj,line=i, cmd_df=cmd_df)
+  #print(str(r_obj))
+  cat("\nR code:",r_obj$r_code,"\n")
+  r_li[[i]] = r_obj
+}
+
+[1] "\n 1 of 39 translate use \"data.dta\", clear \n\nR code: data = haven::read_dta(\"data.dta\") # 'clear' was used \n\n 2 of 39 translate sort group i \n\nR code: data = collapse::setorder(data, group, i) # Using collapse::setorder for efficiency \n\n 3 of 39 translate by group: gen seq = _n \n\nR code: data = collapse::fgroup_by(data, c(\"group\"))\ndata = collapse::fmutate(data, seq = dplyr::row_number())\ndata = collapse::fungroup(data) \n\n 4 of 39 translate gen logi = log(i) \n\nR code: data = collapse::fmutate(data, logi = log(i)) \n\n 5 of 39 translate gen sqrt_i = sqrt(i) \n\nR code: data = collapse::fmutate(data, sqrt_i = sqrt(i)) \n\n 6 of 39 translate gen group_num = cond(group==\"A\",1,cond(group==\"B\",2,3)) \n\nR code: data = collapse::fmutate(data, group_num = dplyr::if_else(group==\"A\", 1, cond(group==\"B\",2,3))) \n\n 7 of 39 translate egen mean_i_grp = mean(i), by(group) \n\nR code: data = data %>%\n  dplyr::group_by(group) %>%\n  dplyr::mutate(mean_i_grp = mean(i, na.rm = TRUE)) %>%\n  dplyr::ungroup() \n\n 8 of 39 translate egen total_i = total(i) \n\nR code: data = dplyr::mutate(data, total_i = sum(i, na.rm = TRUE)) \n\n 9 of 39 translate bysort group: egen rank_i = rank(i) \n\nR code: data = data %>%\n  dplyr::group_by(group) %>%\n  dplyr::mutate(rank_i = dplyr::min_rank(i)) %>%\n  dplyr::ungroup() \n\n 10 of 39 translate gen flag = (i>20) if group==\"A\" \n\nR code: data = collapse::fmutate(data, flag = dplyr::if_else(group==\"A\", (i>20), NA_real_)) \n\n 11 of 39 translate replace flag = 0 if missing(flag) \n\nR code: data = collapse::fmutate(data, flag = dplyr::if_else(is.na(flag), 0, flag)) \n\n 12 of 39 translate keep if flag==1 | group==\"B\" \n\nR code: data = collapse::fsubset(data, flag==1 | group==\"B\") \n\n 13 of 39 translate drop if i>35 \n\nR code: data = collapse::fsubset(data, !(i>35)) \n\n 14 of 39 translate collapse (mean) i (sum) total_i_sum = i, by(group) \n"
+Error: could not find function "t_collapse"
+r_df = bind_rows(r_li)
+
+
+
+
+
+r_code = paste0(r_df$r_code, collapse="\n")
+
+writeLines(r_code, "r_trans.R")
 

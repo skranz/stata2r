@@ -20,16 +20,16 @@ str(cmd_df)
 
 r_li = vector("list", NROW(cmd_df))
 
-for (i in seq_len(r_li)) {
-  cat("\n", i,"of", length(r_li), "translate", cmd_df$do_code[[i]],"...\n")
+for (i in seq_along(r_li)) {
+  cat("\n", i,"of", length(r_li), "translate", cmd_df$do_code[[i]],"\n")
   cmd_obj = cmd_df[i,]
   r_obj = do_cmd_to_r(cmd_obj=cmd_obj,line=i, cmd_df=cmd_df)
-  print(str(r_obj))
-  cat("\nR code:\n",r_obj$r_code,"\n")
+  #print(str(r_obj))
+  cat("\nR code:",r_obj$r_code,"\n")
   r_li[[i]] = r_obj
 }
 r_df = bind_rows(r_li)
 
 
-r_code = paste0(r_df, r_df$r_code)
-writeLines(r_code, "test_rcode.R")
+r_code = paste0(r_df$r_code, collapse="\n")
+writeLines(r_code, "r_trans.R")

@@ -3,7 +3,9 @@ example = function() {
   main_dir = "C:/libraries/aicoder"
   source("C:/libraries/aicoder/stata2r/R/aic_stata2r.R")
   aic = aic_new_stata2r(main_dir)
-  aic = aic_changes_stata2r(aic)
+  if (FALSE) {
+    aic = aic_changes_stata2r(aic)
+  }
   aic = aic_test_stata2r(aic)
   aic = aic_make_prompt_stata2r(aic)
   aic_view_prompt(aic)
@@ -24,7 +26,9 @@ aic_new_stata2r = function(main_dir) {
     temp_dir = file.path(main_dir, "temp"),
     mod_protected_files = c("R/aic_stata2r.R","R/main.R"),
     mod_fixed_dirs = c("r"="R"),
-    mod_just_ext = c("r")
+    mod_just_ext = c("r"),
+    show_test = FALSE,
+    show_failed_test = FALSE
   )
 
   aic
@@ -75,14 +79,13 @@ aic_test_stata2r = function(aic) {
   }
 
 
+
   # Build package? Maybe not needed if everything is sourced
   library(aicoder)
   files = list.files(file.path(aic$repo_dir,"R"),glob2rx("*.R"), full.names = TRUE)
   for (file in files) source(file)
 
-
-  do_code = read_utf8("C:/libraries/aicoder/stata2r/inst/cases/custom_1/do1.do")
-  rcode = do_to_r(do_code)
+  aic = aic_test_script(aic,"C:/libraries/aicoder/stata2r/aicoder_work/tests/do1/test_do1.R")
 
 
   aic = aic_tests_finish(aic)

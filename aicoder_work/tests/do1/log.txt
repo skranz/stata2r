@@ -1,0 +1,138 @@
+
+> library(stata2r)
+
+> setwd("C:/libraries/aicoder/stata2r/aicoder_work/tests/do1")
+
+> # do code that will be translated
+> do_code = readLines("C:/libraries/aicoder/stata2r/aicoder_work/tests/do1/do1.do", warn=FALSE)
+
+> cat(do_code, sep="\n")
+use "data.dta", clear
+sort group i
+by group: gen seq = _n
+gen logi = log(i)
+gen sqrt_i = sqrt(i)
+gen group_num = cond(group=="A",1,cond(group=="B",2,3))
+egen mean_i_grp = mean(i), by(group)
+egen total_i = total(i)
+bysort group: egen rank_i = rank(i)
+gen flag = (i>20) if group=="A"
+replace flag = 0 if missing(flag)
+keep if flag==1 | group=="B"
+drop if i>35
+collapse (mean) i (sum) total_i_sum = i, by(group)
+rename i mean_i_overall
+expand 2 if group=="C"
+duplicates drop
+encode group, gen(group_code)
+decode group_code, gen(group_str)
+sort group_code
+tempfile t1
+save "`t1'"
+keep if group_code==1
+merge 1:m group_code using "`t1'", keep(match master) nogenerate
+append using "`t1'"
+reshape wide mean_i_overall total_i_sum, i(group_code) j(group_str)
+reshape long mean_i_overall total_i_sum, i(group_code) j(group_str)
+gen id = _n
+bysort group_code (mean_i_overall): gen diff_mean = mean_i_overall - mean_i_overall[_n-1]
+recode group_code (1=10)(2=20)(3=30)
+drop if missing(mean_i_overall)
+keep in 1/10
+order id group_code mean_i_overall
+collapse (sum) sum_mean = mean_i_overall, by(group_code)
+egen total_sum = total(sum_mean)
+gen proportion = sum_mean/total_sum
+sort proportion
+list in 1/5
+save "result_data.dta"
+
+> # transforms do_code to a dataframe with
+> # one row for each code line possible
+> # perform some preparsing
+> # the field do_code should contain th .... [TRUNCATED] 
+
+> # will add field "do_translate"
+> # if FALSE the stata command does not modify the data set
+> # and can be ignored
+> cmd_df = mark_data_manip_cmd(cm .... [TRUNCATED] 
+
+> str(cmd_df)
+'data.frame':	39 obs. of  8 variables:
+ $ line              : int  1 2 3 4 5 6 7 8 9 10 ...
+ $ do_code           : chr  "use \"data.dta\", clear" "sort group i" "by group: gen seq = _n" "gen logi = log(i)" ...
+ $ stata_cmd_original: chr  "use" "sort" "gen" "gen" ...
+ $ stata_cmd         : chr  "use" "sort" "gen" "gen" ...
+ $ rest_of_cmd       : chr  "\"data.dta\", clear" "group i" "seq = _n" "logi = log(i)" ...
+ $ by_vars           : chr  NA NA "group" NA ...
+ $ is_by_prefix      : logi  FALSE FALSE TRUE FALSE FALSE FALSE ...
+ $ do_translate      : logi  TRUE TRUE TRUE TRUE TRUE TRUE ...
+
+> r_li = vector("list", NROW(cmd_df))
+
+> for (i in seq_along(r_li)) {
++   cat("\n", i,"of", length(r_li), "translate", cmd_df$do_code[[i]],"\n")
++   cmd_obj = cmd_df[i,]
++   r_obj = do_cmd_ .... [TRUNCATED] 
+
+ 1 of 39 translate use "data.dta", clear 
+
+R code: data = haven::read_dta("data.dta") # 'clear' was used 
+
+ 2 of 39 translate sort group i 
+
+R code: data = collapse::setorder(data, group, i) # Using collapse::setorder for efficiency 
+
+ 3 of 39 translate by group: gen seq = _n 
+
+R code: data = collapse::fgroup_by(data, c("group"))
+data = collapse::fmutate(data, seq = dplyr::row_number())
+data = collapse::fungroup(data) 
+
+ 4 of 39 translate gen logi = log(i) 
+
+R code: data = collapse::fmutate(data, logi = log(i)) 
+
+ 5 of 39 translate gen sqrt_i = sqrt(i) 
+
+R code: data = collapse::fmutate(data, sqrt_i = sqrt(i)) 
+
+ 6 of 39 translate gen group_num = cond(group=="A",1,cond(group=="B",2,3)) 
+
+R code: data = collapse::fmutate(data, group_num = dplyr::if_else(group=="A", 1, cond(group=="B",2,3))) 
+
+ 7 of 39 translate egen mean_i_grp = mean(i), by(group) 
+
+R code: data = data %>%
+  dplyr::group_by(group) %>%
+  dplyr::mutate(mean_i_grp = mean(i, na.rm = TRUE)) %>%
+  dplyr::ungroup() 
+
+ 8 of 39 translate egen total_i = total(i) 
+
+R code: data = dplyr::mutate(data, total_i = sum(i, na.rm = TRUE)) 
+
+ 9 of 39 translate bysort group: egen rank_i = rank(i) 
+
+R code: data = data %>%
+  dplyr::group_by(group) %>%
+  dplyr::mutate(rank_i = dplyr::min_rank(i)) %>%
+  dplyr::ungroup() 
+
+ 10 of 39 translate gen flag = (i>20) if group=="A" 
+
+R code: data = collapse::fmutate(data, flag = dplyr::if_else(group=="A", (i>20), NA_real_)) 
+
+ 11 of 39 translate replace flag = 0 if missing(flag) 
+
+R code: data = collapse::fmutate(data, flag = dplyr::if_else(is.na(flag), 0, flag)) 
+
+ 12 of 39 translate keep if flag==1 | group=="B" 
+
+R code: data = collapse::fsubset(data, flag==1 | group=="B") 
+
+ 13 of 39 translate drop if i>35 
+
+R code: data = collapse::fsubset(data, !(i>35)) 
+
+ 14 of 39 translate collapse (mean) i (sum) total_i_sum = i, by(group) 
