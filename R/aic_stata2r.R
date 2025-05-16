@@ -22,7 +22,10 @@ aic_new_stata2r = function(main_dir) {
     main_dir = main_dir,
     do_files = paste0(repo_dir,"inst/cases/", c("custom_1/do1.do")),
     response_file = file.path(main_dir, "ai_resp.txt"),
-    temp_dir = file.path(main_dir, "temp")
+    temp_dir = file.path(main_dir, "temp"),
+    mod_protected_files = c("R/aic_stata2r.R"),
+    mod_fixed_dirs = c("r"="R"),
+    mod_just_ext = c("r")
   )
 
   aic
