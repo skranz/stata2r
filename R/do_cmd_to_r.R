@@ -1,7 +1,8 @@
   # r_obj will be a single row tibble
   # at least with the field r_code
-do_cmd_to_r = function(line, cmd_df) { # Changed signature to match main.R's lapply context
-  cmd_obj = cmd_df[line,]
+do_cmd_to_r = function(cmd_obj, line, cmd_df) { # Corrected signature: added cmd_obj
+  # cmd_obj is already the current line's data from cmd_df
+  # line is the index, cmd_df is the full parsed do-file dataframe
 
   # ignore do commands that are flagged not to
   # be translated (because they don't manipulate the data set)
@@ -77,4 +78,5 @@ do_cmd_to_r = function(line, cmd_df) { # Changed signature to match main.R's lap
   r_obj = data.frame(line=line, r_code = r_code, do_code = cmd_obj$do_code, stringsAsFactors = FALSE)
   return(r_obj)
 }
+
 
