@@ -4,12 +4,14 @@ example = function() {
   files = paste0(main_dir, "/stata2r/R/",  c("aic_stata2r.R", "aic_eval_ex.R","aic_stata_ex.R"))
   for (file in files)  source(file)
   aic = aic_new_stata2r(main_dir)
+  aic = aic_test_stata2r(aic)
+  aic = aic_make_prompt_stata2r(aic)
+
+  # Manuall run prompt
   if (FALSE) {
     aic$response_file
     aic = aic_changes_stata2r(aic)
   }
-  aic = aic_test_stata2r(aic)
-  aic = aic_make_prompt_stata2r(aic)
   aic_view_prompt(aic)
 
   do_file = "C:/libraries/aicoder/stata2r/inst/cases/custom_1/do1.do"
@@ -79,9 +81,11 @@ aic_test_stata2r = function(aic) {
   aic = aic_clear_tests(aic)
   aic = aic_test_source_r_files(aic)
   if (aic_num_test_failed(aic)>0) {
+    cat("\nFailed sourcing R files in stata2r/R")
     aic = aic_tests_finish(aic)
     return(aic)
   }
+  cat("\nSourced R files in stata2r/R without error...\n")
 
 
 
