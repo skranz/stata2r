@@ -24,20 +24,17 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
 
   # Parse aggregate definitions: "(stat) var [= newvar] (stat) var [= newvar] ..."
-  # This regex needs to handle multiple aggregate blocks
-  # Find all occurrences of `(stat) var [= newvar]`
-  # Let's use stri_match_all_regex
-  # Pattern: \( - literal parenthesis
-  # ([a-zA-Z_]+) - stat name (group 1)
-  # \) - literal parenthesis
-  # \s+ - one or more spaces
-  # ([a-zA-Z0-9_]+) - source var name (group 2)
-  # (?: - non-capturing group for optional assignment
-  # \s*=\s* - equals sign with optional spaces
-  # ([a-zA-Z0-9_]+) - new var name (group 3)
-  # )? - end optional group
+  # Regex: \(stat_word\)\s+(target_var_word)(?:\s*=\s*(source_var_word))?  -- This is for form (stat) target = source
+  # OR    \(stat_word\)\s+(source_and_target_var_word)                     -- This is for form (stat) source
+  # The current regex is: \\(([a-zA-Z_]+)\\)\\s+([a-zA-Z0-9_]+)(?:\\s*=\s*([a-zA-Z0-9_]+))?
+  # G1: stat (stat_from_regex)
+  # G2: varname1 (g2_val_from_regex)
+  # G3: varname2 (g3_val_from_regex) - optional
+  # If G3 is NA: Stata form is (stat) G2. Here, G2 is source and target.
+  # If G3 is not NA: Stata form is (stat) G2 = G3. Here, G2 is target, G3 is source.
+
   aggregate_matches = stringi::stri_match_all_regex(aggregate_part, "\\(([a-zA-Z_]+)\\)\\s+([a-zA-Z0-9_]+)(?:\\s*=\\s*([a-zA-Z0-9_]+))?")[[1]]
-  # aggregate_matches will be a matrix: [match, stat, source_var, new_var]
+  # aggregate_matches will be a matrix: [match, stat, g2_val, g3_val]
 
   if (NROW(aggregate_matches) == 0) {
     return(paste0("# Failed to parse collapse aggregate definitions: ", aggregate_part))
@@ -60,23 +57,16 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
 
   # Translate the if/in condition for subsetting *before* collapse
-  # Stata collapse applies if/in *before* grouping and aggregation
   r_subset_cond = NA_character_
   data_source_for_collapse = "data"
   r_code_prefix = "" # Code to create subset if needed
 
   if (!is.na(stata_if_in_cond) && stata_if_in_cond != "") {
-      # Assuming if/in condition for collapse applies to original data rows
-      # The context for _n/_N here should be the original data, not the group
       r_subset_cond = translate_stata_expression_with_r_values(stata_if_in_cond, line_num, cmd_df, context = list(is_by_group = FALSE))
-
-      # Check if r_subset_cond is valid
       if (is.na(r_subset_cond) || r_subset_cond == "") {
            return(paste0("# Failed to translate if/in condition for collapse: ", stata_if_in_cond))
       }
-
-      # Create a temporary subset variable
-      data_subset_varname = paste0("data_subset_L", cmd_obj$line) # Use actual line from cmd_obj
+      data_subset_varname = paste0("data_subset_L", cmd_obj$line)
       r_code_prefix = paste0(data_subset_varname, " = base::subset(data, ", r_subset_cond, ")\n")
       data_source_for_collapse = data_subset_varname
   }
@@ -85,23 +75,33 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Build the summarise/aggregate expressions for collapse::fsummarise
   aggregate_exprs = character(NROW(aggregate_matches))
   for (j in 1:NROW(aggregate_matches)) {
-    stat = aggregate_matches[j, 2]
-    source_var = aggregate_matches[j, 3]
-    new_var = aggregate_matches[j, 4]
+    stat_from_regex = aggregate_matches[j, 2]
+    g2_val_from_regex = aggregate_matches[j, 3]
+    g3_val_from_regex = aggregate_matches[j, 4]
 
-    # Translate source variable name - usually just the name itself
-    r_source_var = translate_stata_expression_with_r_values(source_var, line_num, cmd_df, context)
+    actual_stata_source_var_name = ""
+    actual_stata_target_var_name = ""
+
+    if (is.na(g3_val_from_regex)) { # Matched (stat) g2_val_from_regex
+        actual_stata_source_var_name = g2_val_from_regex
+        actual_stata_target_var_name = g2_val_from_regex
+    } else { # Matched (stat) g2_val_from_regex = g3_val_from_regex
+        actual_stata_source_var_name = g3_val_from_regex    # G3 is source
+        actual_stata_target_var_name = g2_val_from_regex    # G2 is target
+    }
+
+    # Translate actual Stata source variable name
+    r_source_var = translate_stata_expression_with_r_values(actual_stata_source_var_name, line_num, cmd_df, context)
      if (is.na(r_source_var) || r_source_var == "") {
-         return(paste0("# Failed to translate source variable '", source_var, "' for collapse stat '", stat, "'"))
+         return(paste0("# Failed to translate source variable '", actual_stata_source_var_name, "' for collapse stat '", stat_from_regex, "'"))
      }
 
-
     # Map Stata stats to collapse functions
-    collapse_func = switch(stat,
+    collapse_func = switch(stat_from_regex,
       "mean" = paste0("collapse::fmean(", r_source_var, ", na.rm = TRUE)"),
       "sum" = paste0("collapse::fsum(", r_source_var, ", na.rm = TRUE)"),
-      "count" = paste0("collapse::fnobs(", r_source_var, ")"), # counts non-missing
-      "N" = paste0("collapse::fnobs(", r_source_var, ")"), # total obs, including missing for the var? No, count() and N() are synonyms, count non-missing.
+      "count" = paste0("collapse::fnobs(", r_source_var, ")"),
+      "N" = paste0("collapse::fnobs(", r_source_var, ")"),
       "first" = paste0("collapse::ffirst(", r_source_var, ")"),
       "last" = paste0("collapse::flast(", r_source_var, ")"),
       "min" = paste0("collapse::fmin(", r_source_var, ", na.rm = TRUE)"),
@@ -116,25 +116,16 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       "p90" = paste0("collapse::fquantile(", r_source_var, ", probs = 0.90, na.rm = TRUE)"),
       "p95" = paste0("collapse::fquantile(", r_source_var, ", probs = 0.95, na.rm = TRUE)"),
       "p99" = paste0("collapse::fquantile(", r_source_var, ", probs = 0.99, na.rm = TRUE)"),
-       # Add more stats...
-      NULL # Default for unknown stat
+      NULL
     )
 
     if (is.null(collapse_func)) {
-        return(paste0("# Collapse stat '", stat, "' not yet implemented."))
+        return(paste0("# Collapse stat '", stat_from_regex, "' not yet implemented."))
     }
 
-    # Determine the new variable name
-    if (is.na(new_var) || new_var == "") {
-      # If no newvar specified, Stata uses the source var name.
-      # R collapse::fsummarise requires `newvar = func(sourcevar)`.
-      # If source_var is `i`, the expression is `i = fmean(i)`.
-      r_new_var = r_source_var # Use source_var as the new var name
-    } else {
-      r_new_var = new_var # Use the specified newvar name
-    }
-
-    aggregate_exprs[j] = paste0(r_new_var, " = ", collapse_func)
+    # The new variable name for R code is the actual_stata_target_var_name
+    r_new_var_name = actual_stata_target_var_name
+    aggregate_exprs[j] = paste0(r_new_var_name, " = ", collapse_func)
   }
 
   # Combine aggregate expressions
@@ -147,14 +138,12 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     r_code_str = paste0(r_code_str,
                        "data = collapse::fgroup_by(", data_source_for_collapse, ", ", by_vars_r_vec_str, ") %>%\n",
                        "  collapse::fsummarise(", aggregate_exprs_str, ") %>%\n",
-                       "  collapse::fungroup()") # Collapse summarise includes ungroup by default, but explicit is safe.
+                       "  collapse::fungroup()")
   } else {
-     # Collapse without by() aggregates the whole dataset into a single row
      r_code_str = paste0(r_code_str,
                        "data = collapse::fsummarise(", data_source_for_collapse, ", ", aggregate_exprs_str, ")")
   }
 
   return(r_code_str)
 }
-
 
