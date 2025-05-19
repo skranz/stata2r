@@ -115,21 +115,19 @@ R code: data = collapse::fmutate(data, group_num = dplyr::if_else(group=="A", 1,
 
  7 of 39 translate egen mean_i_grp = mean(i), by(group) 
 
-R code: data = data %>%
-  dplyr::group_by(group) %>%
-  dplyr::mutate(mean_i_grp = mean(i, na.rm = TRUE)) %>%
-  dplyr::ungroup() 
+R code: data = collapse::fgroup_by(data, c("group")) %>%
+  collapse::fmutate(mean_i_grp = mean(i, na.rm = TRUE)) %>%
+  collapse::fungroup() 
 
  8 of 39 translate egen total_i = total(i) 
 
-R code: data = dplyr::mutate(data, total_i = sum(i, na.rm = TRUE)) 
+R code: data = collapse::fmutate(data, total_i = sum(i, na.rm = TRUE)) 
 
  9 of 39 translate bysort group: egen rank_i = rank(i) 
 
-R code: data = data %>%
-  dplyr::group_by(group) %>%
-  dplyr::mutate(rank_i = dplyr::min_rank(i)) %>%
-  dplyr::ungroup() 
+R code: data = collapse::fgroup_by(data, c("group")) %>%
+  collapse::fmutate(rank_i = dplyr::min_rank(i)) %>%
+  collapse::fungroup() 
 
  10 of 39 translate gen flag = (i>20) if group=="A" 
 
@@ -148,6 +146,17 @@ R code: data = collapse::fsubset(data, flag==1 | group=="B")
 R code: data = collapse::fsubset(data, !(i>35)) 
 
  14 of 39 translate collapse (mean) i (sum) total_i_sum = i, by(group) 
-Error in t_collapse(rest_of_cmd_clean, cmd_obj, cmd_df, line, translation_context) : 
-  could not find function "t_collapse"
+
+R code: data = collapse::fgroup_by(data, c("group")) %>%
+  collapse::fsummarise(i = collapse::fmean(i, na.rm = TRUE),
+  i = collapse::fsum(total_i_sum, na.rm = TRUE)) %>%
+  collapse::fungroup() 
+
+ 15 of 39 translate rename i mean_i_overall 
+
+R code: data = collapse::frename(data, `i` = `mean_i_overall`) 
+
+ 16 of 39 translate expand 2 if group=="C" 
+Error in paste0(temp_times_final = "ifelse(is.na(", temp_times_final,  : 
+  object 'temp_times_final' not found
 

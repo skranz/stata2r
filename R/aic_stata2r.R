@@ -6,14 +6,16 @@ example = function() {
   aic = aic_new_stata2r(main_dir)
   aic = aic_test_stata2r(aic)
   aic = aic_make_prompt_stata2r(aic)
+  aic_view_prompt(aic)
 
-  # Manuall run prompt
+  # Manually run prompt
   if (FALSE) {
     aic$response_file
     aic = aic_changes_stata2r(aic)
+    remotes::install_local(aic$repo_dir,upgrade = "never")
   }
-  aic_view_prompt(aic)
 
+  remotes::install_local("~/aicoder/stata2r",upgrade = "never", force=TRUE)
   do_file = "C:/libraries/aicoder/stata2r/inst/cases/custom_1/do1.do"
 }
 
