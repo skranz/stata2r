@@ -2,7 +2,7 @@
 
 # do_code is a text file with one line per stata command line
 # there are no comments
-do_to_r = function(do_code) {
+do_to_r = function(do_code, return_df = FALSE) {
   restore.point("do_to_r")
   do_code = stringi::stri_split_fixed(do_code, "\n")
 
@@ -22,7 +22,13 @@ do_to_r = function(do_code) {
     # r_obj will be a single row tibble
     # at least with the field r_code
     r_obj = do_cmd_to_r(cmd_obj=cmd_obj,line=i, cmd_df=cmd_df)
+    r_obj$line = i
+    r_obj$do_cmd = do_code[i]
+    r_obj
   }))
+  if (return_df) return(r_df)
+
+
   r_code = paste0(r_df, r_df$r_code)
   return(list(r_df=r_df, r_code=r_code))
 }

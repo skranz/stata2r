@@ -1,8 +1,7 @@
 library(stata2r)
-setwd("C:/libraries/aicoder/stata2r/aicoder_work/tests/do1")
 
 # do code that will be translated
-do_code = readLines("C:/libraries/aicoder/stata2r/aicoder_work/tests/do1/do1.do", warn=FALSE)
+do_code = readLines("do1.do", warn=FALSE)
 cat(do_code, sep="\n")
 
 

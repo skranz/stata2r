@@ -1,5 +1,8 @@
 use "data.dta", clear
 sort group i
+keep in 1/39
+list in 1/5
+display _n
 by group: gen seq = _n
 gen logi = log(i)
 gen sqrt_i = sqrt(i)
@@ -23,17 +26,13 @@ save "`t1'"
 keep if group_code==1
 merge 1:m group_code using "`t1'", keep(match master) nogenerate
 append using "`t1'"
-reshape wide mean_i_overall total_i_sum, i(group_code) j(group_str)
-reshape long mean_i_overall total_i_sum, i(group_code) j(group_str)
 gen id = _n
 bysort group_code (mean_i_overall): gen diff_mean = mean_i_overall - mean_i_overall[_n-1]
 recode group_code (1=10)(2=20)(3=30)
 drop if missing(mean_i_overall)
-keep in 1/10
 order id group_code mean_i_overall
 collapse (sum) sum_mean = mean_i_overall, by(group_code)
 egen total_sum = total(sum_mean)
 gen proportion = sum_mean/total_sum
 sort proportion
-list in 1/5
-save "result_data.dta"
+save "result_data.dta", replace

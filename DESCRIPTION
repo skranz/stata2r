@@ -8,4 +8,4 @@ Description: Experiment: develop package using an ai agent via aicode
 License: GPL >= 2.0
 Encoding: UTF-8
 LazyData: true
-Depends: stringi, collapse, dplyr
+Depends: stringi, collapse, dplyr, restorepoint

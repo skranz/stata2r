@@ -4,7 +4,7 @@ R/*.R
 
 exclude_files = '''
 *f2p_*.toml
-R/aic_stata2r.R
+R/aic*.R
 '''
 
 opt_max_files = 500
@@ -162,7 +162,7 @@ R/*.r
 
 exclude_files = '''
 R/aic_stata2r.R
-R/main.R
+R/aic_stata_ex.R
 '''
 
 

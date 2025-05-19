@@ -1,9 +1,11 @@
 example = function() {
   library(aicoder)
-  main_dir = "C:/libraries/aicoder"
-  source("C:/libraries/aicoder/stata2r/R/aic_stata2r.R")
+  main_dir = "~/aicoder"
+  files = paste0(main_dir, "/stata2r/R/",  c("aic_stata2r.R", "aic_eval_ex.R","aic_stata_ex.R"))
+  for (file in files)  source(file)
   aic = aic_new_stata2r(main_dir)
   if (FALSE) {
+    aic$response_file
     aic = aic_changes_stata2r(aic)
   }
   aic = aic_test_stata2r(aic)
@@ -13,18 +15,21 @@ example = function() {
   do_file = "C:/libraries/aicoder/stata2r/inst/cases/custom_1/do1.do"
 }
 
+
 aic_new_stata2r = function(main_dir) {
+  main_dir = normalizePath(main_dir)
   repo_dir=file.path(main_dir, "stata2r")
-  do_file = "C:/libraries/aicoder/stata2r/inst/cases/custom_1/do1.do"
+  #do_file = "C:/libraries/aicoder/stata2r/inst/cases/custom_1/do1.do"
   aic = aic_new(
+    log_base_dir = file.path(main_dir, "aic_log/stata2r"),
     repo_dir=repo_dir,
     is_pkg=TRUE,
     pat_file = file.path(main_dir, "pat.txt"),
     prompt_config_file = file.path(repo_dir,"f2p_stata2r.toml"),
     do_files = paste0(repo_dir,"inst/cases/", c("custom_1/do1.do")),
-    response_file = file.path(main_dir, "ai_resp.txt"),
+    response_file = file.path(repo_dir, "aicoder_work/ai_resp.txt"),
     temp_dir = file.path(main_dir, "temp"),
-    mod_protected_files = c("R/aic_stata2r.R","R/main.R"),
+    mod_protected_files = c("R/aic_stata2r.R","R/main.R","R/aic_stata_ex.R"),
     mod_fixed_dirs = c("r"="R"),
     mod_just_ext = c("r"),
     show_test = FALSE,
@@ -83,21 +88,20 @@ aic_test_stata2r = function(aic) {
   # Build package? Maybe not needed if everything is sourced
   library(aicoder)
   files = list.files(file.path(aic$repo_dir,"R"),glob2rx("*.R"), full.names = TRUE)
+
   for (file in files) source(file)
 
-  aic = aic_test_script(aic,"C:/libraries/aicoder/stata2r/aicoder_work/tests/do1/test_do1.R")
+  tests_dir = file.path(aic$repo_dir,"aicoder_work", "tests")
+  test_scripts = list.files(tests_dir, glob2rx("test_*.R"), full.names = TRUE, recursive = TRUE)
 
+  test_script = test_scripts[1]
+  aic = aic_test_script(aic,test_script)
 
   aic = aic_tests_finish(aic)
   aic
 }
 
-aic_stata2r_run_example = function(do_file) {
-  library(stata2r)
-  do_dir = dirname(do_file)
-  do_text = readLines(do_file)
-  r_code = do_to_r(do_code)
-}
+
 
 aic_stata2r_deploy_tests = function(test_dir) {
   test_dir = "C:/libraries/aicoder/stata2r/aicoder_work/tests"
@@ -121,3 +125,4 @@ aic_stata2r_deploy_tests = function(test_dir) {
   test_file = paste0(dest_dir, "/test_", basename(dest_dir), ".R")
   write_utf8(test_code, test_file)
 }
+

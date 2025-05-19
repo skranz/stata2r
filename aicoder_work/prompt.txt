@@ -15,13 +15,35 @@ Description: Experiment: develop package using an ai agent via aicode
 License: GPL >= 2.0
 Encoding: UTF-8
 LazyData: true
-Depends: stringi, collapse, dplyr
+Depends: stringi, collapse, dplyr, restorepoint
 ```
 
 
 ################################################
 # R code files in the project
 ################################################
+
+### FILE: aic_eval_ex.R
+```
+examples = function() {
+  do_file = "C:/libraries/aicoder/stata2r/inst/cases/custom_1/do1.do"
+
+}
+
+aic_stata2r_eval_example = function(do_file) {
+  library(stata2r)
+  do_dir = dirname(do_file)
+  do_text = readLines(do_file)
+  r_code = do_to_r(do_code)
+
+  library(stata2r)
+  library(aicoder)
+
+}
+```
+### END OF FILE: aic_eval_ex.R
+
+-----------------------------------------------------------
 
 ### FILE: do_cmd_to_r.R
 ```
@@ -160,6 +182,47 @@ do_parse = function(do_code) {
 
 ```
 ### END OF FILE: do_parse.R
+
+-----------------------------------------------------------
+
+### FILE: main.R
+```
+# This R file shall not be changed by the AI coding agent
+
+# do_code is a text file with one line per stata command line
+# there are no comments
+do_to_r = function(do_code, return_df = FALSE) {
+  restore.point("do_to_r")
+  do_code = stringi::stri_split_fixed(do_code, "\n")
+
+  # transforms do_code to a dataframe with
+  # one row for each code line possible
+  # perform some preparsing
+  # the field do_code can contain the original code
+  cmd_df = do_parse(do_code)
+
+  # will add field "do_translate"
+  # if FALSE the stata command does not modify the data set
+  # and can be ignored
+  cmd_df = mark_data_manip_cmd(cmd_df)
+
+  r_df = bind_rows(lapply(seq_len(NROW(cmd_df)), function(i)  {
+    cmd_obj = cmd_df[i,]
+    # r_obj will be a single row tibble
+    # at least with the field r_code
+    r_obj = do_cmd_to_r(cmd_obj=cmd_obj,line=i, cmd_df=cmd_df)
+    r_obj$line = i
+    r_obj$do_cmd = do_code[i]
+    r_obj
+  }))
+  if (return_df) return(r_df)
+
+
+  r_code = paste0(r_df, r_df$r_code)
+  return(list(r_df=r_df, r_code=r_code))
+}
+```
+### END OF FILE: main.R
 
 -----------------------------------------------------------
 
@@ -1605,10 +1668,8 @@ Details:
 
 > library(stata2r)
 
-> setwd("C:/libraries/aicoder/stata2r/aicoder_work/tests/do1")
-
 > # do code that will be translated
-> do_code = readLines("C:/libraries/aicoder/stata2r/aicoder_work/tests/do1/do1.do", warn=FALSE)
+> do_code = readLines("do1.do", warn=FALSE)
 
 > cat(do_code, sep="\n")
 use "data.dta", clear
