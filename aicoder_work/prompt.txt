@@ -723,7 +723,7 @@ stata_non_data_manip_cmds = c( # This list is for marking FALSE explicitly if ne
   "return", "ret", "rmdir", "run", "ru", "scalar", "sc", "search", "shell", "sh", "signestim", "sleep",
   "stata", "st", "tabdisp", "table", "test", "te", "timer", "translate", "truncate",
   "tutorials", "type", "ty", # `type` command to display file content (different from `set type`)
-  "view", "version", "v", "webuse", "which", "w", "while", "window", "winexec", "xmlsav"
+  "view", "version", "v", "webuse", "w", "which", "while", "window", "winexec", "xmlsav"
 )
 
 # Helper to parse basic Stata command line: cmd + rest
@@ -808,6 +808,29 @@ parse_stata_command_line = function(line_text) {
   ))
 }
 
+# Helper function to get macro names from a tempfile command's rest_of_cmd
+get_tempfile_macros = function(rest_of_cmd_for_tempfile) {
+    if (is.na(rest_of_cmd_for_tempfile) || rest_of_cmd_for_tempfile == "") return(character(0))
+    stringi::stri_split_regex(rest_of_cmd_for_tempfile, "\\s+")[[1]] %>%
+        stringi::stri_trim_both() %>%
+        .[. != ""]
+}
+
+# Helper function to ensure a string is quoted for R literal use if not already
+quote_for_r_literal = function(s) {
+  if (is.na(s)) return("NA_character_")
+  if (s == "") return('""')
+  # Check if already quoted with " or ' or `...`'
+  if (stringi::stri_startswith_fixed(s, '"') && stringi::stri_endswith_fixed(s, '"')) return(s)
+  if (stringi::stri_startswith_fixed(s, "'") && stringi::stri_endswith_fixed(s, "'")) return(s)
+  # Check for Stata's `macro'` style quoting
+  if (stringi::stri_startswith_fixed(s, "`") && stringi::stri_endswith_fixed(s, "'")) return(s) # This is a Stata macro, not a literal for R path string.
+                                                                                              # It should be handled by macro resolution, not literal quoting.
+                                                                                              # If it reaches here, it's a fallback and should be literally quoted.
+  # Add double quotes
+  paste0('"', s, '"')
+}
+
 ```
 ### END OF FILE: stata_cmd_utils.R
 
@@ -833,107 +856,55 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   r_expr = stata_expr
 
-  # Handle Stata missing values: . == NA, .a, .b etc also NA
-  # `is.na(var)` is the R equivalent of `missing(var)`.
-  # `var == .` -> `is.na(var)`
-  # `var != .` -> `!is.na(var)`
-
-  # Stata _n (current obs number) and _N (total obs in group/dataset)
-  # For expressions involving _n and _N within dplyr pipes, dplyr::row_number() and dplyr::n() are appropriate.
-  # For collapse, within fmutate/fsummarise with fgroup_by, .i is row number in group, .N is group size.
-  # We need to be careful if context$is_by_group from cmd_obj (parsed by prefix) is the sole determinant.
-  # If using collapse, and context$is_by_group is TRUE, then .i and .N could be used.
-  # Let's stick to dplyr::row_number() and dplyr::n() for wider applicability in expressions for now,
-  # as translation functions (t_generate etc.) will construct the dplyr/collapse pipe.
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_n\\b", "dplyr::row_number()")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_N\\b", if(context$is_by_group) "dplyr::n()" else "NROW(data)") # NROW(data) for overall _N
-
-  # Handle varname[_n-k] for lag and varname[_n+k] for lead
-  # Example: x[_n-1] -> dplyr::lag(x, 1)
-  # Example: x[_n+1] -> dplyr::lead(x, 1)
-  # Regex: (\w+)\[_n\s*-\s*(\d+)\]  -> dplyr::lag($1, $2)
-  # Regex: (\w+)\[_n\s*\+\s*(\d+)\] -> dplyr::lead($1, $2)
-  # Regex: (\w+)\[_n\]             -> $1 (or $1[dplyr::row_number()] if explicit indexing needed, but usually direct var access means current row)
+  # Step 1: Translate Stata special variables and indexing (e.g., _n, _N, var[_n-1])
+  # These are generally fixed references, not nested functions.
   r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*-\\s*(\\d+)\\]", "dplyr::lag($1, $2)")
   r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*\\+\\s*(\\d+)\\]", "dplyr::lead($1, $2)")
-  # Direct _n indexing like x[_n] is just x in R vector context.
   r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\]", "$1")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_n\\b", "dplyr::row_number()")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_N\\b", if(context$is_by_group) "dplyr::n()" else "NROW(data)")
 
+  # Step 2: Iteratively translate Stata functions (e.g., cond(), round(), log(), etc.)
+  # This loop handles nested function calls by repeatedly applying transformations.
+  old_r_expr = ""
+  while (r_expr != old_r_expr) {
+    old_r_expr = r_expr
 
-  # Stata functions to R functions
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\bcond\\(([^,]+),([^,]+),([^)]+)\\)", "dplyr::if_else($1, $2, $3)") # Assumes types are compatible
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmissing\\(([^)]+)\\)", "is.na($1)")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\blog\\(([^)]+)\\)", "log($1)")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsqrt\\(([^)]+)\\)", "sqrt($1)")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\bint\\(([^)]+)\\)", "trunc($1)") # Stata int() truncates
+    # Apply more specific regexes first if there are overlaps (e.g., round(x,y) before round(x))
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bcond\\(([^,]+),([^,]+),([^)]+)\\)", "dplyr::if_else($1, $2, $3)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^,]+),([^)]+)\\)", "sfun_stata_round($1, $2)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^)]+)\\)", "sfun_stata_round($1, 1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmod\\(([^,]+),([^)]+)\\)", "($1 %% $2)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmissing\\(([^)]+)\\)", "is.na($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\blog\\(([^)]+)\\)", "log($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsqrt\\(([^)]+)\\)", "sqrt($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bint\\(([^)]+)\\)", "trunc($1)") # Stata int() truncates
 
-  # Stata round(x) is round(x,1) and rounds .5 away from zero. round(x,y) rounds to nearest multiple of y.
-  # Using sfun_stata_round (requires sfun_stata_round.R to be sourced/available)
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^,]+),([^)]+)\\)", "sfun_stata_round($1, $2)")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^)]+)\\)", "sfun_stata_round($1, 1)")
+    # String functions (using stringi or custom helpers)
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrtrim\\(([^)]+)\\)", "stringi::stri_trim_both($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstritrim\\(([^)]+)\\)", "stringi::stri_squish($1)") # Stata stritrim squishes and trims
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\blower\\(([^)]+)\\)", "stringi::stri_trans_tolower($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bupper\\(([^)]+)\\)", "stringi::stri_trans_toupper($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsubstr\\(([^,]+),([^,]+),([^)]+)\\)", "stringi::stri_sub($1, from = $2, length = $3)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsubinstr\\(([^,]+),([^,]+),([^,]+),([^)]+)\\)", "sfun_subinstr($1, $2, $3, $4)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrpos\\(([^,]+),([^)]+)\\)", "sfun_strpos($1, $2)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\blength\\(([^)]+)\\)", "stringi::stri_length($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrlen\\(([^)]+)\\)", "stringi::stri_length($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstring\\(([^)]+)\\)", "as.character($1)")
+    # Date functions (placeholder, as actual implementation is complex)
+  }
 
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmod\\(([^,]+),([^)]+)\\)", "($1 %% $2)")
-
-
-  # String functions (using stringi or custom helpers)
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrtrim\\(([^)]+)\\)", "stringi::stri_trim_both($1)")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstritrim\\(([^)]+)\\)", "stringi::stri_squish($1)") # Stata stritrim squishes and trims
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\blower\\(([^)]+)\\)", "stringi::stri_trans_tolower($1)")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\bupper\\(([^)]+)\\)", "stringi::stri_trans_toupper($1)")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsubstr\\(([^,]+),([^,]+),([^)]+)\\)", "stringi::stri_sub($1, from = $2, length = $3)")
-
-  # subinstr(s1,s2,s3,n): Stata's n=. means all occurrences. n=k means k-th.
-  # Using sfun_subinstr (requires sfun_subinstr.R to be sourced/available)
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsubinstr\\(([^,]+),([^,]+),([^,]+),([^)]+)\\)", "sfun_subinstr($1, $2, $3, $4)")
-
-  # strpos(s1,s2) returns 0 if not found. Using sfun_strpos.
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrpos\\(([^,]+),([^)]+)\\)", "sfun_strpos($1, $2)")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\blength\\(([^)]+)\\)", "stringi::stri_length($1)") # Stata length() is alias for strlen()
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrlen\\(([^)]+)\\)", "stringi::stri_length($1)")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstring\\(([^)]+)\\)", "as.character($1)")
-
-
-  # Date functions (basic, assumes date variables are already R Date objects or can be coerced)
-  # This is a simplification. Stata date functions are complex.
-  # `date(s, mask)` -> `as.Date(s, format=lookup_mask(mask))`
-  # `year(d)` -> `as.integer(format(d, "%Y"))`
-  # `month(d)` -> `as.integer(format(d, "%m"))`
-  # `day(d)` -> `as.integer(format(d, "%d"))`
-  # `qofd(d)` -> `lubridate::quarter(d)` (needs lubridate or custom)
-  # `mdy(M,D,Y)` -> `as.Date(paste(Y,M,D,sep="-"))`
-  # `dow(d)` -> `as.integer(format(d, "%w"))` # Stata 0=Sun, R %w 0=Sun
-
-  # Logical operators
-  # Stata: & | ~ (or !) == ~= >= <= > <
-  # R:     & | !        == != >= <= > <
-  # `=` for equality in Stata expressions is `==` in R.
-  # `~=` for inequality is `!=`.
-  # The regex needs to target single `=` used for comparison, not part of other operators.
-  # And not assignment `=` which is handled by t_generate/t_replace parsing.
+  # Step 3: Translate Stata logical operators
   r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![<>!=~])\\s*=\\s*(?![=])", " == ") # Replace single = with == if not part of other ops
   r_expr = stringi::stri_replace_all_regex(r_expr, "\\s+~=\\s+", " != ") # Stata `~=` to R `!=`
 
-  # Handle r() values using the mapping
+  # Step 4: Handle r() values using the mapping
   if (!is.null(r_value_mappings) && length(r_value_mappings) > 0) {
     for (stata_r_name in names(r_value_mappings)) {
-      # stata_r_name will be like "r(mean)", "r(sd)"
-      # Need to escape parentheses for regex
       stata_r_regex = gsub("(", "\\(", gsub(")", "\\)", stata_r_name, fixed=TRUE), fixed=TRUE)
       r_expr = stringi::stri_replace_all_regex(r_expr, paste0("\\b", stata_r_regex, "\\b"), r_value_mappings[[stata_r_name]])
     }
   }
-
-  # Stata `.` for missing numeric, `""` for missing string.
-  # `if var == .` should be `is.na(var)`
-  # `if strvar == ""` should be `strvar == ""` or `is.na(strvar) | strvar == ""`
-  # `missing(var)` already translates to `is.na(var)`.
-  # Direct comparison `var == .` (if not caught by above equality rule for general vars) should also be `is.na(var)`.
-  # This needs to be careful not to misinterpret `.` in `round(var, .1)`.
-  # The `missing()` translation is preferred. The `=` to `==` should handle `var = .` to `var == .`
-  # then further refine `var == .` to `is.na(var)`.
-  # This can be `stringi::stri_replace_all_regex(r_expr, "([a-zA-Z0-9_]+)\\s*==\\s*\\.", "is.na($1)")`
-  # and `([a-zA-Z0-9_]+)\\s*!=\\s*\\.", "!is.na($1)")`
-  # This might be too aggressive. `missing()` is safer.
 
   return(r_expr)
 }
@@ -1040,46 +1011,37 @@ t_append = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   options_str = stringi::stri_trim_both(append_match[1,3]) # NA if no options
 
     # Resolve the `using filename` - can be a path string or a macro
-  using_source_r = NA_character_ # This will hold either a path string or an R variable name
+  using_source_r = NA_character_ # This will hold the R expression to load the data
 
   # Check if filename_part is a macro `macroname`
   if (stringi::stri_startswith_fixed(filename_part, "`") && stringi::stri_endswith_fixed(filename_part, "'")) {
     macro_name = stringi::stri_sub(filename_part, 2, -2)
 
-    # Find definition of this macro (from tempfile or save)
-    # Convention: R_tempfile_L<def_line>_<macro>_path OR R_tempdata_L<def_line>_<macro>
-    path_r_var = NA_character_
-    data_r_var = NA_character_
-
-    # Scan cmd_df backwards for tempfile or save definition
+    found_def_line = NA_integer_
     for (i in (line_num - 1):1) {
-        if (cmd_df$stata_cmd[i] %in% c("tempfile", "save") && grepl(paste0("`",macro_name,"'"), cmd_df$rest_of_cmd[i])) {
-            def_line = cmd_df$line[i]
-            path_r_var = paste0("R_tempfile_L", def_line, "_", macro_name, "_path")
-            data_r_var = paste0("R_tempdata_L", def_line, "_", macro_name)
-            break
+        if (cmd_df$stata_cmd[i] == "tempfile") {
+            defined_macros = get_tempfile_macros(cmd_df$rest_of_cmd[i])
+            if (macro_name %in% defined_macros) {
+                found_def_line = cmd_df$line[i]
+                break
+            }
         }
     }
 
-    # Prefer using the R data object if it exists, otherwise use the path
-    if (!is.na(data_r_var)) {
-        using_source_r = data_r_var
-        # Need to ensure this variable name is treated as a dataframe in R code
-        # e.g., `collapse::fbind(data, R_tempdata_LXX_macro)`
-    } else if (!is.na(path_r_var)) {
-        # Need to read the DTA file from this path
-        # e.g., `collapse::fbind(data, haven::read_dta(R_tempfile_LXX_macro_path))`
+    path_r_var = NA_character_
+    if (!is.na(found_def_line)) {
+        path_r_var = paste0("R_tempfile_L", found_def_line, "_", macro_name, "_path")
+    }
+
+    if (!is.na(path_r_var)) {
         using_source_r = paste0("haven::read_dta(", path_r_var, ")")
     } else {
-         # Fallback: assume macro holds a string path or is a string literal to read
          warning(paste0("Macro ",filename_part, " in 'append' command at line ",line_num, " not fully resolved. Treating as filename string."))
-         using_source_r = filename_part
-         using_source_r = paste0("haven::read_dta(", using_source_r, ")")
+         using_source_r = paste0("haven::read_dta(", quote_for_r_literal(filename_part), ")")
     }
   } else {
-    # Actual filename string, e.g. "mydata.dta"
-    using_source_r = filename_part
-    using_source_r = paste0("haven::read_dta(", using_source_r, ")")
+    # Actual filename string, e.g. "mydata.dta" or mydata.dta
+    using_source_r = paste0("haven::read_dta(", quote_for_r_literal(filename_part), ")")
   }
 
 
@@ -2449,10 +2411,11 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
   # Parse merge type (1:1, 1:m, m:1, m:m), varlist, `using filename`, and options
-  # Pattern: ^\s*(\d+:\d+)\s+(.*?)\s+using\s+([^,\s]+)(?:,\\s*(.*))?$
+  # Corrected regex for merge type to allow 'm'
+  # Pattern: ^\s*([1m]:[1m])\s+(.*?)\s+using\s+([^,\s]+)(?:,\\s*(.*))?$
   # G1: type, G2: varlist, G3: filename (can be quoted or macro), G4: options
 
-  merge_match = stringi::stri_match_first_regex(rest_of_cmd_trimmed, "^\\s*(\\d+:\\d+)\\s+(.*?)\\s+using\\s+(\"[^\"]+\"|`[^']+'|[^,\\s]+)(?:,\\s*(.*))?$")
+  merge_match = stringi::stri_match_first_regex(rest_of_cmd_trimmed, "^\\s*([1m]:[1m])\\s+(.*?)\\s+using\\s+(\"[^\"]+\"|`[^']+'|[^,\\s]+)(?:,\\s*(.*))?$")
 
   if (is.na(merge_match[1,1])) {
       # Check for older syntax without type: `merge varlist using filename` (defaults to 1:1)
@@ -2481,48 +2444,37 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
 
   # Resolve the `using filename` - can be a path string or a macro
-  using_source_r = NA_character_ # This will hold either a path string or an R variable name
+  using_source_r = NA_character_ # This will hold the R expression to load the data
 
   # Check if filename_part is a macro `macroname`
   if (stringi::stri_startswith_fixed(filename_part, "`") && stringi::stri_endswith_fixed(filename_part, "'")) {
     macro_name = stringi::stri_sub(filename_part, 2, -2)
 
-    # Find definition of this macro (from tempfile or save)
-    # Convention: R_tempfile_L<def_line>_<macro>_path OR R_tempdata_L<def_line>_<macro>
-    path_r_var = NA_character_
-    data_r_var = NA_character_
-
-    # Scan cmd_df backwards for tempfile or save definition
+    found_def_line = NA_integer_
     for (i in (line_num - 1):1) {
-        if (cmd_df$stata_cmd[i] %in% c("tempfile", "save") && grepl(paste0("`",macro_name,"'"), cmd_df$rest_of_cmd[i])) {
-            # Assume tempfile creates R_tempfile_L..._path
-            # Assume save `macro` creates R_tempdata_L..._macro
-            def_line = cmd_df$line[i]
-            path_r_var = paste0("R_tempfile_L", def_line, "_", macro_name, "_path")
-            data_r_var = paste0("R_tempdata_L", def_line, "_", macro_name)
-            break
+        if (cmd_df$stata_cmd[i] == "tempfile") {
+            defined_macros = get_tempfile_macros(cmd_df$rest_of_cmd[i])
+            if (macro_name %in% defined_macros) {
+                found_def_line = cmd_df$line[i]
+                break
+            }
         }
     }
+    
+    path_r_var = NA_character_
+    if (!is.na(found_def_line)) {
+        path_r_var = paste0("R_tempfile_L", found_def_line, "_", macro_name, "_path")
+    }
 
-    # Prefer using the R data object if it exists, otherwise use the path
-    if (!is.na(data_r_var)) {
-        using_source_r = data_r_var
-        # Need to ensure this variable name is treated as a dataframe in R code
-        # e.g., `collapse::fmerge(data, R_tempdata_LXX_macro, by = ...)`
-    } else if (!is.na(path_r_var)) {
-        # Need to read the DTA file from this path
-        # e.g., `collapse::fmerge(data, haven::read_dta(R_tempfile_LXX_macro_path), by = ...)`
+    if (!is.na(path_r_var)) {
         using_source_r = paste0("haven::read_dta(", path_r_var, ")")
     } else {
-         # Fallback: assume macro holds a string path or is a string literal to read
          warning(paste0("Macro ",filename_part, " in 'merge' command at line ",line_num, " not fully resolved. Treating as filename string."))
-         using_source_r = filename_part
-          using_source_r = paste0("haven::read_dta(", using_source_r, ")")
+         using_source_r = paste0("haven::read_dta(", quote_for_r_literal(filename_part), ")")
     }
   } else {
-    # Actual filename string, e.g. "mydata.dta"
-    using_source_r = filename_part
-     using_source_r = paste0("haven::read_dta(", using_source_r, ")")
+    # Actual filename string, e.g. "mydata.dta" or mydata.dta
+    using_source_r = paste0("haven::read_dta(", quote_for_r_literal(filename_part), ")")
   }
 
 
@@ -3192,14 +3144,10 @@ t_save = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   filename_part = stringi::stri_trim_both(parts[1,2]) # Can be empty (uses last used filename)
   options_part = stringi::stri_trim_both(parts[1,3])  # NA if no options
 
-  has_replace = !is.na(options_part) && stringi::stri_detect_fixed(options_part, "replace")
-
   filename_r = "" # Resulting R path string or variable name
+  save_to_r_object = "" # R code to save data to an R object for direct access
 
   if (is.na(filename_part) || filename_part == "") {
-    # `save` without filename saves to the dataset currently in memory if it was read from disk,
-    # or if a filename was specified in a previous `save` command.
-    # This requires tracking dataset's origin filename. Complex.
     return("# `save` without filename not fully supported yet. Needs to track original data filename.")
   }
 
@@ -3207,58 +3155,43 @@ t_save = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   if (stringi::stri_startswith_fixed(filename_part, "`") && stringi::stri_endswith_fixed(filename_part, "'")) {
     macro_name = stringi::stri_sub(filename_part, 2, -2)
 
-    # Find definition of this macro (from tempfile or other source)
-    # Use convention: R_tempfile_L<def_line>_<macro>_path
-    path_r_var = NA_character_
-    defining_line_for_macro = NA_integer_
-
+    found_def_line = NA_integer_
     for (i in (line_num - 1):1) {
-      if (cmd_df$stata_cmd[i] == "tempfile" && grepl(paste0("\\b",macro_name,"\\b"), cmd_df$rest_of_cmd[i])) {
-        path_r_var = paste0("R_tempfile_L", cmd_df$line[i], "_", macro_name, "_path")
-        defining_line_for_macro = cmd_df$line[i]
-        break
+      if (cmd_df$stata_cmd[i] == "tempfile") {
+        defined_macros = get_tempfile_macros(cmd_df$rest_of_cmd[i])
+        if (macro_name %in% defined_macros) {
+          found_def_line = cmd_df$line[i]
+          break
+        }
       }
     }
-    if (!is.na(path_r_var)) {
-      filename_r = path_r_var
-      # Also, if Stata `save "`t1'"` implies that `t1` now refers to this *data content* for later R ops
-      # (like merge using `t1` as an R dataframe), we need to assign `data` to an R variable.
-      # Convention: R_tempdata_L<defining_line_of_macro>_<macroname>
-      # This is for cases where the temp "file" is actually an in-memory R object for performance.
-      r_temp_data_var = paste0("R_tempdata_L", defining_line_for_macro, "_", macro_name)
-      save_to_r_object = paste0(r_temp_data_var, " = data # Storing data for Stata macro '", macro_name, "'")
+    
+    if (!is.na(found_def_line)) {
+      filename_r = paste0("R_tempfile_L", found_def_line, "_", macro_name, "_path")
+      # Storing data to an R object for direct R access if tempfile macro was used.
+      # This allows `use` or `merge using` commands to refer to the in-memory R object.
+      save_to_r_object = paste0("R_tempdata_L", found_def_line, "_", macro_name, " = data # Storing data for Stata macro '", macro_name, "' for direct R access")
     } else {
-      warning(paste0("Macro ",filename_part, " in 'save' command at line ",line_num, " not resolved from tempfile. Treating as string."))
-      filename_r = filename_part # fallback: treat as string `macroname`
-      save_to_r_object = ""
+      warning(paste0("Macro ",filename_part, " in 'save' command at line ",line_num, " not resolved from tempfile. Treating as literal string."))
+      filename_r = quote_for_r_literal(filename_part)
     }
   } else {
-    # Actual filename string, e.g. "mydata.dta"
-    filename_r = filename_part
-    save_to_r_object = "" # No R object for direct filename save unless explicitly needed by later logic
+    # Actual filename string, e.g. "mydata.dta" or mydata.dta
+    filename_r = quote_for_r_literal(filename_part)
   }
-
-  # `replace` option in Stata allows overwriting. `haven::write_dta` overwrites by default.
-  # R code generation:
-  # If save_to_r_object is needed (e.g. for tempfile `t1` that might be merged as an R df)
-  # `R_tempdata_... = data`
-  # `haven::write_dta(data, R_tempfile_..._path)` (or actual filename)
 
   r_code = ""
   if (save_to_r_object != "") {
     r_code = paste0(r_code, save_to_r_object, "\n")
   }
-  r_code = paste0(r_code, "haven::write_dta(data, path = ", filename_r)
-  # Stata `save` has version options; `haven::write_dta` has `version` argument.
-  # For now, ignore Stata version options.
-  r_code = paste0(r_code, ")")
-  if (has_replace) {
-    r_code = paste0(r_code, " # 'replace' option was used.")
+  r_code = paste0(r_code, "haven::write_dta(data, path = ", filename_r, ")")
+  
+  if (!is.na(options_part) && options_part != "") {
+    r_code = paste0(r_code, paste0(" # Options ignored: ", options_part))
   }
 
   return(r_code)
 }
-
 
 ```
 ### END OF FILE: t_save.R
@@ -3285,20 +3218,15 @@ t_sort = function(rest_of_cmd, cmd_obj, cmd_df, line_num, type = "sort") {
 
   if (type == "sort") {
     # Plain sort is ascending for all variables
-    # dplyr: arrange(var1, var2, ...)
-    # collapse: setorder(data, var1, var2, ...) or using character vector for vars
-    sort_vars_r = paste0('"', vars, '"', collapse = ", ")
-    # r_code_str = paste0("data = dplyr::arrange(data, ", paste(vars, collapse = ", "), ")")
-    r_code_str = paste0("data = collapse::setorder(data, ", paste(vars, collapse = ", "), ") # Using collapse::setorder for efficiency")
+    # Using collapse::farrange for efficiency
+    sort_vars_r = paste(vars, collapse = ", ") # pass as bare names
+    r_code_str = paste0("data = collapse::farrange(data, ", sort_vars_r, ")")
 
   } else if (type == "gsort") {
     # gsort allows specifying ascending (+) or descending (-) for each variable
     # +var (ascending, default if no sign)
     # -var (descending)
-    # dplyr: arrange(var1, desc(var2), ...)
-    # collapse: setorder(data, var1, -var2, ...) (Note: -var2 is for numeric. For character, needs different handling or explicit order vector)
-    # collapse setorder takes integer vector for order for character vars if sign is used. Simpler to use dplyr::arrange here.
-
+    # dplyr: arrange(var1, desc(var2), ...) is more flexible here
     arrange_expressions = character(length(vars))
     for (i in seq_along(vars)) {
       var_spec = vars[i]
@@ -3461,8 +3389,8 @@ t_use = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   # Example: use "filename.dta", clear
   #          use "`macroname'", clear
 
-  parts = stringi::stri_match_first_regex(rest_of_cmd, "^\\s*(\"[^\"]+\"|`[^']+')\\s*(?:,\\s*(clear))?")
-  # Group 1: filename (quoted or macro)
+  parts = stringi::stri_match_first_regex(rest_of_cmd, "^\\s*(\"[^\"]+\"|`[^']+'|[^,\\s]+)\\s*(?:,\\s*(clear))?")
+  # Group 1: filename (quoted or macro or unquoted literal)
   # Group 2: clear (optional)
 
   if (is.na(parts[1,1])) {
@@ -3472,56 +3400,41 @@ t_use = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   filename_str = parts[1,2]
   clear_opt = parts[1,3] # NA if not present, "clear" if present
 
+  filename_r = "" # This will hold the R path variable name or a quoted R string literal
+
   # Handle macro `filename'
   if (stringi::stri_startswith_fixed(filename_str, "`") && stringi::stri_endswith_fixed(filename_str, "'")) {
     macro_name = stringi::stri_sub(filename_str, 2, -2)
-    # We need to find where this macro was defined (e.g. by tempfile)
-    # and get the R variable name for the path or dataframe.
-    # This requires a robust macro/tempfile tracking system.
-    # For now, assume a naming convention like R_tempfile_L<line>_<macroname>_path or R_tempdata_L<line>_<macroname>
-
-    # Scan cmd_df for tempfile definition of this macro
-    path_r_var = NA_character_
-    data_r_var = NA_character_ # If tempfile implies an R dataframe directly
-
+    
+    found_def_line = NA_integer_
     for (i in (line_num - 1):1) {
-        if (cmd_df$stata_cmd[i] == "tempfile" && grepl(paste0("\\b",macro_name,"\\b"), cmd_df$rest_of_cmd[i])) {
-            # Assuming t_tempfile creates R_tempfile_L<line>_<macro>_path for file path
-            # and potentially R_tempdata_L<line>_<macro> if it's an R object.
-            path_r_var = paste0("R_tempfile_L", cmd_df$line[i], "_", macro_name, "_path")
-            data_r_var = paste0("R_tempdata_L", cmd_df$line[i], "_", macro_name) # if save `macroname` means assign to this R df
-            break
-        }
-        # also check if `save "`macroname'"` implied an R dataframe variable
-        if (cmd_df$stata_cmd[i] == "save" && grepl(paste0("`",macro_name,"'"), cmd_df$rest_of_cmd[i])) {
-             data_r_var = paste0("R_tempdata_L", cmd_df$line[i], "_", macro_name) # As if t_save created this
-             # Path might also be associated if save also wrote to disk.
-             path_r_var = paste0("R_tempfile_L", cmd_df$line[i], "_", macro_name, "_path") # Convention
-             break
+        if (cmd_df$stata_cmd[i] == "tempfile") {
+            defined_macros = get_tempfile_macros(cmd_df$rest_of_cmd[i])
+            if (macro_name %in% defined_macros) {
+                found_def_line = cmd_df$line[i]
+                break
+            }
         }
     }
+    
+    path_r_var = NA_character_
+    if (!is.na(found_def_line)) {
+        path_r_var = paste0("R_tempfile_L", found_def_line, "_", macro_name, "_path")
+    }
 
-    if (!is.na(data_r_var) && !is.na(clear_opt)) { # If `use ... clear` and we have an R object for it
-        # Check if data_r_var likely exists (this is a runtime check, hard for translator)
-        # For now, assume if tempfile was used, it means an R dataframe object mostly
-        return(paste0("data = ", data_r_var))
-    } else if (!is.na(path_r_var)) {
-        filename_r = path_r_var # Use the R variable holding the path
+    if (!is.na(path_r_var)) {
+        filename_r = path_r_var
     } else {
-        # Fallback: assume macro is an environment variable or simply translate string
-        filename_r = paste0('Sys.getenv("', macro_name, '", unset = ', filename_str, ')') # Or just filename_str
-        warning(paste0("Macro ",filename_str, " in 'use' command at line ",line_num, " may not be correctly resolved."))
-        filename_r = filename_str # Simplest: use the macro name as string, assume it's defined in R
+        warning(paste0("Macro ",filename_str, " in 'use' command at line ",line_num, " may not be correctly resolved. Treating as literal string."))
+        filename_r = quote_for_r_literal(filename_str)
     }
   } else {
-    # Quoted filename
-    filename_r = filename_str
+    # Actual filename string, e.g. "mydata.dta" or mydata.dta
+    filename_r = quote_for_r_literal(filename_str)
   }
 
-  # If `clear` option is present, previous data is cleared.
-  # In R, this means simply assigning new data to 'data'.
-  # If not `clear` and `data` exists, Stata would error. R `read_dta` just overwrites.
-
+  # `clear` option in Stata allows overwriting. R `read_dta` just overwrites.
+  # So no special handling needed for `clear` in R code.
   # Using haven::read_dta
   # Assuming Stata .dta files. If other types, logic needs extension.
   r_code = paste0("data = haven::read_dta(", filename_r, ")")
@@ -3589,7 +3502,7 @@ do:  use "data.dta", clear
 R:  data = haven::read_dta("data.dta") # 'clear' was used 
 
 do:  sort group i 
-R:  data = collapse::setorder(data, group, i) # Using collapse::setorder for efficiency 
+R:  data = collapse::farrange(data, group, i) 
 
 do:  by group: gen seq = _n 
 R:  data = collapse::fgroup_by(data, c("group"))
@@ -3603,7 +3516,7 @@ do:  gen sqrt_i = sqrt(i)
 R:  data = collapse::fmutate(data, sqrt_i = sqrt(i)) 
 
 do:  gen group_num = cond(group=="A",1,cond(group=="B",2,3)) 
-R:  data = collapse::fmutate(data, group_num = dplyr::if_else(group=="A", 1, cond(group=="B",2,3))) 
+R:  data = collapse::fmutate(data, group_num = dplyr::if_else(group=="A", 1, dplyr::if_else(group=="B", 2, 3))) 
 
 do:  egen mean_i_grp = mean(i), by(group) 
 R:  data = collapse::fgroup_by(data, c("group")) %>%
@@ -3669,7 +3582,7 @@ data = collapse::fmutate(data, group_str = __decoded_values_L19)
 rm(__decoded_values_L19) 
 
 do:  sort group_code 
-R:  data = collapse::setorder(data, group_code) # Using collapse::setorder for efficiency 
+R:  data = collapse::farrange(data, group_code) 
 
 do:  tempfile t1 
 R:  R_tempfile_L21_t1_path = tempfile(fileext = '.dta') # Stata tempfile 't1' 
@@ -3681,7 +3594,7 @@ do:  keep if group_code==1
 R:  data = collapse::fsubset(data, group_code==1) 
 
 do:  merge 1:m group_code using "`t1'", keep(match master) nogenerate 
-R:  data = collapse::fmerge(data, haven::read_dta("`t1'"), by = c("1:m", "group_code"), all.x = TRUE, all.y = FALSE) # Stata merge type: 1:1, default: keep(match), keep(master), nogenerate 
+R:  data = collapse::fmerge(data, haven::read_dta("`t1'"), by = c("group_code"), all.x = TRUE, all.y = FALSE) # Stata merge type: 1:m, default: keep(match), keep(master), nogenerate 
 
 do:  append using "`t1'" 
 R:  data = collapse::fbind(data, haven::read_dta("`t1'")) 
@@ -3698,7 +3611,7 @@ R:  data = collapse::fmutate(data, id = dplyr::row_number())
 do:  bysort group_code (mean_i_overall): gen diff_mean = mean_i_overall - mean_i_overall[_n-1] 
 R:  data = dplyr::arrange(data, group_code, mean_i_overall)
 data = collapse::fgroup_by(data, c("group_code"))
-data = collapse::fmutate(data, diff_mean = mean_i_overall - mean_i_overall[dplyr::row_number()-1])
+data = collapse::fmutate(data, diff_mean = mean_i_overall - dplyr::lag(mean_i_overall, 1))
 data = collapse::fungroup(data) 
 
 do:  recode group_code (1=10)(2=20)(3=30) 
@@ -3729,7 +3642,7 @@ do:  gen proportion = sum_mean/total_sum
 R:  data = collapse::fmutate(data, proportion = sum_mean/total_sum) 
 
 do:  sort proportion 
-R:  data = collapse::setorder(data, proportion) # Using collapse::setorder for efficiency 
+R:  data = collapse::farrange(data, proportion) 
 
 do:  list in 1/5 
   no data manipulation command
@@ -3743,9 +3656,9 @@ R:  haven::write_dta(data, path = "result_data.dta")
 
  1 data = haven::read_dta("data.dta") # 'clear' was used
 
- 2 data = collapse::setorder(data, group, i) # Using collapse::setorder for efficiency
+ 2 data = collapse::farrange(data, group, i)
 
-Error: 'setorder' is not an exported object from 'namespace:collapse'
+Error: 'farrange' is not an exported object from 'namespace:collapse'
 
 ##############################
 # YOUR TASK
