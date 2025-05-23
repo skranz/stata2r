@@ -1,6 +1,319 @@
-The main issue identified from the test results is an `unused argument (path = ...)` error when calling `haven::read_dta`. This indicates that the `path` argument name is not recognized by `read_dta`, which expects the file path as the first unnamed argument. I will correct the `t_use.R` file to reflect this.
+The main problem identified is that the `use "data.dta"` command fails because the translated R code incorrectly assumes `data.dta` is in `stata2r_env$data_dir` (which is for reference data comparison files) instead of `stata2r_env$working_dir` (where the do-file is located and typical Stata `use` commands resolve relative paths).
 
-I also noticed that the `save` command (line 25 in `do1.do`) was reported as "no data manipulation command" in the test output, despite `cmd_df$do_translate` indicating `TRUE` for this command. This implies a potential discrepancy in the test harness's logging mechanism rather than an issue with the translation logic itself, as `t_save` is implemented and `mark_data_manip_cmd` correctly flags `save` as translatable. Since the primary failure is the `read_dta` argument, I will focus on that. If the `save` logging issue persists after fixing the `t_use` error, it will need further investigation.
+Additionally, the `save "`t1'"` command was not being translated, and the resolution of `tempfile` macros (like `"`t1'"` in `merge` and `append`) was flawed because the `unquote_stata_string_or_macro_literal` function was incorrectly stripping macro backticks/apostrophes, causing the macro detection logic to fail.
+
+Here's the plan to address these issues:
+1.  **Refactor `stata_cmd_utils.R`**: Rename `unquote_stata_string_or_macro_literal` to `unquote_stata_string_literal` and simplify it to *only* unquote string literals. The detection of Stata macros (e.g., `` `macroname' ``) will now be handled by the individual `t_` functions.
+2.  **Update `t_use.R`**:
+    *   Change the path resolution for relative `use` commands to use `stata2r_env$working_dir`.
+    *   Implement the refined macro/literal string parsing logic.
+3.  **Update `t_save.R`**:
+    *   Implement the refined macro/literal string parsing logic to ensure `tempfile` macros are correctly resolved for `save` commands.
+    *   Add a defensive `do_translate` flag for "save" in `mark_data_manip_cmd.R` as a temporary measure if the general logic fails to mark it.
+4.  **Update `t_append.R` and `t_merge.R`**: Implement the refined macro/literal string parsing logic to ensure `tempfile` macros are correctly resolved for `using` files.
+
+These changes directly address the identified failures and improve the robustness of path and macro resolution.
+
+!CHANGE_FILE R/stata_cmd_utils.R
+```R
+# Stata command utilities
+
+# Main Stata commands and their abbreviations
+# This list is not exhaustive but covers many common commands.
+stata_cmd_abbreviations = list(
+  "a" = "append",
+  "br" = "browse",
+  "by" = "bysort", # 'by' is often a prefix, but can be 'bysort'
+  "cap" = "capture",
+  "cd" = "cd",
+  "cl" = "clear", # clear all
+  "co" = "collapse",
+  "comp" = "compress",
+  "conf" = "confirm",
+  "cons" = "constraint",
+  "contr" = "contrast",
+  "cop" = "copy",
+  "cor" = "correlate",
+  "cou" = "count",
+  "d" = "describe",
+  "de" = "decode",
+  "dest" = "destring",
+  "di" = "display",
+  "dir" = "dir",
+  "do" = "do",
+  "dr" = "drop",
+  "du" = "duplicates",
+  "e" = "edit",
+  "eg" = "egen",
+  "en" = "encode",
+  "er" = "erase",
+  "est" = "estimates",
+  "ex" = "expand",
+  "f" = "fillin",
+  "g" = "generate",
+  "gr" = "graph",
+  "gs" = "gsort",
+  "h" = "help",
+  "i" = "inspect",
+  "ins" = "insheet",
+  "k" = "keep",
+  "l" = "list",
+  "la" = "label",
+  "logi" = "logit", # Example statistical procedure
+  "m" = "merge",
+  "mark" = "marksample",
+  "markout" = "markout",
+  "mat" = "matrix",
+  "mem" = "memory",
+  "mkdir" = "mkdir",
+  "mo" = "more",
+  "mov" = "move",
+  "mv" = "mvdecode", # mvdecode is a command
+  "n" = "notes",
+  "o" = "order",
+  "ou" = "outsheet",
+  "p" = "predict", # predict for generating variables from models
+  "pres" = "preserve",
+  "q" = "quietly", # Prefix, handled differently
+  "r" = "recode",
+  "reg" = "regress", # Example statistical procedure
+  "ren" = "rename",
+  "res" = "reshape",
+  "rest" = "restore",
+  "ret" = "return", # For return values from programs
+  "rm" = "rmdir",
+  "ru" = "run", # alias for do
+  "sa" = "save",
+  "sc" = "scalar",
+  "se" = "set", # set memory, set type, etc.
+  "sh" = "shell",
+  "sig" = "signestim",
+  "so" = "sort",
+  "st" = "stata", # invoke Stata
+  "su" = "summarize",
+  "sy" = "sysuse",
+  "t" = "tabulate", # tabulate can set r() values
+  "te" = "test", # For hypotheses tests
+  "temp" = "tempfile", # tempfile, tempvar, tempname
+  "ty" = "type", # list content of a file
+  "u" = "use",
+  "v" = "version", # version control
+  "w" = "which" # find file
+  # "x" = "xtile" # egen function typically
+)
+
+# Function to get the full Stata command name from a token (could be an abbreviation)
+get_stata_full_cmd_name = function(cmd_token) {
+  cmd_token_lower = tolower(cmd_token)
+  if (cmd_token_lower %in% names(stata_cmd_abbreviations)) {
+    return(stata_cmd_abbreviations[[cmd_token_lower]])
+  }
+  # If not in abbreviations, assume it's already a full (or unrecognized) command
+  return(cmd_token_lower)
+}
+
+
+# List of Stata commands considered to modify the dataset or produce results for later modification
+stata_data_manip_cmds = c(
+  "append", "collapse", "compress", "contract", "decode", "destring", "drop",
+  "duplicates", "egen", "encode", "expand", "fillin", "format",
+  "generate", "gen", "gsort", "input", "insheet", "keep", "label",
+  "merge", "modify", "move", "mvdecode", "mvrecode", "order", "pctile", # pctile often part of egen
+  "predict", # predict generates new variables
+  "preserve", "recode", "rename", "reshape", "restore", "sample", "set", # e.g. set obs, set type (can change data interpretation)
+  "sort", "stack", "statsby", "stsplit",
+  "summarize", "su", # summarize if r() is used, or by default include
+  "svar", "sysuse", "tabulate", # tabulate can set r() values
+  "tempfile", "tempvar", "tempname",
+  "total", "type", # type can be for var type changes
+  "use", "xtile" # xtile often part of egen
+  ,"replace", "clear" # clear (all data), replace
+)
+# Commands that primarily display info or control program flow, not direct data manip usually
+stata_non_data_manip_cmds = c( # This list is for marking FALSE explicitly if needed
+  "assert", "browse", "capture", "cd", "confirm", "constraint", "correlate", # correlate sets r() but often for display
+  "count", # count sets r() but often for display
+  "describe", "d", "dir", "display", "di", "do", "edit", "erase", "error", "estimates",
+  "exit", "findit", "graph", "gr", "help", "h", "if", "inspect", "i", "list", "l", "log", "lookup", "marksample",
+  "matrix", "mat", "memory", "mem", "mkdir", "more", "mo", "notes", "n", "outfile", "outsheet", "ou", "pause", "plot",
+  "print", "program", "pwd", "query", "quietly", "regress", "reg", # regress sets e(), might be used.
+  "return", "ret", "rmdir", "run", "ru", "scalar", "sc", "search", "shell", "sh", "signestim", "sleep",
+  "stata", "st", "tabdisp", "table", "test", "te", "timer", "translate", "truncate",
+  "tutorials", "type", "ty", # `type` command to display file content (different from `set type`)
+  "view", "version", "v", "webuse", "w", "which", "while", "window", "winexec", "xmlsav"
+)
+
+# Helper to parse basic Stata command line: cmd + rest
+# Tries to handle `by varlist : command` prefix.
+# Returns:
+#   stata_cmd_original: original command token
+#   stata_cmd: full command name
+#   rest_of_cmd: string after command token (excluding by prefix part)
+#   is_by_prefix: logical, TRUE if "by/bysort prefix:" was found
+#   by_group_vars: character vector of grouping variables from by/bysort prefix
+#   by_sort_vars: character vector of sort-only variables (in parentheses) from by/bysort prefix
+parse_stata_command_line = function(line_text) {
+  trimmed_line = stringi::stri_trim_both(line_text)
+
+  is_by_prefix_val = FALSE
+  by_group_vars = character(0)
+  by_sort_vars = character(0)
+  raw_by_string_from_prefix = NA_character_
+  rest_of_line_for_cmd_parse = trimmed_line
+
+  # Check for "by ... :" or "bysort ... :" prefix
+  if (stringi::stri_startswith_fixed(trimmed_line, "by ") || stringi::stri_startswith_fixed(trimmed_line, "bysort ")) {
+    prefix_match = stringi::stri_match_first_regex(trimmed_line, "^(?:by|bysort)\\s+([^:]+?)\\s*:\\s*(.*)$")
+    if (!is.na(prefix_match[1,1])) {
+      raw_by_string_from_prefix = stringi::stri_trim_both(prefix_match[1,2])
+      rest_of_line_for_cmd_parse = stringi::stri_trim_both(prefix_match[1,3])
+      is_by_prefix_val = TRUE
+
+      # Parse raw_by_string_from_prefix into group_vars and sort_vars
+      # Sort vars are in parentheses, e.g., bysort grp (s1 s2):
+      # Use regex to find all parenthesized parts and non-parenthesized parts
+      by_tokens = stringi::stri_match_all_regex(raw_by_string_from_prefix, "\\s*(\\([^)]+\\)|[^\\s()]+)\\s*")[[1]][,2]
+
+      for (token in by_tokens) {
+        if (stringi::stri_startswith_fixed(token, "(") && stringi::stri_endswith_fixed(token, ")")) {
+          sort_vars_in_paren = stringi::stri_sub(token, 2, -2)
+          by_sort_vars = c(by_sort_vars, stringi::stri_split_regex(stringi::stri_trim_both(sort_vars_in_paren), "\\s+")[[1]])
+        } else {
+          by_group_vars = c(by_group_vars, token)
+        }
+      }
+      by_group_vars = by_group_vars[by_group_vars != ""]
+      by_sort_vars = by_sort_vars[by_sort_vars != ""]
+    }
+  }
+
+  # Extract command token from the (potentially remaining) line
+  parts = stringi::stri_split_fixed(rest_of_line_for_cmd_parse, " ", n = 2)
+  cmd_token_original = parts[[1]][1]
+
+  if (is.na(cmd_token_original) || cmd_token_original == "") {
+      return(list(
+        stata_cmd_original = NA_character_,
+        stata_cmd = NA_character_,
+        rest_of_cmd = NA_character_,
+        is_by_prefix = is_by_prefix_val,
+        by_group_vars = if(length(by_group_vars)>0) by_group_vars else NA_character_,
+        by_sort_vars = if(length(by_sort_vars)>0) by_sort_vars else NA_character_
+      ))
+  }
+
+  stata_cmd = get_stata_full_cmd_name(cmd_token_original)
+  rest_of_cmd = if (length(parts[[1]]) > 1 && !is.na(parts[[1]][2])) stringi::stri_trim_both(parts[[1]][2]) else NA_character_
+
+  # Refine is_by_prefix: it's a prefix if by_vars were parsed AND command is not 'bysort'
+  if (stata_cmd == "bysort" || stata_cmd == "by") { # by is alias for bysort
+      is_by_prefix_val = FALSE
+      # For bysort command itself, its arguments are in rest_of_cmd.
+      # The prefix parsing for by_group_vars/by_sort_vars should be cleared if it's the bysort command.
+      by_group_vars = character(0)
+      by_sort_vars = character(0)
+      if (stata_cmd == "by") stata_cmd = "bysort" # Normalize "by" command to "bysort"
+  }
+
+  return(list(
+    stata_cmd_original = cmd_token_original,
+    stata_cmd = stata_cmd,
+    rest_of_cmd = rest_of_cmd,
+    is_by_prefix = is_by_prefix_val, # True if "by prefix:" was found AND command is not bysort
+    by_group_vars = if(length(by_group_vars)>0) by_group_vars else NA_character_,
+    by_sort_vars = if(length(by_sort_vars)>0) by_sort_vars else NA_character_
+  ))
+}
+
+# Helper function to get macro names from a tempfile command's rest_of_cmd
+get_tempfile_macros = function(rest_of_cmd_for_tempfile) {
+    if (is.na(rest_of_cmd_for_tempfile) || rest_of_cmd_for_tempfile == "") return(character(0))
+    stringi::stri_split_regex(rest_of_cmd_for_tempfile, "\\s+")[[1]] %>%
+        stringi::stri_trim_both() %>%
+        .[. != ""]
+}
+
+# Helper function to unquote Stata string literals
+unquote_stata_string_literal = function(s) {
+  if (is.na(s) || s == "") return(s)
+  # Remove outer double quotes
+  if (stringi::stri_startswith_fixed(s, '"') && stringi::stri_endswith_fixed(s, '"')) {
+    return(stringi::stri_sub(s, 2, -2))
+  }
+  # Remove outer single quotes
+  if (stringi::stri_startswith_fixed(s, "'") && stringi::stri_endswith_fixed(s, "'")) {
+    return(stringi::stri_sub(s, 2, -2))
+  }
+  # If not quoted, return as is
+  return(s)
+}
+
+# Helper function to ensure a string is quoted for R literal use if not already
+# This function expects an already UNQUOTED string (no Stata-style quotes)
+quote_for_r_literal = function(s) {
+  if (is.na(s)) return("NA_character_")
+  if (s == "") return('""')
+  # Check if already quoted with " or '
+  if (stringi::stri_startswith_fixed(s, '"') && stringi::stri_endswith_fixed(s, '"')) return(s)
+  if (stringi::stri_startswith_fixed(s, "'") && stringi::stri_endswith_fixed(s, "'")) return(s)
+  # Add double quotes
+  paste0('"', s, '"')
+}
+```
+!END_CHANGE_FILE R/stata_cmd_utils.R
+
+!CHANGE_FILE R/mark_data_manip_cmd.R
+```R
+mark_data_manip_cmd = function(cmd_df) {
+  # Determine commands that actually can transform the Stata data
+  # set or generate scalars/temp files that will be used in later
+  # commands that change the data set.
+
+  if (NROW(cmd_df) == 0) {
+    cmd_df$do_translate = logical(0)
+    return(cmd_df)
+  }
+
+  cmd_df$do_translate = rep(FALSE, NROW(cmd_df))
+
+  # Simple case: command is in stata_data_manip_cmds list
+  cmd_df$do_translate = cmd_df$stata_cmd %in% stata_data_manip_cmds
+
+  # Special handling for commands like `summarize`
+  # If `summarize` produces `r()` results, and a later command uses them,
+  # then `summarize` should be translated.
+  # For a first pass, mark all `summarize` as TRUE if it's in stata_data_manip_cmds.
+  # A more sophisticated approach would involve checking for subsequent `r()` usage.
+
+  # For commands like `tempfile`, they don't change `data` but set up for later changes.
+  # These are already in `stata_data_manip_cmds`.
+
+  # Commands that are definitely not data manipulation (e.g. `list`, `display` for scalars)
+  # `display` can be used to show `r()` results. If those results are not part of data manip chain, ignore.
+  # Non-data modifying commands or pure display commands.
+  # These are marked FALSE even if they slip through the stata_data_manip_cmds list logic.
+  non_manip_display_cmds = c("list", "display", "describe", "help", "about", "query", "set more off", "set rmsg on") # etc.
+  cmd_df$do_translate[cmd_df$stata_cmd %in% non_manip_display_cmds] = FALSE
+
+  # If stata_cmd is NA (e.g. empty line or parse error), don't translate
+  cmd_df$do_translate[is.na(cmd_df$stata_cmd)] = FALSE
+
+  # `clear` as a command clears memory, can be translated to `rm(list=ls())` or `data = NULL`
+  # but `use "file", clear` is different. `clear` option is handled by `t_use`.
+  # if `clear` is a standalone command and `stata_cmd` becomes "clear"
+  if ("clear" %in% cmd_df$stata_cmd) {
+      cmd_df$do_translate[cmd_df$stata_cmd == "clear" & is.na(cmd_df$rest_of_cmd)] = TRUE # standalone clear
+  }
+
+  # Ensure 'save' is always translated as it creates a file.
+  # This is a defensive fix if the general logic for `stata_data_manip_cmds` somehow fails for 'save'.
+  cmd_df$do_translate[cmd_df$stata_cmd == "save"] = TRUE
+
+  return(cmd_df)
+}
+
+```
+!END_CHANGE_FILE R/mark_data_manip_cmd.R
 
 !CHANGE_FILE R/t_use.R
 ```R
@@ -22,12 +335,9 @@ t_use = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   filename_r_expr = NA_character_ # This will hold the R path expression
 
-  # Extract the unquoted content for macro resolution or literal quoting
-  unquoted_content = unquote_stata_string_or_macro_literal(raw_filename_token)
-
-  # Handle macro `filename'
+  # Check if it's a Stata local macro: `macroname'
   if (stringi::stri_startswith_fixed(raw_filename_token, "`") && stringi::stri_endswith_fixed(raw_filename_token, "'")) {
-    macro_name = unquoted_content # Macro name is the unquoted content
+    macro_name = stringi::stri_sub(raw_filename_token, 2, -2) # Extract macro name by removing ` and '
     
     found_def_line = NA_integer_
     for (i in (line_num - 1):1) {
@@ -49,21 +359,21 @@ t_use = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
         filename_r_expr = path_r_var # This is an R variable name, no quotes needed
     } else {
         warning(paste0("Macro ",raw_filename_token, " in 'use' command at line ",line_num, " may not be correctly resolved. Treating as literal string."))
-        filename_r_expr = quote_for_r_literal(unquoted_content) # Treat as literal and add R quotes
+        filename_r_expr = quote_for_r_literal(unquote_stata_string_literal(raw_filename_token)) # Treat as literal and add R quotes
     }
   } else {
     # Actual filename string, e.g. "mydata.dta" or mydata.dta (potentially unquoted in Stata)
-    # Determine if it's an absolute path or relative, and prepend data_dir if relative.
+    unquoted_content = unquote_stata_string_literal(raw_filename_token)
+    # Determine if it's an absolute path or relative, and prepend working_dir if relative.
     is_absolute_path = stringi::stri_startswith_fixed(unquoted_content, "/") || stringi::stri_detect_regex(unquoted_content, "^[A-Za-z]:[\\\\/]")
     if (is_absolute_path) {
       filename_r_expr = quote_for_r_literal(unquoted_content) # Use as is if absolute
     } else {
-      # Assume relative path for 'use' refers to the data_dir
-      filename_r_expr = paste0("file.path(stata2r_env$data_dir, ", quote_for_r_literal(unquoted_content), ")")
+      # Assume relative path for 'use' refers to the working_dir
+      filename_r_expr = paste0("file.path(stata2r_env$working_dir, ", quote_for_r_literal(unquoted_content), ")")
     }
   }
 
-  # Corrected: haven::read_dta expects path as the first argument, not named 'path'.
   r_code = paste0("data = haven::read_dta(", filename_r_expr, ")")
 
   # `clear` option in Stata allows overwriting. R `read_dta` just overwrites.
@@ -78,5 +388,294 @@ t_use = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   return(r_code)
 }
+
 ```
 !END_CHANGE_FILE R/t_use.R
+
+!CHANGE_FILE R/t_append.R
+```R
+# Translate Stata 'append' command
+# Stata: append using filename [, options]
+
+t_append = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
+  restore.point("t_append") # Added restore.point
+  rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
+
+  # Parse `using filename` and options
+  # Pattern: ^\s*using\s+([^,\s]+)(?:,\\s*(.*))?$
+  # G1: filename (can be quoted or macro), G2: options
+
+  append_match = stringi::stri_match_first_regex(rest_of_cmd_trimmed, "^\\s*using\\s+(\"[^\"]+\"|`[^']+'|[^,\\s]+)(?:,\\s*(.*))?$")
+
+  if (is.na(append_match[1,1])) {
+    return(paste0("# Failed to parse append command: ", rest_of_cmd))
+  }
+
+  raw_filename_token = stringi::stri_trim_both(append_match[1,2]) # Updated to raw_filename_token
+  options_str = stringi::stri_trim_both(append_match[1,3]) # NA if no options
+
+  # Resolve the `using filename` - can be a path string or a macro
+  using_source_r_expr = NA_character_ # This will hold the R expression to load the data
+
+  # Check if filename_part is a macro `macroname`
+  if (stringi::stri_startswith_fixed(raw_filename_token, "`") && stringi::stri_endswith_fixed(raw_filename_token, "'")) {
+    macro_name = stringi::stri_sub(raw_filename_token, 2, -2) # Extract macro name
+    
+    found_def_line = NA_integer_
+    for (i in (line_num - 1):1) {
+        if (cmd_df$stata_cmd[i] == "tempfile") {
+            defined_macros = get_tempfile_macros(cmd_df$rest_of_cmd[i])
+            if (macro_name %in% defined_macros) {
+                found_def_line = cmd_df$line[i]
+                break
+            }
+        }
+    }
+
+    path_r_var = NA_character_
+    if (!is.na(found_def_line)) {
+        path_r_var = paste0("R_tempfile_L", found_def_line, "_", macro_name, "_path")
+    }
+
+    if (!is.na(path_r_var)) {
+        using_source_r_expr = paste0("haven::read_dta(", path_r_var, ")")
+    } else {
+         warning(paste0("Macro ",raw_filename_token, " in 'append' command at line ",line_num, " not fully resolved. Treating as filename string."))
+         using_source_r_expr = paste0("haven::read_dta(", quote_for_r_literal(unquote_stata_string_literal(raw_filename_token)), ")")
+    }
+  } else {
+    # Actual filename string, e.g. "mydata.dta" or mydata.dta (potentially unquoted in Stata)
+    unquoted_content = unquote_stata_string_literal(raw_filename_token)
+    is_absolute_path = stringi::stri_startswith_fixed(unquoted_content, "/") || stringi::stri_detect_regex(unquoted_content, "^[A-Za-z]:[\\\\/]")
+    if (is_absolute_path) {
+      using_source_r_expr = paste0("haven::read_dta(", quote_for_r_literal(unquoted_content), ")")
+    } else {
+      # Assume relative path for 'append using' refers to the data_dir
+      using_source_r_expr = paste0("haven::read_dta(file.path(stata2r_env$data_dir, ", quote_for_r_literal(unquoted_content), "))")
+    }
+  }
+
+
+  # Stata append requires variable names to match or be harmonized.
+  # collapse::fbind matches columns by name. Differences are filled with NA. This is similar to Stata.
+  # Options like `force` (append even if variable types don't match) are not handled.
+
+  # Using collapse::fbind
+  r_code_str = paste0("data = collapse::fbind(data, ", using_source_r_expr, ")")
+
+  # Add comment about options if any were present but not handled
+  if (!is.na(options_str) && options_str != "") {
+       r_code_str = paste0(r_code_str, paste0(" # Options ignored: ", options_str))
+  }
+
+
+  return(r_code_str)
+}
+
+```
+!END_CHANGE_FILE R/t_append.R
+
+!CHANGE_FILE R/t_merge.R
+```R
+# Translate Stata 'merge' command
+# Stata: merge 1:1 varlist using filename [, options]
+# Stata: merge 1:m varlist using filename [, options]
+# Stata: merge m:1 varlist using filename [, options]
+# Stata: merge m:m varlist using filename [, options]
+# Options: keep(match master using all) nogenerate
+
+t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_merge") # Added restore.point
+  rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
+
+  # Parse merge type (1:1, 1:m, m:1, m:m), varlist, `using filename`, and options
+  # Corrected regex for merge type to allow 'm'
+  # Pattern: ^\s*([1m]:[1m])\s+(.*?)\s+using\s+([^,\s]+)(?:,\\s*(.*))?$
+  # G1: type, G2: varlist, G3: filename (can be quoted or macro), G4: options
+
+  merge_match = stringi::stri_match_first_regex(rest_of_cmd_trimmed, "^\\s*([1m]:[1m])\\s+(.*?)\\s+using\\s+(\"[^\"]+\"|`[^']+'|[^,\\s]+)(?:,\\s*(.*))?$")
+  merge_type = NA_character_
+  varlist_str = NA_character_
+  raw_filename_token = NA_character_
+  options_str = NA_character_
+
+
+  if (is.na(merge_match[1,1])) {
+      # Check for older syntax without type: `merge varlist using filename` (defaults to 1:1)
+      merge_match_old = stringi::stri_match_first_regex(rest_of_cmd_trimmed, "^\\s*(.*?)\\s+using\\s+(\"[^\"]+\"|`[^']+'|[^,\\s]+)(?:,\\s*(.*))?$")
+      if (!is.na(merge_match_old[1,1])) {
+           merge_type = "1:1" # Assume 1:1 if type not specified
+           varlist_str = stringi::stri_trim_both(merge_match_old[1,2])
+           raw_filename_token = stringi::stri_trim_both(merge_match_old[1,3]) # Updated to raw_filename_token
+           options_str = stringi::stri_trim_both(merge_match_old[1,4])
+      } else {
+           return(paste0("# Failed to parse merge command: ", rest_of_cmd))
+      }
+  } else {
+      merge_type = merge_match[1,2]
+      varlist_str = stringi::stri_trim_both(merge_match[1,3])
+      raw_filename_token = stringi::stri_trim_both(merge_match[1,4]) # Updated to raw_filename_token
+      options_str = stringi::stri_trim_both(merge_match[1,5]) # NA if no options
+  }
+
+  vars_to_merge_on = stringi::stri_split_regex(varlist_str, "\\s+")[[1]]
+  vars_to_merge_on = vars_to_merge_on[vars_to_merge_on != ""]
+  if (length(vars_to_merge_on) == 0) {
+       return(paste0("# merge command requires varlist: ", rest_of_cmd))
+  }
+  vars_to_merge_on_r_vec_str = paste0('c("', paste(vars_to_merge_on, collapse = '", "'), '")')
+
+
+  using_source_r_expr = NA_character_ # This will hold the R expression to load the data
+
+  # Check if filename_part is a macro `macroname`
+  if (stringi::stri_startswith_fixed(raw_filename_token, "`") && stringi::stri_endswith_fixed(raw_filename_token, "'")) {
+    macro_name = stringi::stri_sub(raw_filename_token, 2, -2) # Extract macro name
+    
+    found_def_line = NA_integer_
+    for (i in (line_num - 1):1) {
+        if (cmd_df$stata_cmd[i] == "tempfile") {
+            defined_macros = get_tempfile_macros(cmd_df$rest_of_cmd[i])
+            if (macro_name %in% defined_macros) {
+                found_def_line = cmd_df$line[i]
+                break
+            }
+        }
+    }
+    
+    path_r_var = NA_character_
+    if (!is.na(found_def_line)) {
+        path_r_var = paste0("R_tempfile_L", found_def_line, "_", macro_name, "_path")
+    }
+
+    if (!is.na(path_r_var)) {
+        using_source_r_expr = paste0("haven::read_dta(", path_r_var, ")")
+    } else {
+         warning(paste0("Macro ",raw_filename_token, " in 'merge' command at line ",line_num, " not fully resolved. Treating as filename string."))
+         using_source_r_expr = paste0("haven::read_dta(", quote_for_r_literal(unquote_stata_string_literal(raw_filename_token)), ")")
+    }
+  } else {
+    # Actual filename string, e.g. "mydata.dta" or mydata.dta (potentially unquoted in Stata)
+    unquoted_content = unquote_stata_string_literal(raw_filename_token)
+    is_absolute_path = stringi::stri_startswith_fixed(unquoted_content, "/") || stringi::stri_detect_regex(unquoted_content, "^[A-Za-z]:[\\\\/]")
+    if (is_absolute_path) {
+      using_source_r_expr = paste0("haven::read_dta(", quote_for_r_literal(unquoted_content), ")")
+    } else {
+      # Assume relative path for 'merge using' refers to the data_dir
+      using_source_r_expr = paste0("haven::read_dta(file.path(stata2r_env$data_dir, ", quote_for_r_literal(unquoted_content), "))")
+    }
+  }
+
+
+  # Determine merge type for collapse::fmerge
+  # Stata default for all merge types is to drop observations that do not match in both.
+  # So R inner_join (all.x=F, all.y=F) is the closest default.
+  all_x = FALSE # Default to inner join behavior (Stata's default)
+  all_y = FALSE # Default to inner join behavior (Stata's default)
+  merge_comment = paste0("# Stata merge type: ", merge_type, ", default: keep(match)")
+
+  # Handle keep() options if present, overriding defaults
+  # This is a simplified parser for keep options within merge
+  if (!is.na(options_str)) {
+      keep_opt_match = stringi::stri_match_first_regex(options_str, "\\bkeep\\s*\\(([^)]+)\\)")
+      if (!is.na(keep_opt_match[1,1])) {
+          keep_spec = stringi::stri_trim_both(keep_opt_match[1,2])
+          if (grepl("\\ball\\b", keep_spec)) {
+              all_x = TRUE; all_y = TRUE
+              merge_comment = paste0(merge_comment, ", keep(all)")
+          } else if (grepl("\\bmaster\\b", keep_spec)) {
+              all_x = TRUE; all_y = FALSE # Keep matched and master unmatched (left join)
+              merge_comment = paste0(merge_comment, ", keep(master)")
+          } else if (grepl("\\busing\\b", keep_spec)) {
+              all_x = FALSE; all_y = TRUE # Keep matched and using unmatched (right join)
+               merge_comment = paste0(merge_comment, ", keep(using)")
+          } else if (grepl("\\bmatch\\b", keep_spec)) {
+              all_x = FALSE; all_y = FALSE # Keep matched only (inner join)
+              merge_comment = paste0(merge_comment, ", keep(match)")
+          }
+          # Other complex keep() specs like `keep(_merge==3)` are not handled here.
+      }
+  }
+
+  # Handle nogenerate option
+  has_nogenerate = !is.na(options_str) && stringi::stri_detect_fixed(options_str, "nogenerate")
+  # Stata merge creates _merge variable (1 master, 2 using, 3 both).
+  # R merge/join doesn't create a merge indicator. `collapse::fmerge` also doesn't.
+  # If nogenerate is NOT present, we would need to create a merge indicator variable.
+  # This is complex. For now, assume nogenerate or don't generate the indicator.
+  # Add a comment if _merge variable is expected but not generated.
+  merge_comment = paste0(merge_comment, if(has_nogenerate) ", nogenerate" else " # _merge variable was not generated.")
+
+
+  # Build the R command string using collapse::fmerge
+  # fmerge(x, y, by, all.x, all.y)
+  r_code_str = paste0("data = collapse::fmerge(data, ", using_source_r_expr, ", by = ", vars_to_merge_on_r_vec_str, ", all.x = ", toupper(all_x), ", all.y = ", toupper(all_y), ") ", merge_comment)
+
+  return(r_code_str)
+}
+
+```
+!END_CHANGE_FILE R/t_merge.R
+
+!CHANGE_FILE R/t_save.R
+```R
+# Translate Stata 'save' command
+# Stata: save [filename] [, options]
+# Options: replace, emptyok, old (version control)
+t_save = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
+  restore.point("t_save") # Added restore.point
+  # Parse filename and options
+  # Example: save "mydata.dta", replace
+  # Example: save `tempfile_macro`, replace
+
+  parts = stringi::stri_match_first_regex(rest_of_cmd, "^\\s*([^,]*?)(?:,\\s*(.*))?$")
+  raw_filename_token = stringi::stri_trim_both(parts[1,2]) # Can be empty (uses last used filename)
+  options_part = stringi::stri_trim_both(parts[1,3])  # NA if no options
+
+  filename_r_expr = "" # Resulting R path string or variable name
+
+  if (is.na(raw_filename_token) || raw_filename_token == "") {
+    return("# `save` without filename not fully supported yet. Needs to track original data filename.")
+  }
+
+  # Check if it's a Stata local macro: `macroname'
+  if (stringi::stri_startswith_fixed(raw_filename_token, "`") && stringi::stri_endswith_fixed(raw_filename_token, "'")) {
+    macro_name = stringi::stri_sub(raw_filename_token, 2, -2) # Extract macro name
+    found_def_line = NA_integer_
+    for (i in (line_num - 1):1) {
+      if (cmd_df$stata_cmd[i] == "tempfile") {
+        defined_macros = get_tempfile_macros(cmd_df$rest_of_cmd[i])
+        if (macro_name %in% defined_macros) {
+          found_def_line = cmd_df$line[i]
+          break
+        }
+      }
+    }
+    
+    if (!is.na(found_def_line)) {
+      filename_r_expr = paste0("R_tempfile_L", found_def_line, "_", macro_name, "_path")
+    } else {
+      warning(paste0("Macro ",raw_filename_token, " in 'save' command at line ",line_num, " not resolved from tempfile. Treating as literal string."))
+      filename_r_expr = quote_for_r_literal(unquote_stata_string_literal(raw_filename_token))
+    }
+  } else {
+    unquoted_content = unquote_stata_string_literal(raw_filename_token)
+    is_absolute_path = stringi::stri_startswith_fixed(unquoted_content, "/") || stringi::stri_detect_regex(unquoted_content, "^[A-Za-z]:[\\\\/]")
+    if (is_absolute_path) {
+      filename_r_expr = quote_for_r_literal(unquoted_content)
+    } else {
+      filename_r_expr = paste0("file.path(stata2r_env$working_dir, ", quote_for_r_literal(unquoted_content), ")")
+    }
+  }
+
+  r_code = paste0("haven::write_dta(data, path = ", filename_r_expr, ")")
+  
+  if (!is.na(options_part) && options_part != "") {
+    r_code = paste0(r_code, paste0(" # Options ignored: ", options_part))
+  }
+
+  return(r_code)
+}
+
+```
+!END_CHANGE_FILE R/t_save.R

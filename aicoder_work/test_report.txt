@@ -33,7 +33,7 @@ NULL
 #Translate to R commands
 
 do:  use "data.dta", clear 
-R:  data = haven::read_dta(path = file.path(stata2r_env$data_dir, "data.dta")) # 'clear' was used 
+R:  data = haven::read_dta(file.path(stata2r_env$data_dir, "data.dta")) # 'clear' was used 
 
 do:  sort group i 
 R:  data = dplyr::arrange(data, group, i) 
@@ -199,10 +199,10 @@ do:  save "result_data.dta", replace
 # Run R commands and check generated data sets
 
 
- 1 R:  data = haven::read_dta(path = file.path(stata2r_env$data_dir, "data.dta")) # 'clear' was used 
-data = haven::read_dta(path = file.path(stata2r_env$data_dir, "data.dta")) # 'clear' was used
+ 1 R:  data = haven::read_dta(file.path(stata2r_env$data_dir, "data.dta")) # 'clear' was used 
+data = haven::read_dta(file.path(stata2r_env$data_dir, "data.dta")) # 'clear' was used
 
-Error: unused argument (path = file.path(stata2r_env$data_dir, "data.dta"))
-Error executing R code for Stata line  1 :  data = haven::read_dta(path = file.path(stata2r_env$data_dir, "data.dta")) # 'clear' was used
+Error: '~/aicoder/stata2r/inst/cases/do1/do_data/data.dta' does not exist.
+Error executing R code for Stata line  1 :  data = haven::read_dta(file.path(stata2r_env$data_dir, "data.dta")) # 'clear' was used
 
-Error: unused argument (path = file.path(stata2r_env$data_dir, "data.dta")) 
+Error: '~/aicoder/stata2r/inst/cases/do1/do_data/data.dta' does not exist. 
