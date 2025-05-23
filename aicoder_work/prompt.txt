@@ -463,7 +463,6 @@ mark_data_manip_cmd = function(cmd_df) {
   # Special handling for commands like `summarize`
   # If `summarize` produces `r()` results, and a later command uses them,
   # then `summarize` should be translated.
-  # This is complex. For now, assume `summarize` that is not just for display (e.g. has options like meanonly, or is followed by r() usage)
   # For a first pass, mark all `summarize` as TRUE if it's in stata_data_manip_cmds.
   # A more sophisticated approach would involve checking for subsequent `r()` usage.
 
@@ -487,15 +486,13 @@ mark_data_manip_cmd = function(cmd_df) {
       cmd_df$do_translate[cmd_df$stata_cmd == "clear" & is.na(cmd_df$rest_of_cmd)] = TRUE # standalone clear
   }
 
-
-  # Example refinement for `summarize`:
-  # Only translate `summarize` if it seems to be for `r()` values.
-  # A simple proxy: if it has options (like `meanonly`, `detail`).
-  # Or if a subsequent command refers to `r(...)`. (This lookahead is complex here).
-  # For now, this is simplified. If `summarize` is in stata_data_manip_cmds, it's TRUE.
+  # Ensure 'save' is always translated as it creates a file.
+  # This is a defensive fix if the general logic for `stata_data_manip_cmds` somehow fails for 'save'.
+  cmd_df$do_translate[cmd_df$stata_cmd == "save"] = TRUE
 
   return(cmd_df)
 }
+
 
 ```
 ### END OF FILE: mark_data_manip_cmd.R
@@ -830,24 +827,18 @@ get_tempfile_macros = function(rest_of_cmd_for_tempfile) {
         .[. != ""]
 }
 
-# Helper function to unquote Stata string literals or extract macro names
-unquote_stata_string_or_macro_literal = function(s) {
+# Helper function to unquote Stata string literals
+unquote_stata_string_literal = function(s) {
   if (is.na(s) || s == "") return(s)
-
-  # First, try to remove outer double quotes
+  # Remove outer double quotes
   if (stringi::stri_startswith_fixed(s, '"') && stringi::stri_endswith_fixed(s, '"')) {
-    s = stringi::stri_sub(s, 2, -2)
-  }
-  # Then, try to remove outer single quotes (less common for paths, but possible)
-  if (stringi::stri_startswith_fixed(s, "'") && stringi::stri_endswith_fixed(s, "'")) {
-    s = stringi::stri_sub(s, 2, -2)
-  }
-
-  # Now, check if the remaining string is a Stata local macro: `my_macro'
-  if (stringi::stri_startswith_fixed(s, "`") && stringi::stri_endswith_fixed(s, "'")) {
     return(stringi::stri_sub(s, 2, -2))
   }
-  # Otherwise, return as is (it's a literal path without quotes, or a variable name)
+  # Remove outer single quotes
+  if (stringi::stri_startswith_fixed(s, "'") && stringi::stri_endswith_fixed(s, "'")) {
+    return(stringi::stri_sub(s, 2, -2))
+  }
+  # If not quoted, return as is
   return(s)
 }
 
@@ -862,7 +853,6 @@ quote_for_r_literal = function(s) {
   # Add double quotes
   paste0('"', s, '"')
 }
-
 
 ```
 ### END OF FILE: stata_cmd_utils.R
@@ -1064,13 +1054,10 @@ t_append = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   # Resolve the `using filename` - can be a path string or a macro
   using_source_r_expr = NA_character_ # This will hold the R expression to load the data
 
-  # Extract the unquoted content for macro resolution or literal quoting
-  unquoted_content = unquote_stata_string_or_macro_literal(raw_filename_token)
-
   # Check if filename_part is a macro `macroname`
   if (stringi::stri_startswith_fixed(raw_filename_token, "`") && stringi::stri_endswith_fixed(raw_filename_token, "'")) {
-    macro_name = unquoted_content # Macro name is the unquoted content
-
+    macro_name = stringi::stri_sub(raw_filename_token, 2, -2) # Extract macro name
+    
     found_def_line = NA_integer_
     for (i in (line_num - 1):1) {
         if (cmd_df$stata_cmd[i] == "tempfile") {
@@ -1091,11 +1078,11 @@ t_append = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
         using_source_r_expr = paste0("haven::read_dta(", path_r_var, ")")
     } else {
          warning(paste0("Macro ",raw_filename_token, " in 'append' command at line ",line_num, " not fully resolved. Treating as filename string."))
-         using_source_r_expr = paste0("haven::read_dta(", quote_for_r_literal(unquoted_content), ")")
+         using_source_r_expr = paste0("haven::read_dta(", quote_for_r_literal(unquote_stata_string_literal(raw_filename_token)), ")")
     }
   } else {
     # Actual filename string, e.g. "mydata.dta" or mydata.dta (potentially unquoted in Stata)
-    # Determine if it's an absolute path or relative, and prepend data_dir if relative.
+    unquoted_content = unquote_stata_string_literal(raw_filename_token)
     is_absolute_path = stringi::stri_startswith_fixed(unquoted_content, "/") || stringi::stri_detect_regex(unquoted_content, "^[A-Za-z]:[\\\\/]")
     if (is_absolute_path) {
       using_source_r_expr = paste0("haven::read_dta(", quote_for_r_literal(unquoted_content), ")")
@@ -1121,6 +1108,7 @@ t_append = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   return(r_code_str)
 }
+
 
 ```
 ### END OF FILE: t_append.R
@@ -2517,16 +2505,12 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   vars_to_merge_on_r_vec_str = paste0('c("', paste(vars_to_merge_on, collapse = '", "'), '")')
 
 
-  # Resolve the `using filename` - can be a path string or a macro
   using_source_r_expr = NA_character_ # This will hold the R expression to load the data
-
-  # Extract the unquoted content for macro resolution or literal quoting
-  unquoted_content = unquote_stata_string_or_macro_literal(raw_filename_token)
 
   # Check if filename_part is a macro `macroname`
   if (stringi::stri_startswith_fixed(raw_filename_token, "`") && stringi::stri_endswith_fixed(raw_filename_token, "'")) {
-    macro_name = unquoted_content # Macro name is the unquoted content
-
+    macro_name = stringi::stri_sub(raw_filename_token, 2, -2) # Extract macro name
+    
     found_def_line = NA_integer_
     for (i in (line_num - 1):1) {
         if (cmd_df$stata_cmd[i] == "tempfile") {
@@ -2547,11 +2531,11 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
         using_source_r_expr = paste0("haven::read_dta(", path_r_var, ")")
     } else {
          warning(paste0("Macro ",raw_filename_token, " in 'merge' command at line ",line_num, " not fully resolved. Treating as filename string."))
-         using_source_r_expr = paste0("haven::read_dta(", quote_for_r_literal(unquoted_content), ")")
+         using_source_r_expr = paste0("haven::read_dta(", quote_for_r_literal(unquote_stata_string_literal(raw_filename_token)), ")")
     }
   } else {
     # Actual filename string, e.g. "mydata.dta" or mydata.dta (potentially unquoted in Stata)
-    # Determine if it's an absolute path or relative, and prepend data_dir if relative.
+    unquoted_content = unquote_stata_string_literal(raw_filename_token)
     is_absolute_path = stringi::stri_startswith_fixed(unquoted_content, "/") || stringi::stri_detect_regex(unquoted_content, "^[A-Za-z]:[\\\\/]")
     if (is_absolute_path) {
       using_source_r_expr = paste0("haven::read_dta(", quote_for_r_literal(unquoted_content), ")")
@@ -2608,6 +2592,7 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
+
 
 ```
 ### END OF FILE: t_merge.R
@@ -3223,13 +3208,9 @@ t_save = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
     return("# `save` without filename not fully supported yet. Needs to track original data filename.")
   }
 
-  # Extract the unquoted content for macro resolution or literal quoting
-  unquoted_content = unquote_stata_string_or_macro_literal(raw_filename_token)
-
-  # Check if filename_part is a macro `macroname`
+  # Check if it's a Stata local macro: `macroname'
   if (stringi::stri_startswith_fixed(raw_filename_token, "`") && stringi::stri_endswith_fixed(raw_filename_token, "'")) {
-    macro_name = unquoted_content # Macro name is the unquoted content
-
+    macro_name = stringi::stri_sub(raw_filename_token, 2, -2) # Extract macro name
     found_def_line = NA_integer_
     for (i in (line_num - 1):1) {
       if (cmd_df$stata_cmd[i] == "tempfile") {
@@ -3245,16 +3226,14 @@ t_save = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
       filename_r_expr = paste0("R_tempfile_L", found_def_line, "_", macro_name, "_path")
     } else {
       warning(paste0("Macro ",raw_filename_token, " in 'save' command at line ",line_num, " not resolved from tempfile. Treating as literal string."))
-      filename_r_expr = quote_for_r_literal(unquoted_content)
+      filename_r_expr = quote_for_r_literal(unquote_stata_string_literal(raw_filename_token))
     }
   } else {
-    # Actual filename string, e.g. "mydata.dta" or mydata.dta (potentially unquoted in Stata)
-    # Determine if it's an absolute path or relative, and prepend working_dir if relative.
+    unquoted_content = unquote_stata_string_literal(raw_filename_token)
     is_absolute_path = stringi::stri_startswith_fixed(unquoted_content, "/") || stringi::stri_detect_regex(unquoted_content, "^[A-Za-z]:[\\\\/]")
     if (is_absolute_path) {
       filename_r_expr = quote_for_r_literal(unquoted_content)
     } else {
-      # Assume relative path for 'save' refers to the working_dir
       filename_r_expr = paste0("file.path(stata2r_env$working_dir, ", quote_for_r_literal(unquoted_content), ")")
     }
   }
@@ -3267,6 +3246,7 @@ t_save = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   return(r_code)
 }
+
 
 ```
 ### END OF FILE: t_save.R
@@ -3475,12 +3455,9 @@ t_use = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   filename_r_expr = NA_character_ # This will hold the R path expression
 
-  # Extract the unquoted content for macro resolution or literal quoting
-  unquoted_content = unquote_stata_string_or_macro_literal(raw_filename_token)
-
-  # Handle macro `filename'
+  # Check if it's a Stata local macro: `macroname'
   if (stringi::stri_startswith_fixed(raw_filename_token, "`") && stringi::stri_endswith_fixed(raw_filename_token, "'")) {
-    macro_name = unquoted_content # Macro name is the unquoted content
+    macro_name = stringi::stri_sub(raw_filename_token, 2, -2) # Extract macro name by removing ` and '
     
     found_def_line = NA_integer_
     for (i in (line_num - 1):1) {
@@ -3502,21 +3479,21 @@ t_use = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
         filename_r_expr = path_r_var # This is an R variable name, no quotes needed
     } else {
         warning(paste0("Macro ",raw_filename_token, " in 'use' command at line ",line_num, " may not be correctly resolved. Treating as literal string."))
-        filename_r_expr = quote_for_r_literal(unquoted_content) # Treat as literal and add R quotes
+        filename_r_expr = quote_for_r_literal(unquote_stata_string_literal(raw_filename_token)) # Treat as literal and add R quotes
     }
   } else {
     # Actual filename string, e.g. "mydata.dta" or mydata.dta (potentially unquoted in Stata)
-    # Determine if it's an absolute path or relative, and prepend data_dir if relative.
+    unquoted_content = unquote_stata_string_literal(raw_filename_token)
+    # Determine if it's an absolute path or relative, and prepend working_dir if relative.
     is_absolute_path = stringi::stri_startswith_fixed(unquoted_content, "/") || stringi::stri_detect_regex(unquoted_content, "^[A-Za-z]:[\\\\/]")
     if (is_absolute_path) {
       filename_r_expr = quote_for_r_literal(unquoted_content) # Use as is if absolute
     } else {
-      # Assume relative path for 'use' refers to the data_dir
-      filename_r_expr = paste0("file.path(stata2r_env$data_dir, ", quote_for_r_literal(unquoted_content), ")")
+      # Assume relative path for 'use' refers to the working_dir
+      filename_r_expr = paste0("file.path(stata2r_env$working_dir, ", quote_for_r_literal(unquoted_content), ")")
     }
   }
 
-  # Corrected: haven::read_dta expects path as the first argument, not named 'path'.
   r_code = paste0("data = haven::read_dta(", filename_r_expr, ")")
 
   # `clear` option in Stata allows overwriting. R `read_dta` just overwrites.
@@ -3531,6 +3508,7 @@ t_use = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   return(r_code)
 }
+
 
 ```
 ### END OF FILE: t_use.R
@@ -3584,7 +3562,7 @@ NULL
 #Translate to R commands
 
 do:  use "data.dta", clear 
-R:  data = haven::read_dta(file.path(stata2r_env$data_dir, "data.dta")) # 'clear' was used 
+R:  data = haven::read_dta(file.path(stata2r_env$working_dir, "data.dta")) # 'clear' was used 
 
 do:  sort group i 
 R:  data = dplyr::arrange(data, group, i) 
@@ -3692,16 +3670,16 @@ do:  tempfile t1
 R:  R_tempfile_L24_t1_path = tempfile(fileext = '.dta') # Stata tempfile 't1' 
 
 do:  save "`t1'" 
-  no data manipulation command
+R:  haven::write_dta(data, path = file.path(stata2r_env$working_dir, "`t1'")) 
 
 do:  keep if group_code==1 
 R:  data = dplyr::filter(data, group_code==1) 
 
 do:  merge 1:m group_code using "`t1'", keep(match master) nogenerate 
-R:  data = collapse::fmerge(data, haven::read_dta(file.path(stata2r_env$data_dir, "t1")), by = c("group_code"), all.x = TRUE, all.y = FALSE) # Stata merge type: 1:m, default: keep(match), keep(master), nogenerate 
+R:  data = collapse::fmerge(data, haven::read_dta(file.path(stata2r_env$data_dir, "`t1'")), by = c("group_code"), all.x = TRUE, all.y = FALSE) # Stata merge type: 1:m, default: keep(match), keep(master), nogenerate 
 
 do:  append using "`t1'" 
-R:  data = collapse::fbind(data, haven::read_dta(file.path(stata2r_env$data_dir, "t1"))) 
+R:  data = collapse::fbind(data, haven::read_dta(file.path(stata2r_env$data_dir, "`t1'"))) 
 
 do:  gen id = _n 
 R:  data = data %>%
@@ -3744,19 +3722,73 @@ do:  sort proportion
 R:  data = dplyr::arrange(data, proportion) 
 
 do:  save "result_data.dta", replace 
-  no data manipulation command
+R:  haven::write_dta(data, path = file.path(stata2r_env$working_dir, "result_data.dta")) # Options ignored: replace 
 
 ---
 # Run R commands and check generated data sets
 
 
- 1 R:  data = haven::read_dta(file.path(stata2r_env$data_dir, "data.dta")) # 'clear' was used 
-data = haven::read_dta(file.path(stata2r_env$data_dir, "data.dta")) # 'clear' was used
+ 1 R:  data = haven::read_dta(file.path(stata2r_env$working_dir, "data.dta")) # 'clear' was used 
+data = haven::read_dta(file.path(stata2r_env$working_dir, "data.dta")) # 'clear' was used
 
-Error: '~/aicoder/stata2r/inst/cases/do1/do_data/data.dta' does not exist.
-Error executing R code for Stata line  1 :  data = haven::read_dta(file.path(stata2r_env$data_dir, "data.dta")) # 'clear' was used
+ 2 R:  data = dplyr::arrange(data, group, i) 
+data = dplyr::arrange(data, group, i)
 
-Error: '~/aicoder/stata2r/inst/cases/do1/do_data/data.dta' does not exist. 
+ 3 R:  data = dplyr::slice(data, 1:39) 
+data = dplyr::slice(data, 1:39)
+
+ 4 : Skipping non-data manipulation command:  list in 1/5 
+
+ 4 R:  # No-op: Data unchanged from previous step by this command. 
+# No-op: Data unchanged from previous step by this command.
+
+ 5 : Skipping non-data manipulation command:  display _n 
+
+ 5 R:  # No-op: Data unchanged from previous step by this command. 
+# No-op: Data unchanged from previous step by this command.
+
+ 6 R:  data = data %>%
+  dplyr::group_by(dplyr::across(c("group"))) %>%
+  dplyr::mutate(seq = dplyr::row_number()) %>%
+  dplyr::ungroup() 
+data = data %>%
+  dplyr::group_by(dplyr::across(c("group"))) %>%
+  dplyr::mutate(seq = dplyr::row_number()) %>%
+  dplyr::ungroup()
+
+Error: After Stata line  6 , R data set differs from Stata reference.
+
+R data set:
+tibble [39 × 3] (S3: tbl_df/tbl/data.frame)
+ $ i    : num [1:39] 10 13 16 19 20 21 22 27 31 34 ...
+  ..- attr(*, "label")= chr "i"
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ group: chr [1:39] "A" "A" "A" "A" ...
+  ..- attr(*, "label")= chr "group"
+  ..- attr(*, "format.stata")= chr "%1s"
+ $ seq  : int [1:39] 1 2 3 4 5 6 7 8 9 10 ...
+NULL
+
+Stata version:
+tibble [39 × 3] (S3: tbl_df/tbl/data.frame)
+ $ i    : num [1:39] 10 13 16 19 20 21 22 27 31 34 ...
+  ..- attr(*, "label")= chr "i"
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ group: chr [1:39] "A" "A" "A" "A" ...
+  ..- attr(*, "label")= chr "group"
+  ..- attr(*, "format.stata")= chr "%1s"
+ $ seq  : num [1:39] 1 2 3 4 5 6 7 8 9 10 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ - attr(*, "label")= chr "Written by R."
+NULL
+
+Differences:List of 2
+ $ identical    : logi FALSE
+ $ type_mismatch:'data.frame':	1 obs. of  3 variables:
+  ..$ col      : chr "seq"
+  ..$ class_df1: chr "integer"
+  ..$ class_df2: chr "numeric"
+NULL
 
 ##############################
 # YOUR TASK

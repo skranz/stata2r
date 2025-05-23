@@ -33,7 +33,7 @@ NULL
 #Translate to R commands
 
 do:  use "data.dta", clear 
-R:  data = haven::read_dta(file.path(stata2r_env$data_dir, "data.dta")) # 'clear' was used 
+R:  data = haven::read_dta(file.path(stata2r_env$working_dir, "data.dta")) # 'clear' was used 
 
 do:  sort group i 
 R:  data = dplyr::arrange(data, group, i) 
@@ -141,16 +141,16 @@ do:  tempfile t1
 R:  R_tempfile_L24_t1_path = tempfile(fileext = '.dta') # Stata tempfile 't1' 
 
 do:  save "`t1'" 
-  no data manipulation command
+R:  haven::write_dta(data, path = file.path(stata2r_env$working_dir, "`t1'")) 
 
 do:  keep if group_code==1 
 R:  data = dplyr::filter(data, group_code==1) 
 
 do:  merge 1:m group_code using "`t1'", keep(match master) nogenerate 
-R:  data = collapse::fmerge(data, haven::read_dta(file.path(stata2r_env$data_dir, "t1")), by = c("group_code"), all.x = TRUE, all.y = FALSE) # Stata merge type: 1:m, default: keep(match), keep(master), nogenerate 
+R:  data = collapse::fmerge(data, haven::read_dta(file.path(stata2r_env$data_dir, "`t1'")), by = c("group_code"), all.x = TRUE, all.y = FALSE) # Stata merge type: 1:m, default: keep(match), keep(master), nogenerate 
 
 do:  append using "`t1'" 
-R:  data = collapse::fbind(data, haven::read_dta(file.path(stata2r_env$data_dir, "t1"))) 
+R:  data = collapse::fbind(data, haven::read_dta(file.path(stata2r_env$data_dir, "`t1'"))) 
 
 do:  gen id = _n 
 R:  data = data %>%
@@ -193,16 +193,70 @@ do:  sort proportion
 R:  data = dplyr::arrange(data, proportion) 
 
 do:  save "result_data.dta", replace 
-  no data manipulation command
+R:  haven::write_dta(data, path = file.path(stata2r_env$working_dir, "result_data.dta")) # Options ignored: replace 
 
 ---
 # Run R commands and check generated data sets
 
 
- 1 R:  data = haven::read_dta(file.path(stata2r_env$data_dir, "data.dta")) # 'clear' was used 
-data = haven::read_dta(file.path(stata2r_env$data_dir, "data.dta")) # 'clear' was used
+ 1 R:  data = haven::read_dta(file.path(stata2r_env$working_dir, "data.dta")) # 'clear' was used 
+data = haven::read_dta(file.path(stata2r_env$working_dir, "data.dta")) # 'clear' was used
 
-Error: '~/aicoder/stata2r/inst/cases/do1/do_data/data.dta' does not exist.
-Error executing R code for Stata line  1 :  data = haven::read_dta(file.path(stata2r_env$data_dir, "data.dta")) # 'clear' was used
+ 2 R:  data = dplyr::arrange(data, group, i) 
+data = dplyr::arrange(data, group, i)
 
-Error: '~/aicoder/stata2r/inst/cases/do1/do_data/data.dta' does not exist. 
+ 3 R:  data = dplyr::slice(data, 1:39) 
+data = dplyr::slice(data, 1:39)
+
+ 4 : Skipping non-data manipulation command:  list in 1/5 
+
+ 4 R:  # No-op: Data unchanged from previous step by this command. 
+# No-op: Data unchanged from previous step by this command.
+
+ 5 : Skipping non-data manipulation command:  display _n 
+
+ 5 R:  # No-op: Data unchanged from previous step by this command. 
+# No-op: Data unchanged from previous step by this command.
+
+ 6 R:  data = data %>%
+  dplyr::group_by(dplyr::across(c("group"))) %>%
+  dplyr::mutate(seq = dplyr::row_number()) %>%
+  dplyr::ungroup() 
+data = data %>%
+  dplyr::group_by(dplyr::across(c("group"))) %>%
+  dplyr::mutate(seq = dplyr::row_number()) %>%
+  dplyr::ungroup()
+
+Error: After Stata line  6 , R data set differs from Stata reference.
+
+R data set:
+tibble [39 × 3] (S3: tbl_df/tbl/data.frame)
+ $ i    : num [1:39] 10 13 16 19 20 21 22 27 31 34 ...
+  ..- attr(*, "label")= chr "i"
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ group: chr [1:39] "A" "A" "A" "A" ...
+  ..- attr(*, "label")= chr "group"
+  ..- attr(*, "format.stata")= chr "%1s"
+ $ seq  : int [1:39] 1 2 3 4 5 6 7 8 9 10 ...
+NULL
+
+Stata version:
+tibble [39 × 3] (S3: tbl_df/tbl/data.frame)
+ $ i    : num [1:39] 10 13 16 19 20 21 22 27 31 34 ...
+  ..- attr(*, "label")= chr "i"
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ group: chr [1:39] "A" "A" "A" "A" ...
+  ..- attr(*, "label")= chr "group"
+  ..- attr(*, "format.stata")= chr "%1s"
+ $ seq  : num [1:39] 1 2 3 4 5 6 7 8 9 10 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ - attr(*, "label")= chr "Written by R."
+NULL
+
+Differences:List of 2
+ $ identical    : logi FALSE
+ $ type_mismatch:'data.frame':	1 obs. of  3 variables:
+  ..$ col      : chr "seq"
+  ..$ class_df1: chr "integer"
+  ..$ class_df2: chr "numeric"
+NULL
