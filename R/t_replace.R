@@ -11,47 +11,61 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   stata_expr = stringi::stri_trim_both(match[1,3])
   stata_if_cond = stringi::stri_trim_both(match[1,4]) # Might be NA
 
-  r_expr = translate_stata_expression_with_r_values(stata_expr, line_num, cmd_df, context)
+  current_context = list(is_by_group = cmd_obj$is_by_prefix && !is.na(cmd_obj$by_group_vars))
+  r_expr = translate_stata_expression_with_r_values(stata_expr, line_num, cmd_df, current_context)
 
   r_if_cond = NA_character_
   if (!is.na(stata_if_cond) && stata_if_cond != "") {
     r_if_cond = translate_stata_expression_with_r_values(stata_if_cond, line_num, cmd_df, context = list(is_by_group = FALSE))
   }
 
-  by_vars_r_vec_str = NULL
-  if (cmd_obj$is_by_prefix && !is.na(cmd_obj$by_vars)) {
-    by_vars_list = stringi::stri_split_fixed(cmd_obj$by_vars, " ")[[1]]
-    by_vars_list = by_vars_list[by_vars_list != ""]
-    by_vars_r_vec_str = paste0('c("', paste0(by_vars_list, collapse='", "'), '")')
+  # Prepare for by-processing
+  arrange_code = ""
+  group_vars_r_vec_str = NULL
+  ungroup_code = ""
+
+  if (cmd_obj$is_by_prefix) {
+    if (!is.na(cmd_obj$by_group_vars)) {
+      group_vars_list = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
+      group_vars_list = group_vars_list[group_vars_list != ""]
+      group_vars_r_vec_str = paste0('c("', paste0(group_vars_list, collapse='", "'), '")')
+    }
+
+    sort_vars_list = character(0)
+    if (!is.na(cmd_obj$by_sort_vars)) {
+      sort_vars_list = stringi::stri_split_fixed(cmd_obj$by_sort_vars, ",")[[1]]
+      sort_vars_list = sort_vars_list[sort_vars_list != ""]
+    }
+
+    if (length(sort_vars_list) > 0) {
+      all_sort_vars = c(if(!is.null(group_vars_list)) group_vars_list else character(0), sort_vars_list)
+      all_sort_vars_str = paste(all_sort_vars, collapse = ", ")
+      arrange_code = paste0("data = dplyr::arrange(data, ", all_sort_vars_str, ")\n")
+    }
+
+    if (!is.null(group_vars_r_vec_str)) {
+        arrange_code = paste0(arrange_code, "data = collapse::fgroup_by(data, ", group_vars_r_vec_str, ")\n")
+        ungroup_code = "\ndata = collapse::fungroup(data)"
+    }
   }
 
-  # For replace, the structure is: var = ifelse(condition, new_value, old_value)
-  # dplyr::if_else is type-strict. Base ifelse is more flexible.
+
   if (!is.na(r_if_cond) && r_if_cond != "") {
-    # Using dplyr::if_else, assuming type of r_expr and var_to_replace are compatible.
     mutate_expr = paste0(var_to_replace, " = dplyr::if_else(", r_if_cond, ", ", r_expr, ", ", var_to_replace, ")")
-    # Alternative with base ifelse:
-    # mutate_expr = paste0(var_to_replace, " = ifelse(", r_if_cond, ", ", r_expr, ", ", var_to_replace, ")")
   } else {
     mutate_expr = paste0(var_to_replace, " = ", r_expr)
   }
 
-  if (!is.null(by_vars_r_vec_str)) {
-    # Using collapse for grouped mutation:
-    r_code_str = paste0("data = collapse::fgroup_by(data, ", by_vars_r_vec_str, ")")
-    r_code_str = paste0(r_code_str, "\ndata = collapse::fmutate(data, ", mutate_expr, ")") # fmutate replaces existing var
-    r_code_str = paste0(r_code_str, "\ndata = collapse::fungroup(data)")
-    # dplyr alternative:
-    # by_vars_dplyr_str = gsub('c\\("', '', gsub('"\\)', '', gsub('", "', ',', by_vars_r_vec_str)))
-    # r_code_str = paste0("data = data %>%\n  dplyr::group_by(", by_vars_dplyr_str, ") %>%\n  dplyr::mutate(", mutate_expr, ") %>%\n  dplyr::ungroup()")
-  } else {
-    # Using collapse:
-    r_code_str = paste0("data = collapse::fmutate(data, ", mutate_expr, ")")
-    # dplyr alternative:
-    # r_code_str = paste0("data = dplyr::mutate(data, ", mutate_expr, ")")
-  }
+  r_code_str = paste0(arrange_code,
+                      "data = collapse::fmutate(data, ", mutate_expr, ")", # fmutate replaces existing var
+                      ungroup_code)
+
+  r_code_str = gsub("\n\n", "\n", r_code_str)
+  r_code_str = trimws(r_code_str, which="both", whitespace="[\n]")
+
 
   return(r_code_str)
 }
+
 
 

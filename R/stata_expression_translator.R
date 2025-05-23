@@ -20,9 +20,27 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   # `is.na(var)` is the R equivalent of `missing(var)`.
   # `var == .` -> `is.na(var)`
   # `var != .` -> `!is.na(var)`
+
+  # Stata _n (current obs number) and _N (total obs in group/dataset)
   # For expressions involving _n and _N within dplyr pipes, dplyr::row_number() and dplyr::n() are appropriate.
+  # For collapse, within fmutate/fsummarise with fgroup_by, .i is row number in group, .N is group size.
+  # We need to be careful if context$is_by_group from cmd_obj (parsed by prefix) is the sole determinant.
+  # If using collapse, and context$is_by_group is TRUE, then .i and .N could be used.
+  # Let's stick to dplyr::row_number() and dplyr::n() for wider applicability in expressions for now,
+  # as translation functions (t_generate etc.) will construct the dplyr/collapse pipe.
   r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_n\\b", "dplyr::row_number()")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_N\\b", if(context$is_by_group) "dplyr::n()" else "NROW(data)")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_N\\b", if(context$is_by_group) "dplyr::n()" else "NROW(data)") # NROW(data) for overall _N
+
+  # Handle varname[_n-k] for lag and varname[_n+k] for lead
+  # Example: x[_n-1] -> dplyr::lag(x, 1)
+  # Example: x[_n+1] -> dplyr::lead(x, 1)
+  # Regex: (\w+)\[_n\s*-\s*(\d+)\]  -> dplyr::lag($1, $2)
+  # Regex: (\w+)\[_n\s*\+\s*(\d+)\] -> dplyr::lead($1, $2)
+  # Regex: (\w+)\[_n\]             -> $1 (or $1[dplyr::row_number()] if explicit indexing needed, but usually direct var access means current row)
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*-\\s*(\\d+)\\]", "dplyr::lag($1, $2)")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*\\+\s*(\\d+)\\]", "dplyr::lead($1, $2)")
+  # Direct _n indexing like x[_n] is just x in R vector context.
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\]", "$1")
 
 
   # Stata functions to R functions
@@ -177,6 +195,7 @@ translate_stata_expression_with_r_values = function(stata_expr, current_line_ind
 
   translate_stata_expression_to_r(stata_expr, context, final_r_value_mappings)
 }
+
 
 
 

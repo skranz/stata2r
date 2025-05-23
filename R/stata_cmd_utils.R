@@ -128,71 +128,83 @@ stata_non_data_manip_cmds = c( # This list is for marking FALSE explicitly if ne
 
 # Helper to parse basic Stata command line: cmd + rest
 # Tries to handle `by varlist : command` prefix.
+# Returns:
+#   stata_cmd_original: original command token
+#   stata_cmd: full command name
+#   rest_of_cmd: string after command token (excluding by prefix part)
+#   is_by_prefix: logical, TRUE if "by/bysort prefix:" was found
+#   by_group_vars: character vector of grouping variables from by/bysort prefix
+#   by_sort_vars: character vector of sort-only variables (in parentheses) from by/bysort prefix
 parse_stata_command_line = function(line_text) {
   trimmed_line = stringi::stri_trim_both(line_text)
 
-  by_vars = NA_character_
-  rest_of_line_for_cmd_parse = trimmed_line
   is_by_prefix_val = FALSE
+  by_group_vars = character(0)
+  by_sort_vars = character(0)
+  raw_by_string_from_prefix = NA_character_
+  rest_of_line_for_cmd_parse = trimmed_line
 
   # Check for "by ... :" or "bysort ... :" prefix
   if (stringi::stri_startswith_fixed(trimmed_line, "by ") || stringi::stri_startswith_fixed(trimmed_line, "bysort ")) {
     prefix_match = stringi::stri_match_first_regex(trimmed_line, "^(?:by|bysort)\\s+([^:]+?)\\s*:\\s*(.*)$")
     if (!is.na(prefix_match[1,1])) {
-      by_vars = stringi::stri_trim_both(prefix_match[1,2])
-      # Remove trailing space from by_vars if any from non-greedy match
-      by_vars = stringi::stri_trim_both(by_vars)
+      raw_by_string_from_prefix = stringi::stri_trim_both(prefix_match[1,2])
       rest_of_line_for_cmd_parse = stringi::stri_trim_both(prefix_match[1,3])
-      is_by_prefix_val = TRUE # It's a prefix if not bysort command itself
+      is_by_prefix_val = TRUE
+
+      # Parse raw_by_string_from_prefix into group_vars and sort_vars
+      # Sort vars are in parentheses, e.g., bysort grp (s1 s2):
+      # Use regex to find all parenthesized parts and non-parenthesized parts
+      by_tokens = stringi::stri_match_all_regex(raw_by_string_from_prefix, "\\s*(\\([^)]+\\)|[^\\s()]+)\\s*")[[1]][,2]
+
+      for (token in by_tokens) {
+        if (stringi::stri_startswith_fixed(token, "(") && stringi::stri_endswith_fixed(token, ")")) {
+          sort_vars_in_paren = stringi::stri_sub(token, 2, -2)
+          by_sort_vars = c(by_sort_vars, stringi::stri_split_regex(stringi::stri_trim_both(sort_vars_in_paren), "\\s+")[[1]])
+        } else {
+          by_group_vars = c(by_group_vars, token)
+        }
+      }
+      by_group_vars = by_group_vars[by_group_vars != ""]
+      by_sort_vars = by_sort_vars[by_sort_vars != ""]
     }
   }
 
   # Extract command token from the (potentially remaining) line
-  # Split only on the first space to separate command from the rest
   parts = stringi::stri_split_fixed(rest_of_line_for_cmd_parse, " ", n = 2)
   cmd_token_original = parts[[1]][1]
 
-  if (is.na(cmd_token_original) || cmd_token_original == "") { # Empty line or only by prefix
+  if (is.na(cmd_token_original) || cmd_token_original == "") {
       return(list(
         stata_cmd_original = NA_character_,
         stata_cmd = NA_character_,
         rest_of_cmd = NA_character_,
-        by_vars = by_vars,
-        is_by_prefix = is_by_prefix_val # True if "by prefix:" was found
+        is_by_prefix = is_by_prefix_val,
+        by_group_vars = if(length(by_group_vars)>0) by_group_vars else NA_character_,
+        by_sort_vars = if(length(by_sort_vars)>0) by_sort_vars else NA_character_
       ))
   }
 
   stata_cmd = get_stata_full_cmd_name(cmd_token_original)
+  rest_of_cmd = if (length(parts[[1]]) > 1 && !is.na(parts[[1]][2])) stringi::stri_trim_both(parts[[1]][2]) else NA_character_
 
-  rest_of_cmd = NA_character_
-  if (length(parts[[1]]) > 1 && !is.na(parts[[1]][2])) {
-    rest_of_cmd = stringi::stri_trim_both(parts[[1]][2])
-  }
-
-  # Refine is_by_prefix: it's a prefix if by_vars is set AND the command itself is not 'bysort'
-  # because 'bysort' command handles its own by-variables as part of its syntax.
-  if (stata_cmd == "bysort") {
-      is_by_prefix_val = FALSE # bysort is the command, not a prefix to another command
-      # For bysort, by_vars identified by prefix regex are actually part of its command arguments
-      # if rest_of_cmd is empty and by_vars were parsed by prefix regex.
-      # Example: bysort grp: -> by_vars="grp", cmd="bysort", rest_of_cmd="" is wrong.
-      # cmd="bysort", rest_of_cmd="grp" (if that was the structure) or by_vars = NULL if bysort consumes it
-      # The regex handles "bysort grp: egen ..." correctly; by_vars="grp", cmd="egen"
-      # If line is "bysort grp var", then by_vars=NA, cmd="bysort", rest="grp var"
-      # Current logic: if "bysort grp: egen ...", is_by_prefix_val=TRUE, stata_cmd="egen". This is fine.
-  } else if (stata_cmd == "by") { # "by" is an alias for "bysort"
-      stata_cmd = "bysort"
+  # Refine is_by_prefix: it's a prefix if by_vars were parsed AND command is not 'bysort'
+  if (stata_cmd == "bysort" || stata_cmd == "by") { # by is alias for bysort
       is_by_prefix_val = FALSE
+      # For bysort command itself, its arguments are in rest_of_cmd.
+      # The prefix parsing for by_group_vars/by_sort_vars should be cleared if it's the bysort command.
+      by_group_vars = character(0)
+      by_sort_vars = character(0)
+      if (stata_cmd == "by") stata_cmd = "bysort" # Normalize "by" command to "bysort"
   }
-
 
   return(list(
     stata_cmd_original = cmd_token_original,
     stata_cmd = stata_cmd,
     rest_of_cmd = rest_of_cmd,
-    by_vars = by_vars,
-    is_by_prefix = is_by_prefix_val && !is.na(by_vars) # Ensure by_vars is not NA
+    is_by_prefix = is_by_prefix_val, # True if "by prefix:" was found AND command is not bysort
+    by_group_vars = if(length(by_group_vars)>0) by_group_vars else NA_character_,
+    by_sort_vars = if(length(by_sort_vars)>0) by_sort_vars else NA_character_
   ))
 }
-
 

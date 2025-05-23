@@ -19,6 +19,14 @@ aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="") {
   restore.point("aic_stata2r_do_test_inner")
   setwd(test_dir)
   library(stata2r)
+  # Explicitly load dependencies for the test environment
+  library(collapse)
+  library(dplyr)
+  library(stringi)
+  library(haven)
+  library(tidyr) # For reshape
+  library(restorepoint) # If used by translated code or framework
+
   # do code that will be translated
   do_code = readLines("do1.do", warn=FALSE)
   #cat(do_code, sep="\n")
@@ -201,4 +209,5 @@ compare_df = function(df1, df2,
   }
   out
 }
+
 

@@ -18,8 +18,9 @@ do_parse = function(do_code) {
       stata_cmd_original = character(0),
       stata_cmd = character(0),
       rest_of_cmd = character(0),
-      by_vars = character(0),
-      is_by_prefix = logical(0)
+      is_by_prefix = logical(0),
+      by_group_vars = character(0), # Store as comma-separated string or list column
+      by_sort_vars = character(0)  # Store as comma-separated string or list column
     ))
   }
 
@@ -32,8 +33,10 @@ do_parse = function(do_code) {
       stata_cmd_original = parsed_info$stata_cmd_original,
       stata_cmd = parsed_info$stata_cmd,
       rest_of_cmd = parsed_info$rest_of_cmd,
-      by_vars = ifelse(is.na(parsed_info$by_vars), NA_character_, parsed_info$by_vars),
       is_by_prefix = parsed_info$is_by_prefix,
+      # Store by_group_vars and by_sort_vars as comma-separated strings
+      by_group_vars = if (is.na(parsed_info$by_group_vars[1])) NA_character_ else paste(parsed_info$by_group_vars, collapse=","),
+      by_sort_vars = if (is.na(parsed_info$by_sort_vars[1])) NA_character_ else paste(parsed_info$by_sort_vars, collapse=","),
       stringsAsFactors = FALSE
     )
   })
@@ -41,4 +44,5 @@ do_parse = function(do_code) {
   cmd_df = dplyr::bind_rows(cmd_list)
   return(cmd_df)
 }
+
 
