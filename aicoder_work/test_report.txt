@@ -151,8 +151,7 @@ R:  data = data
   %>% collapse::fmutate(id = dplyr::row_number()) 
 
 do:  bysort group_code (mean_i_overall): gen diff_mean = mean_i_overall - mean_i_overall[_n-1] 
-R:  data = data
-  %>% dplyr::arrange(group_code, mean_i_overall)
+R:  data = dplyr::arrange(data, group_code, mean_i_overall)
   %>% collapse::fgroup_by(c("group_code"))
   %>% collapse::fmutate(diff_mean = mean_i_overall - dplyr::lag(mean_i_overall, 1))
   %>% collapse::fungroup() 
