@@ -183,7 +183,7 @@ do:  keep if group_code==1
 R:  data = dplyr::filter(data, group_code==1) 
 
 do:  merge 1:m group_code using "`t1'", keep(match master) nogenerate 
-R:  data = collapse::fmerge(data, haven::read_dta(R_tempfile_L24_t1_path), by = c("group_code"), all.x = TRUE, all.y = FALSE) # Stata merge type: 1:m, default: keep(match), keep(master), nogenerate 
+R:  data = collapse::fmerge(data, haven::read_dta(R_tempfile_L24_t1_path), by = c("group_code"), all.x = TRUE, all.y = FALSE) # Stata merge type: 1:m, keep(master), nogenerate 
 
 do:  append using "`t1'" 
 R:  data = collapse::fbind(data, haven::read_dta(R_tempfile_L24_t1_path)) 
@@ -306,6 +306,7 @@ tibble [39 × 4] (S3: tbl_df/tbl/data.frame)
   ..- attr(*, "format.stata")= chr "%1s"
  $ seq  : num [1:39] 1 2 3 4 5 6 7 8 9 10 ...
  $ logi : num [1:39] 2.3 2.56 2.77 2.94 3 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
 NULL
 
 Stata version:
