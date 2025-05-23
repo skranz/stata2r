@@ -28,8 +28,9 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   # Handle _n and _N.
   # Use dplyr functions for group-wise context.
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_n\\b", "dplyr::row_number()")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_N\\b", "dplyr::n()")
+  # Convert to numeric to match Stata's default float storage for integers.
+  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_n\\b", "as.numeric(dplyr::row_number())")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_N\\b", "as.numeric(dplyr::n())")
 
   # Step 2: Iteratively translate Stata functions (e.g., cond(), round(), log(), etc.)
   # This loop handles nested function calls by repeatedly applying transformations.
