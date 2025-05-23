@@ -35,10 +35,11 @@ t_expand = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
         if (!is.na(range_match[1,1])) {
             start_row = as.integer(range_match[1,2])
             end_row = range_match[1,3]
+            # Changed dplyr::row_number() to collapse::fseq() for consistency
             if (is.na(end_row)) {
-                 r_in_range_cond = paste0("dplyr::row_number() == ", start_row)
+                 r_in_range_cond = paste0("collapse::fseq() == ", start_row)
             } else {
-                 r_in_range_cond = paste0("dplyr::row_number() >= ", start_row, " & dplyr::row_number() <= ", as.integer(end_row))
+                 r_in_range_cond = paste0("collapse::fseq() >= ", start_row, " & collapse::fseq() <= ", as.integer(end_row))
             }
         } else {
             return(paste0("# expand in range '", stata_in_range, "' not fully translated (f/l specifiers)."))
