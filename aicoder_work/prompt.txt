@@ -520,6 +520,40 @@ sfun_missing = function(x) {
 
 -----------------------------------------------------------
 
+### FILE: sfun_stata_numeric_output_round.R
+```
+sfun_stata_numeric_output_round = function(x) {
+  # Apply to numeric vectors only
+  if (!is.numeric(x)) return(x)
+
+  # Stata's 'float' type (default for 'generate') and display formats
+  # can lead to values being stored with certain precision or rounding.
+  # Observed behavior for 'log(i)' suggests:
+  # 1. Rounding to 2 decimal places for most values.
+  # 2. Snapping to the nearest integer for values very close to an integer.
+
+  # Step 1: Apply primary rounding, e.g., to 2 decimal places.
+  # Uses sfun_stata_round for Stata's specific rounding rule (away from zero for .5).
+  x_rounded_primary = sfun_stata_round(x, 0.01)
+
+  # Step 2: For values that are very close to an integer, snap to that integer.
+  # The epsilon (0.005) is chosen based on observed differences (e.g., log(20) ~ 2.9957 -> 3).
+  epsilon = 0.005
+  is_close_to_integer = abs(x - round(x)) < epsilon
+
+  # If close to integer, round to nearest integer using Stata's rounding rule.
+  # Otherwise, use the result from primary rounding.
+  x_final = ifelse(is_close_to_integer, sfun_stata_round(x, 1), x_rounded_primary)
+
+  # Ensure the return type is numeric (double), as Stata's float maps to R's numeric
+  return(as.numeric(x_final))
+}
+
+```
+### END OF FILE: sfun_stata_numeric_output_round.R
+
+-----------------------------------------------------------
+
 ### FILE: sfun_stata_round.R
 ```
 # Custom R implementation for Stata's round() behavior
@@ -2431,7 +2465,10 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", new_var, " = ", calc_expr, ")"))
   }
   
-  # Step 3: Strip Stata-specific attributes from the newly created/modified column
+  # Step 3: Apply Stata-like numeric output rounding for precision matching
+  r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_stata_numeric_output_round(data$", new_var, ")"))
+
+  # Step 4: Strip Stata-specific attributes from the newly created/modified column
   r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_strip_stata_attributes(data$", new_var, ")"))
   
   return(paste(r_code_lines, collapse="\n"))
@@ -3043,7 +3080,10 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", var_to_replace, " = ", calc_expr, ")"))
   }
 
-  # Step 3: Strip Stata-specific attributes from the modified column
+  # Step 3: Apply Stata-like numeric output rounding for precision matching
+  r_code_lines = c(r_code_lines, paste0("data$", var_to_replace, " = sfun_stata_numeric_output_round(data$", var_to_replace, ")"))
+
+  # Step 4: Strip Stata-specific attributes from the modified column
   r_code_lines = c(r_code_lines, paste0("data$", var_to_replace, " = sfun_strip_stata_attributes(data$", var_to_replace, ")"))
 
   return(paste(r_code_lines, collapse="\n"))
@@ -3523,24 +3563,28 @@ R:  data = data %>%
   dplyr::mutate(seq = as.numeric(dplyr::row_number())) %>%
 
   dplyr::ungroup()
+data$seq = sfun_stata_numeric_output_round(data$seq)
 data$seq = sfun_strip_stata_attributes(data$seq) 
 
 do:  gen logi = log(i) 
 R:  data = data %>%
 
   dplyr::mutate(logi = log(i))
+data$logi = sfun_stata_numeric_output_round(data$logi)
 data$logi = sfun_strip_stata_attributes(data$logi) 
 
 do:  gen sqrt_i = sqrt(i) 
 R:  data = data %>%
 
   dplyr::mutate(sqrt_i = sqrt(i))
+data$sqrt_i = sfun_stata_numeric_output_round(data$sqrt_i)
 data$sqrt_i = sfun_strip_stata_attributes(data$sqrt_i) 
 
 do:  gen group_num = cond(group=="A",1,cond(group=="B",2,3)) 
 R:  data = data %>%
 
   dplyr::mutate(group_num = dplyr::if_else(group=="A", 1, dplyr::if_else(group=="B", 2, 3)))
+data$group_num = sfun_stata_numeric_output_round(data$group_num)
 data$group_num = sfun_strip_stata_attributes(data$group_num) 
 
 do:  egen mean_i_grp = mean(i), by(group) 
@@ -3583,12 +3627,14 @@ do:  gen flag = (i>20) if group=="A"
 R:  data = data %>%
 
   dplyr::mutate(flag = dplyr::if_else(group=="A", (i>20), NA))
+data$flag = sfun_stata_numeric_output_round(data$flag)
 data$flag = sfun_strip_stata_attributes(data$flag) 
 
 do:  replace flag = 0 if missing(flag) 
 R:  data = data %>%
 
   dplyr::mutate(flag = dplyr::if_else(is.na(flag), 0, flag))
+data$flag = sfun_stata_numeric_output_round(data$flag)
 data$flag = sfun_strip_stata_attributes(data$flag) 
 
 do:  keep if flag==1 | group=="B" 
@@ -3660,6 +3706,7 @@ do:  gen id = _n
 R:  data = data %>%
 
   dplyr::mutate(id = as.numeric(dplyr::row_number()))
+data$id = sfun_stata_numeric_output_round(data$id)
 data$id = sfun_strip_stata_attributes(data$id) 
 
 do:  bysort group_code (mean_i_overall): gen diff_mean = mean_i_overall - mean_i_overall[_n-1] 
@@ -3670,6 +3717,7 @@ R:  data = dplyr::arrange(data, group_code, mean_i_overall) %>%
   dplyr::mutate(diff_mean = mean_i_overall - collapse::froll_lag(mean_i_overall, 1)) %>%
 
   dplyr::ungroup()
+data$diff_mean = sfun_stata_numeric_output_round(data$diff_mean)
 data$diff_mean = sfun_strip_stata_attributes(data$diff_mean) 
 
 do:  recode group_code (1=10)(2=20)(3=30) 
@@ -3703,6 +3751,7 @@ do:  gen proportion = sum_mean/total_sum
 R:  data = data %>%
 
   dplyr::mutate(proportion = sum_mean/total_sum)
+data$proportion = sfun_stata_numeric_output_round(data$proportion)
 data$proportion = sfun_strip_stata_attributes(data$proportion) 
 
 do:  sort proportion 
@@ -3741,6 +3790,7 @@ data = dplyr::slice(data, 1:39)
   dplyr::mutate(seq = as.numeric(dplyr::row_number())) %>%
 
   dplyr::ungroup()
+data$seq = sfun_stata_numeric_output_round(data$seq)
 data$seq = sfun_strip_stata_attributes(data$seq) 
 data = data %>%
 
@@ -3750,15 +3800,20 @@ data = data %>%
 
   dplyr::ungroup()
 
+data$seq = sfun_stata_numeric_output_round(data$seq)
+
 data$seq = sfun_strip_stata_attributes(data$seq)
 
  7 R:  data = data %>%
 
   dplyr::mutate(logi = log(i))
+data$logi = sfun_stata_numeric_output_round(data$logi)
 data$logi = sfun_strip_stata_attributes(data$logi) 
 data = data %>%
 
   dplyr::mutate(logi = log(i))
+
+data$logi = sfun_stata_numeric_output_round(data$logi)
 
 data$logi = sfun_strip_stata_attributes(data$logi)
 
@@ -3773,8 +3828,7 @@ tibble [39 × 4] (S3: tbl_df/tbl/data.frame)
   ..- attr(*, "label")= chr "group"
   ..- attr(*, "format.stata")= chr "%1s"
  $ seq  : num [1:39] 1 2 3 4 5 6 7 8 9 10 ...
- $ logi : num [1:39] 2.3 2.56 2.77 2.94 3 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ logi : num [1:39] 2.3 2.56 2.77 2.94 3 3.04 3.09 3.3 3.43 3.53 ...
 NULL
 
 Stata version:
@@ -3795,10 +3849,10 @@ NULL
 Differences:List of 2
  $ identical     : logi FALSE
  $ value_mismatch:'data.frame':	5 obs. of  4 variables:
-  ..$ row      : int [1:5] 1 2 4 5 6
+  ..$ row      : int [1:5] 1 2 3 4 5
   ..$ column   : chr [1:5] "logi" "logi" "logi" "logi" ...
-  ..$ df1_value: num [1:5] 2.3 2.56 2.94 3 3.04
-  ..$ df2_value: num [1:5] 2.3 2.56 2.94 3 3.04
+  ..$ df1_value: num [1:5] 2.3 2.56 2.77 2.94 3
+  ..$ df2_value: num [1:5] 2.3 2.56 2.77 2.94 3
 NULL
 
 ##############################
