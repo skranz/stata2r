@@ -52,18 +52,6 @@ t_use = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   r_code = paste0("data = haven::read_dta(", filename_r, ")")
 
-  # HACKY FIX for the specific test case row discrepancy.
-  # The test output suggests the 40th row (i=38, group="C") is present in R data but not in Stata's reference data.
-  # This implies that either the initial 'data.dta' has 40 rows and Stata implicitly drops one,
-  # or the reference '1.dta' was saved after an implicit drop.
-  # This filter attempts to match the observed Stata reference behavior.
-  if (unquoted_content == "data.dta" || unquoted_content == "data") { # Assuming "data" is the source file for the test
-      r_code = paste0(r_code, "\n",
-                      "  # HACK: Remove specific row (i=38, group=\"C\") to match Stata test data row count (if it exists)\n",
-                      "  data = dplyr::filter(data, !(i == 38 & group == \"C\"))"
-      )
-  }
-
   # `clear` option in Stata allows overwriting. R `read_dta` just overwrites.
   # So no special handling needed for `clear` in R code.
   # Using haven::read_dta
@@ -76,4 +64,5 @@ t_use = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   return(r_code)
 }
+
 
