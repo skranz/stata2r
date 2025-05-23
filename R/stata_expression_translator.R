@@ -18,13 +18,18 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   # Step 1: Translate Stata special variables and indexing (e.g., _n, _N, var[_n-1])
   # These are generally fixed references, not nested functions.
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*-\\s*(\\d+)\\]", "dplyr::lag($1, $2)")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*\\+\\s*(\\d+)\\]", "dplyr::lead($1, $2)")
+  # Use collapse::froll_lag/lead for performance, but dplyr is fine.
+  # For _n and _N, if by_group context is true, they should be group-wise.
+  # collapse::fseq() and collapse::fnobs() are also context-aware in grouped operations.
+
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*-\\s*(\\d+)\\]", "collapse::froll_lag($1, $2)")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*\\+\\s*(\\d+)\\]", "collapse::froll_lead($1, $2)")
   r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\]", "$1")
 
-  # Handle _n and _N. dplyr functions correctly handle grouping when piped from group_by.
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_n\\b", "dplyr::row_number()")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_N\\b", "dplyr::n()")
+  # Handle _n and _N.
+  # Use collapse functions as requested where sensible.
+  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_n\\b", "collapse::fseq()")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_N\\b", "collapse::fnobs()")
 
   # Step 2: Iteratively translate Stata functions (e.g., cond(), round(), log(), etc.)
   # This loop handles nested function calls by repeatedly applying transformations.
