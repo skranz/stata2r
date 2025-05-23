@@ -203,16 +203,22 @@ do:  save "result_data.dta"
 # Run R commands and check generated data sets
 
 
- 1 data = haven::read_dta("data.dta") # 'clear' was used
+ 1 R:  data = haven::read_dta("data.dta") # 'clear' was used 
+data = haven::read_dta("data.dta") # 'clear' was used
 
- 2 data = dplyr::arrange(data, group, i)
+ 2 R:  data = dplyr::arrange(data, group, i) 
+data = dplyr::arrange(data, group, i)
 
- 3 data = data %>%
+ 3 R:  data = data %>%
+  dplyr::group_by(dplyr::across(c("group"))) %>%
+  dplyr::mutate(seq = dplyr::row_number()) %>%
+  dplyr::ungroup() 
+data = data %>%
   dplyr::group_by(dplyr::across(c("group"))) %>%
   dplyr::mutate(seq = dplyr::row_number()) %>%
   dplyr::ungroup()
 
-Error: After the R command abve generates different data set than Stata code
+Error: After Stata line  3 , R data set differs from Stata reference.
 
 R data set:
 tibble [40 × 3] (S3: tbl_df/tbl/data.frame)
