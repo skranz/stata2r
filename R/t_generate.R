@@ -81,7 +81,10 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", new_var, " = ", calc_expr, ")"))
   }
   
-  # Step 3: Strip Stata-specific attributes from the newly created/modified column
+  # Step 3: Apply Stata-like numeric output rounding for precision matching
+  r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_stata_numeric_output_round(data$", new_var, ")"))
+
+  # Step 4: Strip Stata-specific attributes from the newly created/modified column
   r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_strip_stata_attributes(data$", new_var, ")"))
   
   return(paste(r_code_lines, collapse="\n"))

@@ -71,7 +71,10 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", var_to_replace, " = ", calc_expr, ")"))
   }
 
-  # Step 3: Strip Stata-specific attributes from the modified column
+  # Step 3: Apply Stata-like numeric output rounding for precision matching
+  r_code_lines = c(r_code_lines, paste0("data$", var_to_replace, " = sfun_stata_numeric_output_round(data$", var_to_replace, ")"))
+
+  # Step 4: Strip Stata-specific attributes from the modified column
   r_code_lines = c(r_code_lines, paste0("data$", var_to_replace, " = sfun_strip_stata_attributes(data$", var_to_replace, ")"))
 
   return(paste(r_code_lines, collapse="\n"))
