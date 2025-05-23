@@ -101,7 +101,7 @@ t_destring = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
           # For rows meeting condition, use destrung value. Otherwise, keep original (or NA if new var).
            if (is_replace) {
                # Replace in place: use destrung if condition, old value otherwise
-               final_value_expr = paste0("dplyr::if_else(", r_if_in_cond, ", ", destrung_value_expr, ", ", source_var_r, ")")
+               final_value_expr = paste0("dplyr::if_else(", r_if_in_cond, ", ", destrung_value_expr, ", data$", source_var_r, ")")
            } else {
                # Generate new var: use destrung if condition, NA otherwise
                final_value_expr = paste0("dplyr::if_else(", r_if_in_cond, ", ", destrung_value_expr, ", NA_real_)") # Assuming numeric result
@@ -120,8 +120,9 @@ t_destring = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Build the final R code using dplyr::mutate
   r_code_lines = c(paste0("data = dplyr::mutate(data, ", mutate_exprs_str, ")")) # Changed to dplyr::mutate
 
-  # Apply attribute stripping to the newly created/modified variables
+  # Apply Stata-like numeric output rounding and attribute stripping to the newly created/modified variables
   for (new_var in new_vars) {
+      r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_stata_numeric_output_round(data$", new_var, ")"))
       r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_strip_stata_attributes(data$", new_var, ")"))
   }
 
@@ -147,5 +148,4 @@ t_destring = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
-
 

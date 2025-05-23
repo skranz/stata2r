@@ -102,7 +102,7 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # old_value can be: single value, range (val1/val2, val1 thru val2), list (val1 val2), else, missing (.)
   # new_value can be: single value, copy (use original value), missing (.)
 
-  translate_recode_rule = function(rule_str, source_var_r, r_if_cond) {
+  translate_recode_rule = function(rule_str, source_var_r) {
       rule_str = stringi::stri_trim_both(rule_str)
       parts_eq = stringi::stri_split_fixed(rule_str, "=", n=2)[[1]]
       if (length(parts_eq) != 2) {
@@ -116,21 +116,21 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       if (old_part_raw == "else") {
           r_condition = "TRUE" # This rule is the fallback
       } else if (old_part_raw == ".") {
-           r_condition = paste0("is.na(", source_var_r, ")") # Missing value rule
+           r_condition = paste0("is.na(data$", source_var_r, ")") # Missing value rule
       } else if (grepl("\\s+thru\\s+", old_part_raw)) {
            # Range: val1 thru val2
            range_parts = stringi::stri_split_regex(old_part_raw, "\\s+thru\\s+", n=2)[[1]]
            val1 = translate_stata_expression_to_r(stringi::stri_trim_both(range_parts[1])) # Translate value (e.g. string "A" or number)
            val2 = translate_stata_expression_to_r(stringi::stri_trim_both(range_parts[2]))
            if (is.na(val1) || is.na(val2)) return(paste0("## Error translating range values in rule: ", rule_str))
-           r_condition = paste0(source_var_r, " >= ", val1, " & ", source_var_r, " <= ", val2)
+           r_condition = paste0("data$", source_var_r, " >= ", val1, " & data$", source_var_r, " <= ", val2)
       } else if (grepl("/", old_part_raw)) {
           # Range: val1/val2
            range_parts = stringi::stri_split_regex(old_part_raw, "/", n=2)[[1]]
            val1 = translate_stata_expression_to_r(stringi::stri_trim_both(range_parts[1])) # Translate value
            val2 = translate_stata_expression_to_r(stringi::stri_trim_both(range_parts[2]))
            if (is.na(val1) || is.na(val2)) return(paste0("## Error translating range values in rule: ", rule_str))
-           r_condition = paste0(source_var_r, " >= ", val1, " & ", source_var_r, " <= ", val2) # Stata / is inclusive range
+           r_condition = paste0("data$", source_var_r, " >= ", val1, " & data$", source_var_r, " <= ", val2) # Stata / is inclusive range
       }
       else {
           # List of values or single value
@@ -140,30 +140,14 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
                if (val == ".") return("NA") # Stata missing symbol
                translate_stata_expression_to_r(val) # Translate value (e.g. "5", `"string"`)
           })
-          r_condition = paste0(source_var_r, " %in% c(", paste(r_values, collapse = ", "), ")")
-      }
-
-      # Apply global if/in condition to this specific rule's condition
-      if (!is.na(r_if_cond) && r_if_cond != "" && r_condition != "TRUE") { # Don't apply global if to the "else" rule
-          r_condition = paste0("(", r_if_cond, ") & (", r_condition, ")")
-      } else if (!is.na(r_if_cond) && r_if_cond != "" && r_condition == "TRUE") {
-           # If it's the 'else' rule and there's a global if,
-           # this rule applies to observations meeting the global if
-           # AND not meeting any *previous* rules *for those observations*.
-           # This is tricky with case_when. case_when evaluates sequentially.
-           # The global if should modify the entire case_when structure, not individual rules.
-           # Example: recode x (1=10) (2=20) (else=30) if y>0
-           # If y<=0, x is unchanged. If y>0: x=1->10, x=2->20, other x values -> 30.
-           # Correct structure: if_else(y>0, case_when(...), x)
-           # Let's handle the global if *outside* the rule translation for now.
-           # So, return just the rule's condition here.
+          r_condition = paste0("data$", source_var_r, " %in% c(", paste(r_values, collapse = ", "), ")")
       }
 
 
       # Translate new_part into R value (right side of case_when ~ )
       r_new_value = ""
       if (new_part_raw == "copy") {
-          r_new_value = source_var_r # Use the original variable value
+          r_new_value = paste0("data$", source_var_r) # Use the original variable value
       } else if (new_part_raw == ".") {
           r_new_value = "NA" # R missing
       } else {
@@ -181,7 +165,7 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       source_var_r = old_var # R variable name for the source column
 
       # Translate all rules for this variable
-      r_rules = sapply(recode_rules_raw, translate_recode_rule, source_var_r = source_var_r, r_if_cond = NA_character_) # Global if handled outside
+      r_rules = sapply(recode_rules_raw, translate_recode_rule, source_var_r = source_var_r)
 
       # Combine rules into a case_when statement
       case_when_expr = paste0("dplyr::case_when(\n    ", paste(r_rules, collapse = ",\n    "), "\n  )")
@@ -191,7 +175,7 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
           # If condition is met, apply case_when. Otherwise, keep original value.
           final_value_expr = paste0("dplyr::if_else(", r_subset_cond, ",\n",
                                     "    ", case_when_expr, ",\n",
-                                    "    ", source_var_r, ")") # Keep original value if condition not met
+                                    "    data$", source_var_r, ")") # Keep original value if condition not met.
       } else {
           final_value_expr = case_when_expr
       }
@@ -204,7 +188,16 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   mutate_exprs_str = paste(mutate_exprs, collapse = ",\n  ")
 
   # Build the final R code using dplyr::mutate
-  r_code_str = paste0("data = dplyr::mutate(data, ", mutate_exprs_str, ")") # Changed to dplyr::mutate
+  r_code_lines = c(paste0("data = dplyr::mutate(data, ", mutate_exprs_str, ")")) # Changed to dplyr::mutate
+
+  # Apply Stata-like numeric output rounding and attribute stripping for newly created/modified variables
+  for (new_var in new_vars) {
+    r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_stata_numeric_output_round(data$", new_var, ")"))
+    r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_strip_stata_attributes(data$", new_var, ")"))
+  }
+
+
+  r_code_str = paste(r_code_lines, collapse="\n")
 
   # Add comment about options if any were present but not handled (excluding gen)
    if (!is.na(options_str) && !grepl("\\bgen\\s*\\([^)]+\\)", options_str)) {

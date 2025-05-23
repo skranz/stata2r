@@ -23,7 +23,7 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
 
 
-  # Parse aggregate definitions: "(stat) var [= newvar] (stat) var [= newvar] ..."
+  # Parse aggregate definitions: "(stat) var [name=expr ...] (stat) var [name=expr ...] ..."
   # Regex: \\(([a-zA-Z_]+)\\)\\s+([a-zA-Z0-9_]+)(?:\\s*=\\s*([a-zA-Z0-9_]+))?
   # G1: stat (stat_from_regex)
   # G2: varname1 (g2_val_from_regex)
@@ -75,6 +75,7 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Build the summarise/aggregate expressions for dplyr::summarise
   aggregate_exprs = character(NROW(aggregate_matches))
+  new_vars_created = character(NROW(aggregate_matches)) # Keep track of new variable names
   for (j in 1:NROW(aggregate_matches)) {
     stat_from_regex = aggregate_matches[j, 2]
     g2_val_from_regex = aggregate_matches[j, 3]
@@ -90,6 +91,7 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
         actual_stata_source_var_name = g3_val_from_regex    # G3 is source
         actual_stata_target_var_name = g2_val_from_regex    # G2 is target
     }
+    new_vars_created[j] = actual_stata_target_var_name # Store new var name
 
     # Translate actual Stata source variable name
     r_source_var = translate_stata_expression_with_r_values(actual_stata_source_var_name, cmd_obj$line, cmd_df, context) # Use cmd_obj$line
@@ -133,20 +135,35 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   aggregate_exprs_str = paste(aggregate_exprs, collapse = ",\n  ")
 
   # Build the final R code
-  r_code_str = r_code_prefix # Add subsetting code if any
+  r_code_lines = c(r_code_prefix) # Add subsetting code if any
 
   if (!is.null(by_vars_r_vec_str) && length(by_vars_list_unquoted) > 0) {
-    r_code_str = paste0(r_code_str,
+    r_code_lines = c(r_code_lines,
                        data_source_for_collapse, " %>%\n",
                        "  dplyr::group_by(dplyr::across(", by_vars_r_vec_str, ")) %>%\n", # Changed to dplyr
                        "  dplyr::summarise(", aggregate_exprs_str, ") %>%\n",           # Changed to dplyr
                        "  dplyr::ungroup()")                                             # Changed to dplyr
   } else {
-     r_code_str = paste0(r_code_str,
+     r_code_lines = c(r_code_lines,
                        data_source_for_collapse, " %>%\n",
                        "  dplyr::summarise(", aggregate_exprs_str, ")")                   # Changed to dplyr
   }
-  r_code_str = paste0("data = ", r_code_str) # Assign result back to 'data'
+  r_code_lines = c("data = ", r_code_lines) # Assign result back to 'data'
+
+  # Apply Stata-like numeric output rounding and attribute stripping for newly created variables
+  for (new_var in new_vars_created) {
+    r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_stata_numeric_output_round(data$", new_var, ")"))
+    r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_strip_stata_attributes(data$", new_var, ")"))
+  }
+
+
+  r_code_str = paste(r_code_lines, collapse="\n")
+
+  # Add comment about options if any were present but not handled
+  if (!is.na(options_part) && options_part != "") {
+       r_code_str = paste0(r_code_str, paste0(" # Options ignored: ", options_part))
+  }
+
 
   return(r_code_str)
 }
