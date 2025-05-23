@@ -16,12 +16,9 @@ t_use = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   filename_r_expr = NA_character_ # This will hold the R path expression
 
-  # Extract the unquoted content for macro resolution or literal quoting
-  unquoted_content = unquote_stata_string_or_macro_literal(raw_filename_token)
-
-  # Handle macro `filename'
+  # Check if it's a Stata local macro: `macroname'
   if (stringi::stri_startswith_fixed(raw_filename_token, "`") && stringi::stri_endswith_fixed(raw_filename_token, "'")) {
-    macro_name = unquoted_content # Macro name is the unquoted content
+    macro_name = stringi::stri_sub(raw_filename_token, 2, -2) # Extract macro name by removing ` and '
     
     found_def_line = NA_integer_
     for (i in (line_num - 1):1) {
@@ -43,21 +40,21 @@ t_use = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
         filename_r_expr = path_r_var # This is an R variable name, no quotes needed
     } else {
         warning(paste0("Macro ",raw_filename_token, " in 'use' command at line ",line_num, " may not be correctly resolved. Treating as literal string."))
-        filename_r_expr = quote_for_r_literal(unquoted_content) # Treat as literal and add R quotes
+        filename_r_expr = quote_for_r_literal(unquote_stata_string_literal(raw_filename_token)) # Treat as literal and add R quotes
     }
   } else {
     # Actual filename string, e.g. "mydata.dta" or mydata.dta (potentially unquoted in Stata)
-    # Determine if it's an absolute path or relative, and prepend data_dir if relative.
+    unquoted_content = unquote_stata_string_literal(raw_filename_token)
+    # Determine if it's an absolute path or relative, and prepend working_dir if relative.
     is_absolute_path = stringi::stri_startswith_fixed(unquoted_content, "/") || stringi::stri_detect_regex(unquoted_content, "^[A-Za-z]:[\\\\/]")
     if (is_absolute_path) {
       filename_r_expr = quote_for_r_literal(unquoted_content) # Use as is if absolute
     } else {
-      # Assume relative path for 'use' refers to the data_dir
-      filename_r_expr = paste0("file.path(stata2r_env$data_dir, ", quote_for_r_literal(unquoted_content), ")")
+      # Assume relative path for 'use' refers to the working_dir
+      filename_r_expr = paste0("file.path(stata2r_env$working_dir, ", quote_for_r_literal(unquoted_content), ")")
     }
   }
 
-  # Corrected: haven::read_dta expects path as the first argument, not named 'path'.
   r_code = paste0("data = haven::read_dta(", filename_r_expr, ")")
 
   # `clear` option in Stata allows overwriting. R `read_dta` just overwrites.
@@ -72,4 +69,5 @@ t_use = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   return(r_code)
 }
+
 

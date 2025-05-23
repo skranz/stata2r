@@ -16,7 +16,6 @@ mark_data_manip_cmd = function(cmd_df) {
   # Special handling for commands like `summarize`
   # If `summarize` produces `r()` results, and a later command uses them,
   # then `summarize` should be translated.
-  # This is complex. For now, assume `summarize` that is not just for display (e.g. has options like meanonly, or is followed by r() usage)
   # For a first pass, mark all `summarize` as TRUE if it's in stata_data_manip_cmds.
   # A more sophisticated approach would involve checking for subsequent `r()` usage.
 
@@ -40,13 +39,11 @@ mark_data_manip_cmd = function(cmd_df) {
       cmd_df$do_translate[cmd_df$stata_cmd == "clear" & is.na(cmd_df$rest_of_cmd)] = TRUE # standalone clear
   }
 
-
-  # Example refinement for `summarize`:
-  # Only translate `summarize` if it seems to be for `r()` values.
-  # A simple proxy: if it has options (like `meanonly`, `detail`).
-  # Or if a subsequent command refers to `r(...)`. (This lookahead is complex here).
-  # For now, this is simplified. If `summarize` is in stata_data_manip_cmds, it's TRUE.
+  # Ensure 'save' is always translated as it creates a file.
+  # This is a defensive fix if the general logic for `stata_data_manip_cmds` somehow fails for 'save'.
+  cmd_df$do_translate[cmd_df$stata_cmd == "save"] = TRUE
 
   return(cmd_df)
 }
+
 

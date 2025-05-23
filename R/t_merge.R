@@ -47,16 +47,12 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   vars_to_merge_on_r_vec_str = paste0('c("', paste(vars_to_merge_on, collapse = '", "'), '")')
 
 
-  # Resolve the `using filename` - can be a path string or a macro
   using_source_r_expr = NA_character_ # This will hold the R expression to load the data
-
-  # Extract the unquoted content for macro resolution or literal quoting
-  unquoted_content = unquote_stata_string_or_macro_literal(raw_filename_token)
 
   # Check if filename_part is a macro `macroname`
   if (stringi::stri_startswith_fixed(raw_filename_token, "`") && stringi::stri_endswith_fixed(raw_filename_token, "'")) {
-    macro_name = unquoted_content # Macro name is the unquoted content
-
+    macro_name = stringi::stri_sub(raw_filename_token, 2, -2) # Extract macro name
+    
     found_def_line = NA_integer_
     for (i in (line_num - 1):1) {
         if (cmd_df$stata_cmd[i] == "tempfile") {
@@ -77,11 +73,11 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
         using_source_r_expr = paste0("haven::read_dta(", path_r_var, ")")
     } else {
          warning(paste0("Macro ",raw_filename_token, " in 'merge' command at line ",line_num, " not fully resolved. Treating as filename string."))
-         using_source_r_expr = paste0("haven::read_dta(", quote_for_r_literal(unquoted_content), ")")
+         using_source_r_expr = paste0("haven::read_dta(", quote_for_r_literal(unquote_stata_string_literal(raw_filename_token)), ")")
     }
   } else {
     # Actual filename string, e.g. "mydata.dta" or mydata.dta (potentially unquoted in Stata)
-    # Determine if it's an absolute path or relative, and prepend data_dir if relative.
+    unquoted_content = unquote_stata_string_literal(raw_filename_token)
     is_absolute_path = stringi::stri_startswith_fixed(unquoted_content, "/") || stringi::stri_detect_regex(unquoted_content, "^[A-Za-z]:[\\\\/]")
     if (is_absolute_path) {
       using_source_r_expr = paste0("haven::read_dta(", quote_for_r_literal(unquoted_content), ")")
@@ -138,4 +134,5 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
+
 

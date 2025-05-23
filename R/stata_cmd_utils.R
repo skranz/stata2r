@@ -215,24 +215,18 @@ get_tempfile_macros = function(rest_of_cmd_for_tempfile) {
         .[. != ""]
 }
 
-# Helper function to unquote Stata string literals or extract macro names
-unquote_stata_string_or_macro_literal = function(s) {
+# Helper function to unquote Stata string literals
+unquote_stata_string_literal = function(s) {
   if (is.na(s) || s == "") return(s)
-
-  # First, try to remove outer double quotes
+  # Remove outer double quotes
   if (stringi::stri_startswith_fixed(s, '"') && stringi::stri_endswith_fixed(s, '"')) {
-    s = stringi::stri_sub(s, 2, -2)
-  }
-  # Then, try to remove outer single quotes (less common for paths, but possible)
-  if (stringi::stri_startswith_fixed(s, "'") && stringi::stri_endswith_fixed(s, "'")) {
-    s = stringi::stri_sub(s, 2, -2)
-  }
-
-  # Now, check if the remaining string is a Stata local macro: `my_macro'
-  if (stringi::stri_startswith_fixed(s, "`") && stringi::stri_endswith_fixed(s, "'")) {
     return(stringi::stri_sub(s, 2, -2))
   }
-  # Otherwise, return as is (it's a literal path without quotes, or a variable name)
+  # Remove outer single quotes
+  if (stringi::stri_startswith_fixed(s, "'") && stringi::stri_endswith_fixed(s, "'")) {
+    return(stringi::stri_sub(s, 2, -2))
+  }
+  # If not quoted, return as is
   return(s)
 }
 
@@ -247,5 +241,4 @@ quote_for_r_literal = function(s) {
   # Add double quotes
   paste0('"', s, '"')
 }
-
 
