@@ -40,7 +40,7 @@ R:  data = dplyr::arrange(data, group, i)
 
 do:  by group: gen seq = _n 
 R:  data = collapse::fgroup_by(data, c("group"))
-data = collapse::fmutate(data, seq = dplyr::row_number())
+data = collapse::fmutate(data, seq = .i)
 data = collapse::fungroup(data) 
 
 do:  gen logi = log(i) 
@@ -195,7 +195,7 @@ R:  haven::write_dta(data, path = "result_data.dta")
 
  3 data = collapse::fgroup_by(data, c("group"))
 
-data = collapse::fmutate(data, seq = dplyr::row_number())
+data = collapse::fmutate(data, seq = .i)
 
-Error: subscript out of bounds
+Error: object '.i' not found
 data = collapse::fungroup(data)

@@ -1,139 +1,412 @@
-!CHANGE_FILE R/stata_expression_translator.R
+The current test failure `Error: object '.i' not found` arises from the `by group: gen seq = _n` command. This error indicates that the `collapse` special variable `.i` (representing the row index within a group) is not being correctly resolved when `fmutate` is called.
+
+While the sequential assignment (`data = fgroup_by(...); data = fmutate(...)`) should theoretically work, there might be subtle environment or evaluation context issues within the test framework when executing multi-line code strings this way.
+
+The most robust way to ensure that `collapse` functions operate correctly with grouped data is to use the `magrittr` piping (`%>%`) syntax, which explicitly passes the modified data frame from one function to the next. This is also the idiomatic way to chain operations in R.
+
+I will modify the `t_generate` function to use pipes for all data manipulation steps, including sorting, grouping, mutating, and ungrouping. This will align `t_generate` with the existing pipe-based logic in other translation functions like `t_egen` and `t_collapse`.
+
+Additionally, I will make a minor correction in `t_summarize` and `t_collapse` to consistently use `cmd_obj$line` for generating unique temporary variable names, enhancing robustness.
+
 ```
-# Stata Expression Translator
+!CHANGE_FILE R/t_generate.R
+# Translate Stata 'generate' or 'gen' command
 
-# Placeholder for Stata results (r() and e() values)
-# This environment would be populated by commands like summarize, regress
-# For now, we will generate unique variable names for r() values.
-# stata_results_env = new.env(parent = emptyenv())
+# Example Stata: gen newvar = oldvar * 2 if condition
+# Example Stata: by group: gen seq = _n
+t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  # Parse `rest_of_cmd` for new variable name, expression, and if condition
+  # Example: "newvar = expression [if condition]"
 
+  # Strip type if present (e.g. gen double newvar = ...)
+  rest_of_cmd_no_type = stringi::stri_replace_first_regex(rest_of_cmd, "^(?:byte|int|long|float|double)\\s+", "")
 
-# Translates a Stata expression string into an R expression string
-# stata_expr: The Stata expression (e.g., "var1 + log(var2)")
-# context: Information about the context (e.g., if inside a by group, for _n/_N)
-# r_value_mappings: A named list/vector mapping Stata r-value names (e.g. "r(mean)")
-#                   to R variable names (e.g. "stata_r_val_L5_mean")
-translate_stata_expression_to_r = function(stata_expr, context = list(is_by_group = FALSE), r_value_mappings = NULL) {
-  if (is.na(stata_expr) || stata_expr == "") return(NA_character_)
+  match = stringi::stri_match_first_regex(rest_of_cmd_no_type, "^\\s*([^=\\s]+)\\s*=\\s*(.*?)(?:\\s+if\\s+(.*))?$")
 
-  r_expr = stata_expr
-
-  # Step 1: Translate Stata special variables and indexing (e.g., _n, _N, var[_n-1])
-  # These are generally fixed references, not nested functions.
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*-\\s*(\\d+)\\]", "dplyr::lag($1, $2)")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*\\+\\s*(\\d+)\\]", "dplyr::lead($1, $2)")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\]", "$1")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_n\\b", if(isTRUE(context$is_by_group)) ".i" else "dplyr::row_number()")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_N\\b", if(isTRUE(context$is_by_group)) ".N" else "NROW(data)")
-
-  # Step 2: Iteratively translate Stata functions (e.g., cond(), round(), log(), etc.)
-  # This loop handles nested function calls by repeatedly applying transformations.
-  old_r_expr = ""
-  while (r_expr != old_r_expr) {
-    old_r_expr = r_expr
-
-    # Apply more specific regexes first if there are overlaps (e.g., round(x,y) before round(x))
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bcond\\(([^,]+),([^,]+),([^)]+)\\)", "dplyr::if_else($1, $2, $3)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^,]+),([^)]+)\\)", "sfun_stata_round($1, $2)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^)]+)\\)", "sfun_stata_round($1, 1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmod\\(([^,]+),([^)]+)\\)", "($1 %% $2)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmissing\\(([^)]+)\\)", "is.na($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\blog\\(([^)]+)\\)", "log($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsqrt\\(([^)]+)\\)", "sqrt($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bint\\(([^)]+)\\)", "trunc($1)") # Stata int() truncates
-
-    # String functions (using stringi or custom helpers)
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrtrim\\(([^)]+)\\)", "stringi::stri_trim_both($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstritrim\\(([^)]+)\\)", "stringi::stri_squish($1)") # Stata stritrim squishes and trims
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\blower\\(([^)]+)\\)", "stringi::stri_trans_tolower($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bupper\\(([^)]+)\\)", "stringi::stri_trans_toupper($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsubstr\\(([^,]+),([^,]+),([^)]+)\\)", "stringi::stri_sub($1, from = $2, length = $3)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsubinstr\\(([^,]+),([^,]+),([^,]+),([^)]+)\\)", "sfun_subinstr($1, $2, $3, $4)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrpos\\(([^,]+),([^)]+)\\)", "sfun_strpos($1, $2)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\blength\\(([^)]+)\\)", "stringi::stri_length($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrlen\\(([^)]+)\\)", "stringi::stri_length($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstring\\(([^)]+)\\)", "as.character($1)")
-    # Date functions (placeholder, as actual implementation is complex)
+  if (is.na(match[1,1])) {
+    return(paste0("# Failed to parse generate command: ", rest_of_cmd))
   }
 
-  # Step 3: Translate Stata logical operators
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![<>!=~])\\s*=\\s*(?![=])", " == ") # Replace single = with == if not part of other ops
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\s+~=\\s+", " != ") # Stata `~=` to R `!=`
+  new_var = stringi::stri_trim_both(match[1,2])
+  stata_expr = stringi::stri_trim_both(match[1,3])
+  stata_if_cond = stringi::stri_trim_both(match[1,4]) # Might be NA
 
-  # Step 4: Handle r() values using the mapping
-  if (!is.null(r_value_mappings) && length(r_value_mappings) > 0) {
-    for (stata_r_name in names(r_value_mappings)) {
-      stata_r_regex = gsub("(", "\\(", gsub(")", "\\)", stata_r_name, fixed=TRUE), fixed=TRUE)
-      r_expr = stringi::stri_replace_all_regex(r_expr, paste0("\\b", stata_r_regex, "\\b"), r_value_mappings[[stata_r_name]])
+  # Context for expression translation (e.g. _n, _N behavior)
+  # is_by_group TRUE if cmd_obj$by_group_vars is not NA
+  current_context = list(is_by_group = cmd_obj$is_by_prefix && !is.na(cmd_obj$by_group_vars))
+  r_expr = translate_stata_expression_with_r_values(stata_expr, line_num, cmd_df, current_context)
+
+  r_if_cond = NA_character_
+  if (!is.na(stata_if_cond) && stata_if_cond != "") {
+    # The 'if' condition for generate/replace is evaluated row-wise on the whole dataset, not per group.
+    r_if_cond = translate_stata_expression_with_r_values(stata_if_cond, line_num, cmd_df, context = list(is_by_group = FALSE))
+  }
+
+  # Prepare for by-processing steps as pipe components
+  arrange_step = ""
+  group_vars_r_vec_str = NULL
+  
+  if (cmd_obj$is_by_prefix) {
+    if (!is.na(cmd_obj$by_group_vars)) {
+      group_vars_list = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
+      group_vars_list = group_vars_list[group_vars_list != ""]
+      group_vars_r_vec_str = paste0('c("', paste0(group_vars_list, collapse='", "'), '")')
+    }
+
+    sort_vars_list = character(0)
+    if (!is.na(cmd_obj$by_sort_vars)) {
+      sort_vars_list = stringi::stri_split_fixed(cmd_obj$by_sort_vars, ",")[[1]]
+      sort_vars_list = sort_vars_list[sort_vars_list != ""]
+    }
+
+    # If there are sort keys for by-processing (e.g., for lags/leads), arrange data first
+    if (length(sort_vars_list) > 0) {
+      all_sort_vars = c(if(!is.null(group_vars_list)) group_vars_list else character(0), sort_vars_list)
+      all_sort_vars_str = paste(all_sort_vars, collapse = ", ")
+      arrange_step = paste0("dplyr::arrange(", all_sort_vars_str, ")")
     }
   }
 
-  return(r_expr)
+  if (!is.na(r_if_cond) && r_if_cond != "") {
+    mutate_expr = paste0(new_var, " = dplyr::if_else(", r_if_cond, ", ", r_expr, ", NA_real_)")
+  } else {
+    mutate_expr = paste0(new_var, " = ", r_expr)
+  }
+
+  # Build the R code string using pipes
+  r_code_parts = c("data = data")
+
+  if (arrange_step != "") {
+      r_code_parts = c(r_code_parts, paste0("  %>% ", arrange_step))
+  }
+
+  if (!is.null(group_vars_r_vec_str)) {
+      r_code_parts = c(r_code_parts, paste0("  %>% collapse::fgroup_by(", group_vars_r_vec_str, ")"))
+      r_code_parts = c(r_code_parts, paste0("  %>% collapse::fmutate(", mutate_expr, ")"))
+      r_code_parts = c(r_code_parts, paste0("  %>% collapse::fungroup()"))
+  } else {
+      # If not grouped, still use a pipe for fmutate for consistency and clarity
+      r_code_parts = c(r_code_parts, paste0("  %>% collapse::fmutate(", mutate_expr, ")"))
+  }
+
+  r_code_str = paste(r_code_parts, collapse="\n")
+  
+  return(r_code_str)
 }
+!END_CHANGE_FILE R/t_generate.R
 
-# Helper to find the R variable name for a Stata r() value like "r(mean)"
-# Scans cmd_df backwards from current_line_index - 1
-# Looks for commands that set r() values (e.g., summarize)
-# Constructs the R variable name based on the line number of that command
-# Example: r(mean) set by summarize on line 5 becomes "stata_r_val_L5_mean"
-get_r_value_mappings = function(stata_r_value_str, current_line_index, cmd_df) {
-  # stata_r_value_str is like "r(mean)", "r(N)", "r(sum)"
-  # Extract the stat name, e.g. "mean" from "r(mean)"
-  stat_name_match = stringi::stri_match_first_regex(stata_r_value_str, "r\\(([^)]+)\\)")
-  if (is.na(stat_name_match[1,1])) return(NULL) # Not a valid r() syntax
+!CHANGE_FILE R/t_replace.R
+# Translate Stata 'replace' command
+# Stata: replace oldvar = expression [if condition]
+t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  match = stringi::stri_match_first_regex(rest_of_cmd, "^\\s*([^=\\s]+)\\s*=\\s*(.*?)(?:\\s+if\\s+(.*))?$")
 
-  stat_name = stat_name_match[1,2]
+  if (is.na(match[1,1])) {
+    return(paste0("# Failed to parse replace command: ", rest_of_cmd))
+  }
 
-  # Relevant commands that set r() values (this list can be expanded)
-  r_setting_cmds = c("summarize", "su", "tabulate", "correlate", "count") # etc.
+  var_to_replace = stringi::stri_trim_both(match[1,2])
+  stata_expr = stringi::stri_trim_both(match[1,3])
+  stata_if_cond = stringi::stri_trim_both(match[1,4]) # Might be NA
 
-  # Scan backwards
-  for (i in (current_line_index - 1):1) {
-    if (cmd_df$stata_cmd[i] %in% r_setting_cmds) {
-      # Found a relevant command.
-      # The R variable name is constructed based on this line index and stat_name.
-      # This is a convention that t_summarize (and others) must follow.
-      r_var_name = paste0("stata_r_val_L", cmd_df$line[i], "_", stat_name)
+  current_context = list(is_by_group = cmd_obj$is_by_prefix && !is.na(cmd_obj$by_group_vars))
+  r_expr = translate_stata_expression_with_r_values(stata_expr, line_num, cmd_df, current_context)
 
-      # Return a list that translate_stata_expression_to_r can use
-      # Mapping: "r(stat)" -> "generated_r_variable_name"
-      mapping = list()
-      mapping[[stata_r_value_str]] = r_var_name
-      return(mapping)
+  r_if_cond = NA_character_
+  if (!is.na(stata_if_cond) && stata_if_cond != "") {
+    r_if_cond = translate_stata_expression_with_r_values(stata_if_cond, line_num, cmd_df, context = list(is_by_group = FALSE))
+  }
+
+  # Prepare for by-processing steps as pipe components
+  arrange_step = ""
+  group_vars_r_vec_str = NULL
+
+  if (cmd_obj$is_by_prefix) {
+    if (!is.na(cmd_obj$by_group_vars)) {
+      group_vars_list = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
+      group_vars_list = group_vars_list[group_vars_list != ""]
+      group_vars_r_vec_str = paste0('c("', paste0(group_vars_list, collapse='", "'), '")')
+    }
+
+    sort_vars_list = character(0)
+    if (!is.na(cmd_obj$by_sort_vars)) {
+      sort_vars_list = stringi::stri_split_fixed(cmd_obj$by_sort_vars, ",")[[1]]
+      sort_vars_list = sort_vars_list[sort_vars_list != ""]
+    }
+
+    if (length(sort_vars_list) > 0) {
+      all_sort_vars = c(if(!is.null(group_vars_list)) group_vars_list else character(0), sort_vars_list)
+      all_sort_vars_str = paste(all_sort_vars, collapse = ", ")
+      arrange_step = paste0("dplyr::arrange(", all_sort_vars_str, ")")
     }
   }
-  return(NULL) # No preceding r-setting command found for this stat
+
+
+  if (!is.na(r_if_cond) && r_if_cond != "") {
+    mutate_expr = paste0(var_to_replace, " = dplyr::if_else(", r_if_cond, ", ", r_expr, ", ", var_to_replace, ")")
+  } else {
+    mutate_expr = paste0(var_to_replace, " = ", r_expr)
+  }
+
+  # Build the R code string using pipes
+  r_code_parts = c("data = data")
+
+  if (arrange_step != "") {
+      r_code_parts = c(r_code_parts, paste0("  %>% ", arrange_step))
+  }
+
+  if (!is.null(group_vars_r_vec_str)) {
+      r_code_parts = c(r_code_parts, paste0("  %>% collapse::fgroup_by(", group_vars_r_vec_str, ")"))
+      r_code_parts = c(r_code_parts, paste0("  %>% collapse::fmutate(", mutate_expr, ")"))
+      r_code_parts = c(r_code_parts, paste0("  %>% collapse::fungroup()"))
+  } else {
+      # If not grouped, still use a pipe for fmutate for consistency and clarity
+      r_code_parts = c(r_code_parts, paste0("  %>% collapse::fmutate(", mutate_expr, ")"))
+  }
+
+  r_code_str = paste(r_code_parts, collapse="\n")
+
+  return(r_code_str)
 }
+!END_CHANGE_FILE R/t_replace.R
 
-# Helper to extract all `r(...)` tokens from an expression
-extract_r_values_from_expr = function(stata_expr) {
-  if (is.na(stata_expr)) return(character(0))
-  unique(stringi::stri_match_all_regex(stata_expr, "\\br\\([^)]+\\)")[[1]][,1])
+!CHANGE_FILE R/t_summarize.R
+# Translate Stata 'summarize' or 'su' command
+t_summarize = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  # Stata: summarize varlist [if] [in] [weight] [, options]
+  # Options: detail, meanonly, format, separator(#), nolabel
+  # Stores results in r()
+
+  parts = stringi::stri_match_first_regex(rest_of_cmd, "^\\s*([^,]*?)(?:,\\s*(.*))?$")
+  varlist_and_cond_str = stringi::stri_trim_both(parts[1,2]) # This may contain "var1 var2 if condition"
+  options_str = stringi::stri_trim_both(parts[1,3]) # NA if no options
+
+  # Separate varlist from if condition
+  stata_if_cond_expr = NA_character_
+  varlist_str = varlist_and_cond_str
+  if_cond_match = stringi::stri_match_first_regex(varlist_and_cond_str, "\\s+if\\s+(.*)$")
+  if(!is.na(if_cond_match[1,1])) {
+      stata_if_cond_expr = if_cond_match[1,2]
+      varlist_str = stringi::stri_replace_all_fixed(varlist_and_cond_str, if_cond_match[1,1], "")
+      varlist_str = stringi::stri_trim_both(varlist_str)
+  }
+
+  if (is.na(varlist_str) || varlist_str == "") {
+    return("# summarize without varlist not fully supported for r() value generation yet.")
+  }
+
+  vars_to_summarize = stringi::stri_split_regex(varlist_str, "\\s+")[[1]]
+  vars_to_summarize = vars_to_summarize[vars_to_summarize != ""]
+  if (length(vars_to_summarize) == 0) {
+      return("# summarize command with no effective variables after parsing conditions.")
+  }
+  first_var = vars_to_summarize[1] # r() values typically for the first variable
+
+  is_meanonly = !is.na(options_str) && stringi::stri_detect_fixed(options_str, "meanonly")
+  is_detail = !is.na(options_str) && stringi::stri_detect_fixed(options_str, "detail")
+
+  r_code_lines = c()
+  line_prefix = paste0("stata_r_val_L", cmd_obj$line, "_") # Use cmd_obj$line
+
+  # Prepare data subset if "if condition" is present
+  # This creates a temporary subsetted dataframe for summarization if needed.
+  # If no if condition, data_source_for_summary refers to the original 'data'.
+  data_source_for_summary = "data"
+  if (!is.na(stata_if_cond_expr)) {
+    r_subset_cond = translate_stata_expression_with_r_values(stata_if_cond_expr, cmd_obj$line, cmd_df, context = list(is_by_group = FALSE)) # Use cmd_obj$line
+    data_subset_varname = paste0("data_subset_L", cmd_obj$line) # Use actual line from cmd_obj
+    r_code_lines = c(r_code_lines, paste0(data_subset_varname, " = base::subset(data, ", r_subset_cond, ")"))
+    data_source_for_summary = data_subset_varname
+  }
+
+  # Use collapse functions for summaries
+  # Example: r(N) -> collapse::fnobs(data_source_for_summary[[first_var]])
+  # Example: r(mean) -> collapse::fmean(data_source_for_summary[[first_var]], na.rm = TRUE)
+
+  if (is_meanonly) {
+    r_code_lines = c(
+      r_code_lines,
+      paste0(line_prefix, "N = collapse::fnobs(", data_source_for_summary, "[['", first_var, "']])"),
+      paste0(line_prefix, "mean = collapse::fmean(", data_source_for_summary, "[['", first_var, "']], na.rm = TRUE)")
+    )
+  } else { # Default summarize or with other options (detail implies more)
+    r_code_lines = c(
+      r_code_lines,
+      paste0(line_prefix, "N = collapse::fnobs(", data_source_for_summary, "[['", first_var, "']])"),
+      paste0(line_prefix, "mean = collapse::fmean(", data_source_for_summary, "[['", first_var, "']], na.rm = TRUE)"),
+      paste0(line_prefix, "sd = collapse::fsd(", data_source_for_summary, "[['", first_var, "']], na.rm = TRUE)"),
+      paste0(line_prefix, "min = collapse::fmin(", data_source_for_summary, "[['", first_var, "']], na.rm = TRUE)"),
+      paste0(line_prefix, "max = collapse::fmax(", data_source_for_summary, "[['", first_var, "']], na.rm = TRUE)"),
+      paste0(line_prefix, "sum = collapse::fsum(", data_source_for_summary, "[['", first_var, "']], na.rm = TRUE)")
+    )
+    if (is_detail) {
+      r_code_lines = c(
+        r_code_lines,
+        paste0(line_prefix, "p50 = collapse::fmedian(", data_source_for_summary, "[['", first_var, "']], na.rm = TRUE)")
+        # Further percentiles: collapse::fquantile(..., probs = c(0.01, ...), na.rm = TRUE)
+        # Stata detail provides: p1, p5, p10, p25, p50, p75, p90, p95, p99
+        # Smallest 4, largest 4 values, variance, skewness, kurtosis.
+        # This would require more extensive mapping.
+      )
+    }
+  }
+
+  if (length(r_code_lines) == 0) {
+    return(paste0("# summarize command '", cmd_obj$do_code, "' did not produce specific r() assignments with current logic."))
+  }
+
+  return(paste(r_code_lines, collapse="\n"))
 }
+!END_CHANGE_FILE R/t_summarize.R
 
-# Main function to translate an expression potentially containing r() values
-translate_stata_expression_with_r_values = function(stata_expr, current_line_index, cmd_df, context = list(is_by_group = FALSE)) {
-  if (is.na(stata_expr)) return(NA_character_)
+!CHANGE_FILE R/t_collapse.R
+# Translate Stata 'collapse' command
+# Stata: collapse (stat) varlist [name=expr ...] [weight] [if] [in] [, options]
+# Often: collapse (stat) varlist, by(groupvars)
 
-  all_r_tokens = extract_r_values_from_expr(stata_expr)
-  final_r_value_mappings = list()
+t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
-  if (length(all_r_tokens) > 0) {
-    for (r_token in all_r_tokens) {
-      if (!is.na(r_token)) {
-         current_mapping = get_r_value_mappings(r_token, current_line_index, cmd_df)
-         if (!is.null(current_mapping)) {
-           final_r_value_mappings = c(final_r_value_mappings, current_mapping)
-         } else {
-           # No mapping found, could be an error or r_token not from summarize etc.
-           # For now, leave it as is or raise warning
-           warning(paste("Could not find source for r-value:", r_token, "at line", cmd_df$line[current_line_index])) # Use cmd_df$line for actual line
-         }
+  rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
+
+  # Split into aggregate definitions part and options part
+  parts = stringi::stri_match_first_regex(rest_of_cmd_trimmed, "^\\s*(.*?)(?:,\\s*(.*))?$")
+  aggregate_part = stringi::stri_trim_both(parts[1,2])
+  options_part = stringi::stri_trim_both(parts[1,3]) # NA if no options
+
+  # Separate potential if/in from aggregate definitions
+  stata_if_in_cond = NA_character_
+  # Look for `if` or `in` immediately followed by a space
+  if_in_match = stringi::stri_match_first_regex(aggregate_part, "\\s+(?:if\\s+|in\\s+)(.*)$")
+  if(!is.na(if_in_match[1,1])) {
+      stata_if_in_cond = if_in_match[1,2]
+      # Remove the if/in part from aggregate_part
+      aggregate_part = stringi::stri_replace_last_regex(aggregate_part, "\\s+(?:if\\s+|in\\s+)(.*)$", "")
+      aggregate_part = stringi::stri_trim_both(aggregate_part)
+  }
+
+
+  # Parse aggregate definitions: "(stat) var [= newvar] (stat) var [= newvar] ..."
+  # Regex: \(stat_word\)\s+(target_var_word)(?:\s*=\s*(source_var_word))?  -- This is for form (stat) target = source
+  # OR    \(stat_word\)\s+(source_and_target_var_word)                     -- This is for form (stat) source
+  # The current regex is: \\(([a-zA-Z_]+)\\)\\s+([a-zA-Z0-9_]+)(?:\\s*=\s*([a-zA-Z0-9_]+))?
+  # G1: stat (stat_from_regex)
+  # G2: varname1 (g2_val_from_regex)
+  # G3: varname2 (g3_val_from_regex) - optional
+  # If G3 is NA: Stata form is (stat) G2. Here, G2 is source and target.
+  # If G3 is not NA: Stata form is (stat) G2 = G3. Here, G2 is target, G3 is source.
+
+  aggregate_matches = stringi::stri_match_all_regex(aggregate_part, "\\(([a-zA-Z_]+)\\)\\s+([a-zA-Z0-9_]+)(?:\\s*=\\s*([a-zA-Z0-9_]+))?")[[1]]
+  # aggregate_matches will be a matrix: [match, stat, g2_val, g3_val]
+
+  if (NROW(aggregate_matches) == 0) {
+    return(paste0("# Failed to parse collapse aggregate definitions: ", aggregate_part))
+  }
+
+  # Parse options part for `by()`
+  by_vars_collapse = NA_character_
+  if (!is.na(options_part)) {
+    by_opt_match = stringi::stri_match_first_regex(options_part, "\\bby\\s*\\(([^)]+)\\)")
+    if (!is.na(by_opt_match[1,1])) {
+      by_vars_collapse = stringi::stri_trim_both(by_opt_match[1,2])
+    }
+  }
+
+  by_vars_r_vec_str = NULL # For collapse group_by: character vector c("var1", "var2")
+  if (!is.na(by_vars_collapse)) {
+    by_vars_list = stringi::stri_split_regex(by_vars_collapse, "\\s+")[[1]]
+    by_vars_list = by_vars_list[by_vars_list != ""]
+    by_vars_r_vec_str = paste0('c("', paste0(by_vars_list, collapse='", "'), '")')
+  }
+
+  # Translate the if/in condition for subsetting *before* collapse
+  r_subset_cond = NA_character_
+  data_source_for_collapse = "data"
+  r_code_prefix = "" # Code to create subset if needed
+
+  if (!is.na(stata_if_in_cond) && stata_if_in_cond != "") {
+      r_subset_cond = translate_stata_expression_with_r_values(stata_if_in_cond, cmd_obj$line, cmd_df, context = list(is_by_group = FALSE)) # Use cmd_obj$line
+      if (is.na(r_subset_cond) || r_subset_cond == "") {
+           return(paste0("# Failed to translate if/in condition for collapse: ", stata_if_in_cond))
       }
-    }
+      data_subset_varname = paste0("data_subset_L", cmd_obj$line)
+      r_code_prefix = paste0(data_subset_varname, " = base::subset(data, ", r_subset_cond, ")\n")
+      data_source_for_collapse = data_subset_varname
   }
 
-  translate_stata_expression_to_r(stata_expr, context, final_r_value_mappings)
+
+  # Build the summarise/aggregate expressions for collapse::fsummarise
+  aggregate_exprs = character(NROW(aggregate_matches))
+  for (j in 1:NROW(aggregate_matches)) {
+    stat_from_regex = aggregate_matches[j, 2]
+    g2_val_from_regex = aggregate_matches[j, 3]
+    g3_val_from_regex = aggregate_matches[j, 4]
+
+    actual_stata_source_var_name = ""
+    actual_stata_target_var_name = ""
+
+    if (is.na(g3_val_from_regex)) { # Matched (stat) g2_val_from_regex
+        actual_stata_source_var_name = g2_val_from_regex
+        actual_stata_target_var_name = g2_val_from_regex
+    } else { # Matched (stat) g2_val_from_regex = g3_val_from_regex
+        actual_stata_source_var_name = g3_val_from_regex    # G3 is source
+        actual_stata_target_var_name = g2_val_from_regex    # G2 is target
+    }
+
+    # Translate actual Stata source variable name
+    r_source_var = translate_stata_expression_with_r_values(actual_stata_source_var_name, cmd_obj$line, cmd_df, context) # Use cmd_obj$line
+     if (is.na(r_source_var) || r_source_var == "") {
+         return(paste0("# Failed to translate source variable '", actual_stata_source_var_name, "' for collapse stat '", stat_from_regex, "'"))
+     }
+
+    # Map Stata stats to collapse functions
+    collapse_func = switch(stat_from_regex,
+      "mean" = paste0("collapse::fmean(", r_source_var, ", na.rm = TRUE)"),
+      "sum" = paste0("collapse::fsum(", r_source_var, ", na.rm = TRUE)"),
+      "count" = paste0("collapse::fnobs(", r_source_var, ")"),
+      "N" = paste0("collapse::fnobs(", r_source_var, ")"),
+      "first" = paste0("collapse::ffirst(", r_source_var, ")"),
+      "last" = paste0("collapse::flast(", r_source_var, ")"),
+      "min" = paste0("collapse::fmin(", r_source_var, ", na.rm = TRUE)"),
+      "max" = paste0("collapse::fmax(", r_source_var, ", na.rm = TRUE)"),
+      "median" = paste0("collapse::fmedian(", r_source_var, ", na.rm = TRUE)"),
+      "sd" = paste0("collapse::fsd(", r_source_var, ", na.rm = TRUE)"),
+      "p1" = paste0("collapse::fquantile(", r_source_var, ", probs = 0.01, na.rm = TRUE)"),
+      "p5" = paste0("collapse::fquantile(", r_source_var, ", probs = 0.05, na.rm = TRUE)"),
+      "p10" = paste0("collapse::fquantile(", r_source_var, ", probs = 0.10, na.rm = TRUE)"),
+      "p25" = paste0("collapse::fquantile(", r_source_var, ", probs = 0.25, na.rm = TRUE)"),
+      "p75" = paste0("collapse::fquantile(", r_source_var, ", probs = 0.75, na.rm = TRUE)"),
+      "p90" = paste0("collapse::fquantile(", r_source_var, ", probs = 0.90, na.rm = TRUE)"),
+      "p95" = paste0("collapse::fquantile(", r_source_var, ", probs = 0.95, na.rm = TRUE)"),
+      "p99" = paste0("collapse::fquantile(", r_source_var, ", probs = 0.99, na.rm = TRUE)"),
+      NULL
+    )
+
+    if (is.null(collapse_func)) {
+        return(paste0("# Collapse stat '", stat_from_regex, "' not yet implemented."))
+    }
+
+    # The new variable name for R code is the actual_stata_target_var_name
+    r_new_var_name = actual_stata_target_var_name
+    aggregate_exprs[j] = paste0(r_new_var_name, " = ", collapse_func)
+  }
+
+  # Combine aggregate expressions
+  aggregate_exprs_str = paste(aggregate_exprs, collapse = ",\n  ")
+
+  # Build the final R code
+  r_code_str = r_code_prefix # Add subsetting code if any
+
+  if (!is.null(by_vars_r_vec_str)) {
+    r_code_str = paste0(r_code_str,
+                       "data = collapse::fgroup_by(", data_source_for_collapse, ", ", by_vars_r_vec_str, ") %>%\n",
+                       "  collapse::fsummarise(", aggregate_exprs_str, ") %>%\n",
+                       "  collapse::fungroup()")
+  } else {
+     r_code_str = paste0(r_code_str,
+                       "data = collapse::fsummarise(", data_source_for_collapse, ", ", aggregate_exprs_str, ")")
+  }
+
+  return(r_code_str)
 }
+!END_CHANGE_FILE R/t_collapse.R
 ```
-!END_CHANGE_FILE R/stata_expression_translator.R

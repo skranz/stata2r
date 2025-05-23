@@ -873,8 +873,8 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*-\\s*(\\d+)\\]", "dplyr::lag($1, $2)")
   r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*\\+\\s*(\\d+)\\]", "dplyr::lead($1, $2)")
   r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\]", "$1")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_n\\b", "dplyr::row_number()")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_N\\b", if(context$is_by_group) "dplyr::n()" else "NROW(data)")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_n\\b", if(isTRUE(context$is_by_group)) ".i" else "dplyr::row_number()")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_N\\b", if(isTRUE(context$is_by_group)) ".N" else "NROW(data)")
 
   # Step 2: Iteratively translate Stata functions (e.g., cond(), round(), log(), etc.)
   # This loop handles nested function calls by repeatedly applying transformations.
@@ -3515,7 +3515,7 @@ R:  data = dplyr::arrange(data, group, i)
 
 do:  by group: gen seq = _n 
 R:  data = collapse::fgroup_by(data, c("group"))
-data = collapse::fmutate(data, seq = dplyr::row_number())
+data = collapse::fmutate(data, seq = .i)
 data = collapse::fungroup(data) 
 
 do:  gen logi = log(i) 
@@ -3670,9 +3670,9 @@ R:  haven::write_dta(data, path = "result_data.dta")
 
  3 data = collapse::fgroup_by(data, c("group"))
 
-data = collapse::fmutate(data, seq = dplyr::row_number())
+data = collapse::fmutate(data, seq = .i)
 
-Error: subscript out of bounds
+Error: object '.i' not found
 data = collapse::fungroup(data)
 
 ##############################
