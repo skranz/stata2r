@@ -101,6 +101,15 @@ aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="") {
     if (!is.null(r_data)) {
       dat_file = file.path(data_dir, paste0(data_prefix, original_stata_line_num, ".dta")) # Use original line number for comparison
       do_data = haven::read_dta(dat_file)
+      
+      # Apply Stata-like rounding to numeric columns of do_data for comparison
+      # This mimics the output precision of Stata's default 'float' type and display.
+      for (col_name in names(do_data)) {
+        if (is.numeric(do_data[[col_name]])) {
+          do_data[[col_name]] = sfun_stata_numeric_output_round(do_data[[col_name]])
+        }
+      }
+
       comp = compare_df(r_data, do_data)
       if (!comp$identical) {
         cat("\nError: After Stata line ", original_stata_line_num, ", R data set differs from Stata reference.\n")
@@ -225,4 +234,5 @@ compare_df = function(df1, df2,
   }
   out
 }
+
 
