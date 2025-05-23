@@ -559,8 +559,15 @@ sfun_strip_stata_attributes = function(x) {
   attr(x, "labels") = NULL
   # Remove "labelled" class if present, as it's specific to haven/labelled package
   attr(x, "class") = setdiff(class(x), "labelled")
+  # Remove Stata format attributes that are not typically preserved by Stata commands
+  attr(x, "format.stata") = NULL
+  attr(x, "display_label") = NULL # Often comes with format.stata
+  # Remove any other haven-specific attributes that might be added and are not standard R
+  attr(x, "na_values") = NULL # Stata extended missing values
+  attr(x, "na_range") = NULL  # Stata extended missing values
   return(x)
 }
+
 
 ```
 ### END OF FILE: sfun_strip_stata_attributes.R
@@ -1376,7 +1383,7 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Need to handle potential errors if the source variable isn't labelled correctly.
    r_code_lines = c(r_code_lines,
       paste0("## Decode values using haven::as_factor"),
-      paste0("__decoded_values_L", cmd_obj$line, " = sfun_strip_stata_attributes(as.character(haven::as_factor(data$", varname_str, ", levels = 'labels')))") # 'labels' uses value labels
+      paste0("__decoded_values_L", cmd_obj$line, " = as.character(haven::as_factor(data$", varname_str, ", levels = 'labels'))") # 'labels' uses value labels
    )
 
   # Apply the if/in condition for replacement
@@ -1386,19 +1393,21 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
            paste0("## Calculate condition flag"),
            paste0("__satisfies_cond_L", cmd_obj$line, " = ", r_if_in_cond),
            # Need to be careful with types in if_else. If gen_var is character, __decoded_values_L must be character.
-           paste0("data = dplyr::mutate(data, ", gen_var, " = sfun_strip_stata_attributes(dplyr::if_else(__satisfies_cond_L", cmd_obj$line, ", __decoded_values_L", cmd_obj$line, ", ", gen_var, ")))"), # Changed to dplyr::mutate
+           paste0("data = dplyr::mutate(data, ", gen_var, " = dplyr::if_else(__satisfies_cond_L", cmd_obj$line, ", __decoded_values_L", cmd_obj$line, ", ", gen_var, "))"), # Changed to dplyr::mutate
            paste0("rm(__satisfies_cond_L", cmd_obj$line, ")")
        )
   } else {
       # Replace values in gen_var for all rows
       r_code_lines = c(r_code_lines,
-           paste0("data = dplyr::mutate(data, ", gen_var, " = sfun_strip_stata_attributes(__decoded_values_L", cmd_obj$line, "))") # Changed to dplyr::mutate
+           paste0("data = dplyr::mutate(data, ", gen_var, " = __decoded_values_L", cmd_obj$line, ")") # Changed to dplyr::mutate
       )
   }
 
   # Clean up temporary variable
   r_code_lines = c(r_code_lines, paste0("rm(__decoded_values_L", cmd_obj$line, ")"))
 
+  # Apply attribute stripping to the newly created variable
+  r_code_lines = c(r_code_lines, paste0("data$", gen_var, " = sfun_strip_stata_attributes(data$", gen_var, ")"))
 
   r_code_str = paste(r_code_lines, collapse="\n")
 
@@ -1417,6 +1426,7 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
+
 
 ```
 ### END OF FILE: t_decode.R
@@ -1538,14 +1548,22 @@ t_destring = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
            final_value_expr = destrung_value_expr
       }
 
-      mutate_exprs[k] = paste0(new_var, " = sfun_strip_stata_attributes(", final_value_expr, ")")
+      mutate_exprs[k] = paste0(new_var, " = ", final_value_expr)
   }
 
    # Combine mutate expressions
   mutate_exprs_str = paste(mutate_exprs, collapse = ",\n  ")
 
   # Build the final R code using dplyr::mutate
-  r_code_str = paste0("data = dplyr::mutate(data, ", mutate_exprs_str, ")") # Changed to dplyr::mutate
+  r_code_lines = c(paste0("data = dplyr::mutate(data, ", mutate_exprs_str, ")")) # Changed to dplyr::mutate
+
+  # Apply attribute stripping to the newly created/modified variables
+  for (new_var in new_vars) {
+      r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_strip_stata_attributes(data$", new_var, ")"))
+  }
+
+
+  r_code_str = paste(r_code_lines, collapse="\n")
 
   # Add comment about options if any were present but not handled (excluding generate/replace)
    options_str_cleaned = options_str
@@ -1566,6 +1584,7 @@ t_destring = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
+
 
 ```
 ### END OF FILE: t_destring.R
@@ -1710,7 +1729,7 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   }
 
 
-  r_code_str = ""
+  r_code_lines = c()
 
   if (subcommand == "drop") {
       # Calculate the condition vector
@@ -1725,6 +1744,7 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
       }
 
       r_code_lines = c(
+          r_code_lines,
           paste0("## Calculate duplicate flag based on ", comment_vars_part),
           paste0("__is_duplicate_L", cmd_obj$line, " = ", is_duplicate_expr),
           paste0("## Calculate condition flag"),
@@ -1732,7 +1752,6 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
           paste0("data = dplyr::filter(data, !(__is_duplicate_L", cmd_obj$line, " & __satisfies_cond_L", cmd_obj$line, "))"),
           paste0("rm(__is_duplicate_L", cmd_obj$line, ", __satisfies_cond_L", cmd_obj$line, ")")
       )
-       r_code_str = paste(r_code_lines, collapse="\n")
 
 
   } else if (subcommand == "tag") {
@@ -1760,14 +1779,16 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
       }
 
        r_code_lines = c(
+          r_code_lines,
           paste0("## Calculate first occurrence flag based on ", comment_vars_part),
           paste0("__is_first_L", cmd_obj$line, " = ", is_first_occurrence_expr),
           paste0("## Calculate condition flag"),
           paste0("__satisfies_cond_L", cmd_obj$line, " = ", cond_vector_expr),
-          paste0("data = dplyr::mutate(data, ", gen_var, " = sfun_strip_stata_attributes(dplyr::if_else(__is_first_L", cmd_obj$line, " & __satisfies_cond_L", cmd_obj$line, ", 1, 0)))"),
-          paste0("rm(__is_first_L", cmd_obj$line, ", __satisfies_cond_L", cmd_obj$line, ")")
+          paste0("data = dplyr::mutate(data, ", gen_var, " = dplyr::if_else(__is_first_L", cmd_obj$line, " & __satisfies_cond_L", cmd_obj$line, ", 1, 0))"),
+          paste0("rm(__is_first_L", cmd_obj$line, ", __satisfies_cond_L", cmd_obj$line, ")"),
+          # Apply attribute stripping after mutate
+          paste0("data$", gen_var, " = sfun_strip_stata_attributes(data$", gen_var, ")")
        )
-      r_code_str = paste(r_code_lines, collapse="\n")
 
   } else if (subcommand == "list") {
        cond_vector_expr = if (!is.na(r_subset_cond) && r_subset_cond != "") r_subset_cond else "TRUE"
@@ -1780,6 +1801,7 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
       }
 
        r_code_lines = c(
+          r_code_lines,
           paste0("## Calculate duplicate flag based on ", comment_vars_part),
           paste0("__is_duplicate_L", cmd_obj$line, " = ", is_duplicate_expr),
           paste0("## Calculate condition flag"),
@@ -1788,11 +1810,12 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
           paste0("print(data_duplicates_L", cmd_obj$line, ")"),
           paste0("rm(__is_duplicate_L", cmd_obj$line, ", __satisfies_cond_L", cmd_obj$line, ", data_duplicates_L", cmd_obj$line, ")")
        )
-      r_code_str = paste(r_code_lines, collapse="\n")
 
   } else {
-      r_code_str = paste0("# Unknown duplicates subcommand: ", subcommand)
+      r_code_lines = c(r_code_lines, paste0("# Unknown duplicates subcommand: ", subcommand))
   }
+
+  r_code_str = paste(r_code_lines, collapse="\n")
 
    options_str_cleaned = options_str
    if (subcommand == "tag" && !is.na(options_str_cleaned)) {
@@ -1807,6 +1830,7 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   return(r_code_str)
 }
+
 
 ```
 ### END OF FILE: t_duplicates.R
@@ -1982,28 +2006,27 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     }
   }
 
-  # Translate egen function
-  # Resulting expression for mutate: `new_var = R_EQUIVALENT_EXPRESSION`
-  mutate_value_expr = ""
+  # Translate egen function into an R expression for calculation
+  calc_expr = ""
   is_row_function = FALSE # Flag for functions like rowtotal, rowmean that don't use group_by
 
 
   # Switch for egen functions
   if (egen_func_name == "mean") {
-    mutate_value_expr = paste0("mean(", r_egen_args_conditional, ", na.rm = TRUE)")
+    calc_expr = paste0("mean(", r_egen_args_conditional, ", na.rm = TRUE)")
   } else if (egen_func_name == "total" || egen_func_name == "sum") {
-    mutate_value_expr = paste0("sum(", r_egen_args_conditional, ", na.rm = TRUE)")
+    calc_expr = paste0("sum(", r_egen_args_conditional, ", na.rm = TRUE)")
   } else if (egen_func_name == "count") {
     # count(exp) counts non-missing results of exp. If exp is varname, sum(!is.na(varname)).
     # If exp is complex, sum(eval(parse(text=r_egen_args_conditional)) != 0 & !is.na(eval(parse(text=r_egen_args_conditional))))
     # Assuming r_egen_args_conditional results in a numeric or logical vector
-    mutate_value_expr = paste0("sum(!is.na(", r_egen_args_conditional, "))")
+    calc_expr = paste0("sum(!is.na(", r_egen_args_conditional, "))")
   } else if (egen_func_name == "rank") {
-    mutate_value_expr = paste0("dplyr::min_rank(", r_egen_args_conditional, ")")
+    calc_expr = paste0("dplyr::min_rank(", r_egen_args_conditional, ")")
   } else if (egen_func_name == "median" || egen_func_name == "p50") {
-    mutate_value_expr = paste0("median(", r_egen_args_conditional, ", na.rm = TRUE)")
+    calc_expr = paste0("median(", r_egen_args_conditional, ", na.rm = TRUE)")
   } else if (egen_func_name == "sd" || egen_func_name == "std") {
-    mutate_value_expr = paste0("sd(", r_egen_args_conditional, ", na.rm = TRUE)")
+    calc_expr = paste0("sd(", r_egen_args_conditional, ", na.rm = TRUE)")
   } else if (egen_func_name == "group" || egen_func_name == "tag") {
     # For 'group' and 'tag', the effective grouping for dplyr::group_by is the combination
     # of the 'by' prefix/option variables and the variables in the egen function arguments.
@@ -2021,12 +2044,12 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
     if (egen_func_name == "group") {
         # dplyr::cur_group_id() gives integer for each group.
-        mutate_value_expr = paste0("dplyr::cur_group_id()")
+        calc_expr = paste0("dplyr::cur_group_id()")
     } else if (egen_func_name == "tag") {
         # Stata `tag` flags the first obs in each group defined by `varlist` (and `by` prefix if any).
         # This is `_n==1` after sorting by all these variables.
         # _n is translated by stata_expression_translator_to_r, which will use collapse::fseq() if grouped.
-        mutate_value_expr = paste0("as.integer(dplyr::row_number() == 1)") # This will be translated to fseq() if grouped.
+        calc_expr = paste0("as.integer(dplyr::row_number() == 1)") # This will be translated to fseq() if grouped.
     }
   } else if (egen_func_name == "rowtotal") {
     vars_for_rowop_list = stringi::stri_split_regex(r_egen_args, "\\s+")[[1]] # Use non-conditional args here
@@ -2035,37 +2058,39 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
     # Stata rowtotal treats NA as 0 *before* summing.
     # Using rowSums on a selection of columns after replacing NA with 0.
-    mutate_value_expr = paste0("rowSums(tidyr::replace_na(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(", vars_for_rowop_r_vec_str, ")), 0), na.rm = FALSE)") # na.rm=FALSE because we replaced NA with 0
+    calc_expr = paste0("rowSums(tidyr::replace_na(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(", vars_for_rowop_r_vec_str, ")), 0), na.rm = FALSE)") # na.rm=FALSE because we replaced NA with 0
     is_row_function = TRUE; by_vars_for_group_by = NULL # Row functions don't use grouping in the same way
   } else if (egen_func_name == "rowmean") {
     vars_for_rowop_list = stringi::stri_split_regex(r_egen_args, "\\s+")[[1]] # Use non-conditional args here
     vars_for_rowop_list = vars_for_rowop_list[vars_for_rowop_list != ""]
     vars_for_rowop_r_vec_str = paste0('c("', paste(vars_for_rowop_list, collapse='", "'), '")')
 
-    mutate_value_expr = paste0("rowMeans(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(", vars_for_rowop_r_vec_str, ")), na.rm = TRUE)")
+    calc_expr = paste0("rowMeans(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(", vars_for_rowop_r_vec_str, ")), na.rm = TRUE)")
     is_row_function = TRUE; by_vars_for_group_by = NULL
   } else {
     return(paste0("# Egen function '", egen_func_name, "' not yet implemented."))
   }
 
-  # Apply attribute stripping
-  mutate_value_expr = paste0("sfun_strip_stata_attributes(", mutate_value_expr, ")")
-
   # Combine into a mutate statement
-  full_mutate_expr = paste0(new_var, " = ", mutate_value_expr)
+  full_mutate_expr = paste0(new_var, " = ", calc_expr)
 
   # Build the R command string using pipes
-  r_code_str = "data = "
+  r_code_lines = c("data = ")
 
   if (!is.null(by_vars_for_group_by) && length(by_vars_list_unquoted) > 0 && !is_row_function) {
-    r_code_str = paste0(r_code_str, "data %>%\n",
+    r_code_lines = c(r_code_lines,
+                        "data %>%\n",
                         "  dplyr::group_by(dplyr::across(", by_vars_for_group_by, ")) %>%\n",
                         "  dplyr::mutate(", full_mutate_expr, ") %>%\n",
                         "  dplyr::ungroup()")
   } else {
-    r_code_str = paste0(r_code_str, "data %>%\n",
+    r_code_lines = c(r_code_lines,
+                        "data %>%\n",
                         "  dplyr::mutate(", full_mutate_expr, ")")
   }
+
+  # Apply attribute stripping after mutate
+  r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_strip_stata_attributes(data$", new_var, ")"))
 
    # Add comment about options if any were present but not handled (excluding by)
    options_str_cleaned = options_str
@@ -2076,12 +2101,13 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
    }
 
    if (!is.na(options_str_cleaned) && options_str_cleaned != "") {
-        r_code_str = paste0(r_code_str, paste0(" # Other options ignored: ", options_str_cleaned))
+        r_code_lines = c(r_code_lines, paste0(" # Other options ignored: ", options_str_cleaned))
    }
 
 
-  return(r_code_str)
+  return(paste(r_code_lines, collapse="\n"))
 }
+
 
 ```
 ### END OF FILE: t_egen.R
@@ -2166,13 +2192,9 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       # Generate the new variable initialized to NA (Stata missing)
       # Using dplyr::mutate
       paste0("data = dplyr::mutate(data, ", gen_var, " = NA_integer_)"), # Changed to dplyr::mutate
-      # Apply encode logic only to rows meeting the condition (or all rows if no condition)
-      # Need to select relevant rows and the variable, calculate encoded values, then replace.
-
       # Calculate encoded values: factor() on the source variable
       paste0("__encoded_values_L", cmd_obj$line, " = as.integer(base::factor(data$", varname_str, ", levels = base::unique(data$", varname_str, "[base::order(data$", varname_str, ")])))")
       # Note: base::factor default levels are sorted unique values, matching Stata behavior.
-
    )
 
   # Apply the if/in condition for replacement
@@ -2194,10 +2216,8 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Clean up temporary variable
   r_code_lines = c(r_code_lines, paste0("rm(__encoded_values_L", cmd_obj$line, ")"))
 
-  # Add value labels to the new factor column for completeness/diagnostics if using haven/labelled
-  # This requires retrieving the original labels/levels.
-  # R factor stores levels. haven::labelled can store value labels.
-  # For now, just perform the numeric conversion.
+  # Apply attribute stripping to the newly created variable
+  r_code_lines = c(r_code_lines, paste0("data$", gen_var, " = sfun_strip_stata_attributes(data$", gen_var, ")"))
 
   r_code_str = paste(r_code_lines, collapse="\n")
 
@@ -2216,6 +2236,7 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
+
 
 ```
 ### END OF FILE: t_encode.R
@@ -2386,35 +2407,41 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     }
   }
 
-  # Construct the mutate expression based on if condition
+  # Step 1: Calculate the value for the new variable, potentially conditionally
+  # Do not strip attributes here, let mutate propagate them, then strip from the final column
   if (!is.na(r_if_cond) && r_if_cond != "") {
-    mutate_expr = paste0(new_var, " = sfun_strip_stata_attributes(dplyr::if_else(", r_if_cond, ", ", r_expr, ", NA))")
+    calc_expr = paste0("dplyr::if_else(", r_if_cond, ", ", r_expr, ", NA)")
   } else {
-    mutate_expr = paste0(new_var, " = sfun_strip_stata_attributes(", r_expr, ")")
+    calc_expr = r_expr
   }
-
-  # Build the R code string using pipes
-  r_code_str = "data = "
+  
+  # Step 2: Build the R code string using pipes for the mutate operation
+  r_code_lines = c()
+  r_code_lines = c(r_code_lines, "data = ")
 
   # Start with data or data after arrange
   if (arrange_call != "") {
-      r_code_str = paste0(r_code_str, arrange_call)
+      r_code_lines = c(r_code_lines, arrange_call)
   } else {
-      r_code_str = paste0(r_code_str, "data")
+      r_code_lines = c(r_code_lines, "data")
   }
 
   # Add grouping and mutate steps
   if (!is.null(group_vars_r_vec_str) && length(group_vars_list) > 0) {
-      r_code_str = paste0(r_code_str, " %>%\n  dplyr::group_by(dplyr::across(", group_vars_r_vec_str, "))")
-      r_code_str = paste0(r_code_str, " %>%\n  dplyr::mutate(", mutate_expr, ")")
-      r_code_str = paste0(r_code_str, " %>%\n  dplyr::ungroup()")
+      r_code_lines = c(r_code_lines, paste0(" %>%\n  dplyr::group_by(dplyr::across(", group_vars_r_vec_str, "))"))
+      r_code_lines = c(r_code_lines, paste0(" %>%\n  dplyr::mutate(", new_var, " = ", calc_expr, ")"))
+      r_code_lines = c(r_code_lines, " %>%\n  dplyr::ungroup()")
   } else {
       # If not grouped, just add the mutate step directly to the pipe chain
-      r_code_str = paste0(r_code_str, " %>%\n  dplyr::mutate(", mutate_expr, ")")
+      r_code_lines = c(r_code_lines, paste0(" %>%\n  dplyr::mutate(", new_var, " = ", calc_expr, ")"))
   }
   
-  return(r_code_str)
+  # Step 3: Strip Stata-specific attributes from the newly created/modified column
+  r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_strip_stata_attributes(data$", new_var, ")"))
+  
+  return(paste(r_code_lines, collapse="\n"))
 }
+
 
 ```
 ### END OF FILE: t_generate.R
@@ -3036,32 +3063,38 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     }
   }
 
-
+  # Step 1: Calculate the value for replacement, potentially conditionally
+  # Do not strip attributes here, let mutate propagate them, then strip from the final column
   if (!is.na(r_if_cond) && r_if_cond != "") {
-    mutate_expr = paste0(var_to_replace, " = sfun_strip_stata_attributes(dplyr::if_else(", r_if_cond, ", ", r_expr, ", ", var_to_replace, "))")
+    calc_expr = paste0("dplyr::if_else(", r_if_cond, ", ", r_expr, ", ", var_to_replace, ")")
   } else {
-    mutate_expr = paste0(var_to_replace, " = sfun_strip_stata_attributes(", r_expr, ")")
+    calc_expr = r_expr
   }
 
-  # Build the R code string using pipes
-  r_code_str = "data = "
+  # Step 2: Build the R code string using pipes for the mutate operation
+  r_code_lines = c()
+  r_code_lines = c(r_code_lines, "data = ")
 
   if (arrange_call != "") {
-      r_code_str = paste0(r_code_str, arrange_call)
+      r_code_lines = c(r_code_lines, arrange_call)
   } else {
-      r_code_str = paste0(r_code_str, "data")
+      r_code_lines = c(r_code_lines, "data")
   }
 
   if (!is.null(group_vars_r_vec_str) && length(group_vars_list) > 0) {
-      r_code_str = paste0(r_code_str, " %>%\n  dplyr::group_by(dplyr::across(", group_vars_r_vec_str, "))")
-      r_code_str = paste0(r_code_str, " %>%\n  dplyr::mutate(", mutate_expr, ")")
-      r_code_str = paste0(r_code_str, " %>%\n  dplyr::ungroup()")
+      r_code_lines = c(r_code_lines, paste0(" %>%\n  dplyr::group_by(dplyr::across(", group_vars_r_vec_str, "))"))
+      r_code_lines = c(r_code_lines, paste0(" %>%\n  dplyr::mutate(", var_to_replace, " = ", calc_expr, ")"))
+      r_code_lines = c(r_code_lines, " %>%\n  dplyr::ungroup()")
   } else {
-      r_code_str = paste0(r_code_str, " %>%\n  dplyr::mutate(", mutate_expr, ")")
+      r_code_lines = c(r_code_lines, paste0(" %>%\n  dplyr::mutate(", var_to_replace, " = ", calc_expr, ")"))
   }
 
-  return(r_code_str)
+  # Step 3: Strip Stata-specific attributes from the modified column
+  r_code_lines = c(r_code_lines, paste0("data$", var_to_replace, " = sfun_strip_stata_attributes(data$", var_to_replace, ")"))
+
+  return(paste(r_code_lines, collapse="\n"))
 }
+
 
 ```
 ### END OF FILE: t_replace.R
@@ -3599,46 +3632,89 @@ do:  display _n
   no data manipulation command
 
 do:  by group: gen seq = _n 
-R:  data = data %>%
-  dplyr::group_by(dplyr::across(c("group"))) %>%
-  dplyr::mutate(seq = sfun_strip_stata_attributes(as.numeric(dplyr::row_number()))) %>%
-  dplyr::ungroup() 
+R:  data = 
+data
+ %>%
+  dplyr::group_by(dplyr::across(c("group")))
+ %>%
+  dplyr::mutate(seq = as.numeric(dplyr::row_number()))
+ %>%
+  dplyr::ungroup()
+data$seq = sfun_strip_stata_attributes(data$seq) 
 
 do:  gen logi = log(i) 
-R:  data = data %>%
-  dplyr::mutate(logi = sfun_strip_stata_attributes(log(i))) 
+R:  data = 
+data
+ %>%
+  dplyr::mutate(logi = log(i))
+data$logi = sfun_strip_stata_attributes(data$logi) 
 
 do:  gen sqrt_i = sqrt(i) 
-R:  data = data %>%
-  dplyr::mutate(sqrt_i = sfun_strip_stata_attributes(sqrt(i))) 
+R:  data = 
+data
+ %>%
+  dplyr::mutate(sqrt_i = sqrt(i))
+data$sqrt_i = sfun_strip_stata_attributes(data$sqrt_i) 
 
 do:  gen group_num = cond(group=="A",1,cond(group=="B",2,3)) 
-R:  data = data %>%
-  dplyr::mutate(group_num = sfun_strip_stata_attributes(dplyr::if_else(group=="A", 1, dplyr::if_else(group=="B", 2, 3)))) 
+R:  data = 
+data
+ %>%
+  dplyr::mutate(group_num = dplyr::if_else(group=="A", 1, dplyr::if_else(group=="B", 2, 3)))
+data$group_num = sfun_strip_stata_attributes(data$group_num) 
 
 do:  egen mean_i_grp = mean(i), by(group) 
-R:  data = data %>%
-  dplyr::group_by(dplyr::across(c("group"))) %>%
-  dplyr::mutate(mean_i_grp = sfun_strip_stata_attributes(mean(i, na.rm = TRUE))) %>%
-  dplyr::ungroup() 
+R:  data = 
+data %>%
+
+  dplyr::group_by(dplyr::across(
+c("group")
+)) %>%
+
+  dplyr::mutate(
+mean_i_grp = mean(i, na.rm = TRUE)
+) %>%
+
+  dplyr::ungroup()
+data$mean_i_grp = sfun_strip_stata_attributes(data$mean_i_grp) 
 
 do:  egen total_i = total(i) 
-R:  data = data %>%
-  dplyr::mutate(total_i = sfun_strip_stata_attributes(sum(i, na.rm = TRUE))) 
+R:  data = 
+data %>%
+
+  dplyr::mutate(
+total_i = sum(i, na.rm = TRUE)
+)
+data$total_i = sfun_strip_stata_attributes(data$total_i) 
 
 do:  bysort group: egen rank_i = rank(i) 
-R:  data = data %>%
-  dplyr::group_by(dplyr::across(c("group"))) %>%
-  dplyr::mutate(rank_i = sfun_strip_stata_attributes(dplyr::min_rank(i))) %>%
-  dplyr::ungroup() 
+R:  data = 
+data %>%
+
+  dplyr::group_by(dplyr::across(
+c("group")
+)) %>%
+
+  dplyr::mutate(
+rank_i = dplyr::min_rank(i)
+) %>%
+
+  dplyr::ungroup()
+data$rank_i = sfun_strip_stata_attributes(data$rank_i) 
 
 do:  gen flag = (i>20) if group=="A" 
-R:  data = data %>%
-  dplyr::mutate(flag = sfun_strip_stata_attributes(dplyr::if_else(group=="A", (i>20), NA))) 
+R:  data = 
+data
+ %>%
+  dplyr::mutate(flag = dplyr::if_else(group=="A", (i>20), NA))
+data$flag = sfun_strip_stata_attributes(data$flag) 
 
 do:  replace flag = 0 if missing(flag) 
-R:  data = data %>%
-  dplyr::mutate(flag = sfun_strip_stata_attributes(dplyr::if_else(is.na(flag), 0, flag))) 
+R:  data = 
+data
+ %>%
+  dplyr::mutate(flag = dplyr::if_else(is.na(flag), 0, flag))
+data$flag = sfun_strip_stata_attributes(data$flag) 
 
 do:  keep if flag==1 | group=="B" 
 R:  data = dplyr::filter(data, flag==1 | group=="B") 
@@ -3676,14 +3752,16 @@ do:  encode group, gen(group_code)
 R:  data = dplyr::mutate(data, group_code = NA_integer_)
 __encoded_values_L21 = as.integer(base::factor(data$group, levels = base::unique(data$group[base::order(data$group)])))
 data = dplyr::mutate(data, group_code = __encoded_values_L21)
-rm(__encoded_values_L21) 
+rm(__encoded_values_L21)
+data$group_code = sfun_strip_stata_attributes(data$group_code) 
 
 do:  decode group_code, gen(group_str) 
 R:  data = dplyr::mutate(data, group_str = NA_character_)
 ## Decode values using haven::as_factor
-__decoded_values_L22 = sfun_strip_stata_attributes(as.character(haven::as_factor(data$group_code, levels = 'labels')))
-data = dplyr::mutate(data, group_str = sfun_strip_stata_attributes(__decoded_values_L22))
-rm(__decoded_values_L22) 
+__decoded_values_L22 = as.character(haven::as_factor(data$group_code, levels = 'labels'))
+data = dplyr::mutate(data, group_str = __decoded_values_L22)
+rm(__decoded_values_L22)
+data$group_str = sfun_strip_stata_attributes(data$group_str) 
 
 do:  sort group_code 
 R:  data = dplyr::arrange(data, group_code) 
@@ -3704,14 +3782,22 @@ do:  append using "`t1'"
 R:  data = collapse::fbind(data, haven::read_dta(file.path(stata2r_env$data_dir, "`t1'"))) 
 
 do:  gen id = _n 
-R:  data = data %>%
-  dplyr::mutate(id = sfun_strip_stata_attributes(as.numeric(dplyr::row_number()))) 
+R:  data = 
+data
+ %>%
+  dplyr::mutate(id = as.numeric(dplyr::row_number()))
+data$id = sfun_strip_stata_attributes(data$id) 
 
 do:  bysort group_code (mean_i_overall): gen diff_mean = mean_i_overall - mean_i_overall[_n-1] 
-R:  data = dplyr::arrange(data, group_code, mean_i_overall) %>%
-  dplyr::group_by(dplyr::across(c("group_code"))) %>%
-  dplyr::mutate(diff_mean = sfun_strip_stata_attributes(mean_i_overall - collapse::froll_lag(mean_i_overall, 1))) %>%
-  dplyr::ungroup() 
+R:  data = 
+dplyr::arrange(data, group_code, mean_i_overall)
+ %>%
+  dplyr::group_by(dplyr::across(c("group_code")))
+ %>%
+  dplyr::mutate(diff_mean = mean_i_overall - collapse::froll_lag(mean_i_overall, 1))
+ %>%
+  dplyr::ungroup()
+data$diff_mean = sfun_strip_stata_attributes(data$diff_mean) 
 
 do:  recode group_code (1=10)(2=20)(3=30) 
 R:  data = dplyr::mutate(data, group_code = dplyr::case_when(
@@ -3733,12 +3819,20 @@ R:  data = data %>%
   dplyr::ungroup() 
 
 do:  egen total_sum = total(sum_mean) 
-R:  data = data %>%
-  dplyr::mutate(total_sum = sfun_strip_stata_attributes(sum(sum_mean, na.rm = TRUE))) 
+R:  data = 
+data %>%
+
+  dplyr::mutate(
+total_sum = sum(sum_mean, na.rm = TRUE)
+)
+data$total_sum = sfun_strip_stata_attributes(data$total_sum) 
 
 do:  gen proportion = sum_mean/total_sum 
-R:  data = data %>%
-  dplyr::mutate(proportion = sfun_strip_stata_attributes(sum_mean/total_sum)) 
+R:  data = 
+data
+ %>%
+  dplyr::mutate(proportion = sum_mean/total_sum)
+data$proportion = sfun_strip_stata_attributes(data$proportion) 
 
 do:  sort proportion 
 R:  data = dplyr::arrange(data, proportion) 
@@ -3769,58 +3863,41 @@ data = dplyr::slice(data, 1:39)
  5 R:  # No-op: Data unchanged from previous step by this command. 
 # No-op: Data unchanged from previous step by this command.
 
- 6 R:  data = data %>%
-  dplyr::group_by(dplyr::across(c("group"))) %>%
-  dplyr::mutate(seq = sfun_strip_stata_attributes(as.numeric(dplyr::row_number()))) %>%
-  dplyr::ungroup() 
-data = data %>%
-  dplyr::group_by(dplyr::across(c("group"))) %>%
-  dplyr::mutate(seq = sfun_strip_stata_attributes(as.numeric(dplyr::row_number()))) %>%
+ 6 R:  data = 
+data
+ %>%
+  dplyr::group_by(dplyr::across(c("group")))
+ %>%
+  dplyr::mutate(seq = as.numeric(dplyr::row_number()))
+ %>%
   dplyr::ungroup()
-
- 7 R:  data = data %>%
-  dplyr::mutate(logi = sfun_strip_stata_attributes(log(i))) 
-data = data %>%
-  dplyr::mutate(logi = sfun_strip_stata_attributes(log(i)))
-
-Error: After Stata line  7 , R data set differs from Stata reference.
-
-R data set:
-tibble [39 × 4] (S3: tbl_df/tbl/data.frame)
- $ i    : num [1:39] 10 13 16 19 20 21 22 27 31 34 ...
-  ..- attr(*, "label")= chr "i"
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ group: chr [1:39] "A" "A" "A" "A" ...
-  ..- attr(*, "label")= chr "group"
-  ..- attr(*, "format.stata")= chr "%1s"
- $ seq  : num [1:39] 1 2 3 4 5 6 7 8 9 10 ...
- $ logi : num [1:39] 2.3 2.56 2.77 2.94 3 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
-NULL
-
-Stata version:
-tibble [39 × 4] (S3: tbl_df/tbl/data.frame)
- $ i    : num [1:39] 10 13 16 19 20 21 22 27 31 34 ...
-  ..- attr(*, "label")= chr "i"
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ group: chr [1:39] "A" "A" "A" "A" ...
-  ..- attr(*, "label")= chr "group"
-  ..- attr(*, "format.stata")= chr "%1s"
- $ seq  : num [1:39] 1 2 3 4 5 6 7 8 9 10 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ logi : num [1:39] 2.3 2.56 2.77 2.94 3 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- - attr(*, "label")= chr "Written by R."
-NULL
-
-Differences:List of 2
- $ identical     : logi FALSE
- $ value_mismatch:'data.frame':	5 obs. of  4 variables:
-  ..$ row      : int [1:5] 1 2 4 5 6
-  ..$ column   : chr [1:5] "logi" "logi" "logi" "logi" ...
-  ..$ df1_value: num [1:5] 2.3 2.56 2.94 3 3.04
-  ..$ df2_value: num [1:5] 2.3 2.56 2.94 3 3.04
-NULL
+data$seq = sfun_strip_stata_attributes(data$seq) 
+data = 
+data
+ %>%
+  dplyr::group_by(dplyr::across(c("group")))
+ %>%
+  dplyr::mutate(seq = as.numeric(dplyr::row_number()))
+ %>%
+  dplyr::ungroup()
+data$seq = sfun_strip_stata_attributes(data$seq)
+Error: <text>:3:2: unexpected SPECIAL
+2: data
+3:  %>%
+    ^
+Error executing R code for Stata line  6 :  data = 
+data
+ %>%
+  dplyr::group_by(dplyr::across(c("group")))
+ %>%
+  dplyr::mutate(seq = as.numeric(dplyr::row_number()))
+ %>%
+  dplyr::ungroup()
+data$seq = sfun_strip_stata_attributes(data$seq)
+Error: <text>:3:2: unexpected SPECIAL
+2: data
+3:  %>%
+    ^ 
 
 ##############################
 # YOUR TASK
