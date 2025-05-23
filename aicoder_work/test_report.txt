@@ -109,7 +109,7 @@ R:  ## Calculate duplicate flag based on all variables
 __is_duplicate_L17 = base::duplicated(data, fromLast = FALSE)
 ## Calculate condition flag
 __satisfies_cond_L17 = TRUE
-data = base::subset(data, !(__is_duplicate_L17 & __satisfies_cond_L17))
+data = dplyr::filter(data, !(__is_duplicate_L17 & __satisfies_cond_L17))
 rm(__is_duplicate_L17, __satisfies_cond_L17) 
 
 do:  encode group, gen(group_code) 

@@ -1657,7 +1657,7 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
       # Create a temporary subset variable
       data_subset_varname = paste0("data_subset_L", cmd_obj$line) # Use actual line from cmd_obj
-      r_code_prefix = paste0(data_subset_varname, " = base::subset(data, ", r_subset_cond, ")\n")
+      r_code_prefix = paste0(data_subset_varname, " = dplyr::filter(data, ", r_subset_cond, ")\n")
       data_source_for_duplicates = data_subset_varname
   }
 
@@ -1681,7 +1681,7 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
           paste0("__is_duplicate_L", cmd_obj$line, " = ", is_duplicate_expr),
           paste0("## Calculate condition flag"),
           paste0("__satisfies_cond_L", cmd_obj$line, " = ", cond_vector_expr),
-          paste0("data = base::subset(data, !(__is_duplicate_L", cmd_obj$line, " & __satisfies_cond_L", cmd_obj$line, "))"),
+          paste0("data = dplyr::filter(data, !(__is_duplicate_L", cmd_obj$line, " & __satisfies_cond_L", cmd_obj$line, "))"),
           paste0("rm(__is_duplicate_L", cmd_obj$line, ", __satisfies_cond_L", cmd_obj$line, ")")
       )
        r_code_str = paste(r_code_lines, collapse="\n")
@@ -1716,7 +1716,7 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
           paste0("__is_first_L", cmd_obj$line, " = ", is_first_occurrence_expr),
           paste0("## Calculate condition flag"),
           paste0("__satisfies_cond_L", cmd_obj$line, " = ", cond_vector_expr),
-          paste0("data = collapse::fmutate(data, ", gen_var, " = dplyr::if_else(__is_first_L", cmd_obj$line, " & __satisfies_cond_L", cmd_obj$line, ", 1, 0))"),
+          paste0("data = dplyr::mutate(data, ", gen_var, " = dplyr::if_else(__is_first_L", cmd_obj$line, " & __satisfies_cond_L", cmd_obj$line, ", 1, 0))"),
           paste0("rm(__is_first_L", cmd_obj$line, ", __satisfies_cond_L", cmd_obj$line, ")")
        )
       r_code_str = paste(r_code_lines, collapse="\n")
@@ -1736,7 +1736,7 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
           paste0("__is_duplicate_L", cmd_obj$line, " = ", is_duplicate_expr),
           paste0("## Calculate condition flag"),
           paste0("__satisfies_cond_L", cmd_obj$line, " = ", cond_vector_expr),
-          paste0("data_duplicates_L", cmd_obj$line, " = base::subset(data, __is_duplicate_L", cmd_obj$line, " & __satisfies_cond_L", cmd_obj$line, ")"),
+          paste0("data_duplicates_L", cmd_obj$line, " = dplyr::filter(data, __is_duplicate_L", cmd_obj$line, " & __satisfies_cond_L", cmd_obj$line, ")"),
           paste0("print(data_duplicates_L", cmd_obj$line, ")"),
           paste0("rm(__is_duplicate_L", cmd_obj$line, ", __satisfies_cond_L", cmd_obj$line, ", data_duplicates_L", cmd_obj$line, ")")
        )
@@ -1759,7 +1759,6 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   return(r_code_str)
 }
-
 
 ```
 ### END OF FILE: t_duplicates.R
@@ -3593,7 +3592,7 @@ R:  ## Calculate duplicate flag based on all variables
 __is_duplicate_L17 = base::duplicated(data, fromLast = FALSE)
 ## Calculate condition flag
 __satisfies_cond_L17 = TRUE
-data = base::subset(data, !(__is_duplicate_L17 & __satisfies_cond_L17))
+data = dplyr::filter(data, !(__is_duplicate_L17 & __satisfies_cond_L17))
 rm(__is_duplicate_L17, __satisfies_cond_L17) 
 
 do:  encode group, gen(group_code) 
