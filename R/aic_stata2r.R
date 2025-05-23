@@ -1,14 +1,15 @@
 example = function() {
   library(aicoder)
   main_dir = "~/aicoder"
-  files = paste0(main_dir, "/stata2r/R/",  c("aic_stata2r.R", "aic_eval_ex.R","aic_stata_ex.R"))
+  files = paste0(main_dir, "/stata2r/R/",  c("aic_stata2r.R", "aic_do_test.R","aic_stata_ex.R"))
   for (file in files)  source(file)
   aic = aic_new_stata2r(main_dir)
   aic = aic_test_stata2r(aic)
   aic = aic_make_prompt_stata2r(aic)
   aic_view_prompt(aic)
 
-  # Manually run prompt
+  # Manually run prompt and copy to aicoder_work ai_resp.txt
+
   if (FALSE) {
     aic$response_file
     aic = aic_changes_stata2r(aic)
@@ -80,6 +81,7 @@ aic_changes_stata2r = function(aic, resp_text = NULL) {
 }
 
 aic_test_stata2r = function(aic) {
+  restore.point("aic_test_stata2r")
   aic = aic_clear_tests(aic)
   aic = aic_test_source_r_files(aic)
   if (aic_num_test_failed(aic)>0) {
@@ -98,10 +100,8 @@ aic_test_stata2r = function(aic) {
   for (file in files) source(file)
 
   tests_dir = file.path(aic$repo_dir,"aicoder_work", "tests")
-  test_scripts = list.files(tests_dir, glob2rx("test_*.R"), full.names = TRUE, recursive = TRUE)
 
-  test_script = test_scripts[1]
-  aic = aic_test_script(aic,test_script)
+  aic = aic_stata2r_do_test(aic=aic, test_dir = "~/aicoder/stata2r/aicoder_work/tests/do1", data_dir = "~/aicoder/stata2r/inst/cases/do1/do_data", data_prefix="do1-")
 
   aic = aic_tests_finish(aic)
   aic

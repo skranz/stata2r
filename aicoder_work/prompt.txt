@@ -23,10 +23,107 @@ Depends: stringi, collapse, dplyr, restorepoint
 # R code files in the project
 ################################################
 
-### FILE: aic_eval_ex.R
+### FILE: aic_do_test.R
 ```
 examples = function() {
   do_file = "C:/libraries/aicoder/stata2r/inst/cases/custom_1/do1.do"
+  aic_stata2r_do_test(aic=NULL, test_dir = "~/aicoder/stata2r/aicoder_work/tests/do1", data_dir = "~/aicoder/stata2r/inst/cases/do1/do_data")
+}
+
+aic_stata2r_do_test = function(aic, test_dir, data_dir, data_prefix="") {
+  restore.point("aic_stata2r_do_test")
+  txt = capture.output(err<-try(aic_stata2r_do_test_inner(test_dir, data_dir, data_prefix), silent=TRUE))
+  log = out_and_err_txt(txt, err)
+  cat(log)
+  has_err = is(err, "try-error") | isTRUE(err==FALSE)
+
+  #test_log= list(ok=!has_err,test_name=basename(test_dir), msg="", log=log)
+  aic = aic_add_test(aic, test_name=basename(test_dir), ok=!has_err, log=log)
+  aic
+}
+
+aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="") {
+  restore.point("aic_stata2r_do_test_inner")
+  setwd(test_dir)
+  library(stata2r)
+  # do code that will be translated
+  do_code = readLines("do1.do", warn=FALSE)
+  #cat(do_code, sep="\n")
+
+
+  # transforms do_code to a dataframe with
+  # one row for each code line possible
+  # perform some preparsing
+  # the field do_code should contain the original code
+  cat("\ncmd_df = do_parse(do_code)")
+  cmd_df = do_parse(do_code)
+
+  # will add field "do_translate"
+  # if FALSE the stata command does not modify the data set
+  # and can be ignored
+  cat("\ncmd_df = mark_data_manip_cmd(cmd_df)\n")
+  cmd_df = mark_data_manip_cmd(cmd_df)
+  cat("\nstr(cmd_df)\n")
+  print(str(cmd_df))
+
+  r_li = vector("list", NROW(cmd_df))
+
+  cat("\n---\n#Translate to R commands\n")
+  i = 1
+  for (i in seq_along(r_li)) {
+    #cat("\n", i,"of", length(r_li), "translate", cmd_df$do_code[[i]],"\n")
+    cat("\ndo: ", cmd_df$do_code[[i]],"\n")
+    cmd_obj = cmd_df[i,]
+    r_obj = do_cmd_to_r(cmd_obj=cmd_obj,line=i, cmd_df=cmd_df)
+    #print(str(r_obj))
+    if (isTRUE(cmd_df$do_translate[i])) {
+      cat("R: ", r_obj$r_code,"\n")
+      r_li[[i]] = r_obj
+    } else {
+      cat("  no data manipulation command\n")
+    }
+  }
+  r_df = bind_rows(r_li)
+
+  env = new.env(parent=globalenv())
+
+  cat("\n---\n# Run R commands and check generated data sets\n\n")
+  i = 1
+  log_str = NULL
+  for (i in seq_len(NROW(r_df))) {
+    r_code = r_df$r_code[[i]]
+
+    res = aicoder::run_with_log(code_str=r_code, env=env)
+    cat("\n",i,res$log)
+    if (res$has_error) return(FALSE)
+      r_data = env[["data"]]
+    if (!is.null(r_data)) {
+      dat_file = file.path(data_dir, paste0(data_prefix,i,".dta"))
+      do_data = haven::read_dta(dat_file)
+      comp = compare_df(r_data, do_data)
+      if (!comp$identical) {
+        cat("\nError: After the R command abve generates different data set than Stata code\n")
+        cat("\nR data set:\n")
+        print(str(r_data))
+        cat("\nStata version:\n")
+        print(str(do_data))
+        cat("\nDifferences:")
+        print(str(comp))
+        return(FALSE)
+      }
+    } else {
+      cat("\n", i," missing data\n")
+      return(FALSE)
+    }
+    if (res$has_error) return(FALSE)
+  }
+  return(TRUE)
+
+
+
+}
+
+aic_stata2r_eval_next_r_line = function(i, r_df, env) {
 
 }
 
@@ -40,8 +137,100 @@ aic_stata2r_eval_example = function(do_file) {
   library(aicoder)
 
 }
+
+
+out_and_err_txt = function(out, err=NULL) {
+  if (is(err,"try-error")) {
+    out = c(out,as.character(err))
+  }
+  paste0(out, collapse="\n")
+}
+
+compare_df = function(df1, df2,
+                      tol = .Machine$double.eps^0.5,  # numeric tolerance
+                      ignore_col_order = FALSE,
+                      ignore_row_order = FALSE,
+                      sample_n_diff = 5) {            # max rows to show per column
+
+  # ---- basic structure checks ----
+  if (!is.data.frame(df1) || !is.data.frame(df2))
+    stop("Both inputs must be data frames.")
+
+  if(identical(df1, df2)) return(list(identical=TRUE))
+
+  if (ignore_col_order) {
+    df1 = df1[, sort(names(df1)), drop = FALSE]
+    df2 = df2[, sort(names(df2)), drop = FALSE]
+  }
+  if (ignore_row_order) {
+    df1 = dplyr::arrange(df1, dplyr::across(dplyr::everything()))
+    df2 = dplyr::arrange(df2, dplyr::across(dplyr::everything()))
+  }
+
+  out = list(identical=FALSE)
+
+  # ---- dimension and column checks ----
+  if (nrow(df1) != nrow(df2))
+    out$row_count = c(df1 = nrow(df1), df2 = nrow(df2))
+
+  missing_in_df1 = setdiff(names(df2), names(df1))
+  missing_in_df2 = setdiff(names(df1), names(df2))
+  if (length(missing_in_df1) + length(missing_in_df2) > 0)
+    out$column_mismatch = list(missing_in_df1 = missing_in_df1,
+                               missing_in_df2 = missing_in_df2)
+
+  common_cols = intersect(names(df1), names(df2))
+
+  # ---- class / type mismatches ----
+  type_df = data.frame(col = common_cols,
+                       class_df1 = vapply(df1[common_cols], class, character(1)),
+                       class_df2 = vapply(df2[common_cols], class, character(1)),
+                       stringsAsFactors = FALSE)
+  type_diff = type_df[type_df$class_df1 != type_df$class_df2, ]
+  if (nrow(type_diff) > 0)
+    out$type_mismatch = type_diff
+
+  # ---- value‐level comparison ----
+  value_diffs = lapply(common_cols, function(cl) {
+    v1 = df1[[cl]]
+    v2 = df2[[cl]]
+
+    # numeric columns need tolerance
+    if (is.numeric(v1) && is.numeric(v2)) {
+      neq = abs(v1 - v2) > tol | xor(is.na(v1), is.na(v2))
+    } else {
+      neq = v1 != v2 | xor(is.na(v1), is.na(v2))
+    }
+    which(neq)
+  })
+  names(value_diffs) = common_cols
+  value_diffs = value_diffs[lengths(value_diffs) > 0]
+
+  if (length(value_diffs) > 0) {
+    # build a compact summary with at most sample_n_diff rows per column
+    sampler = function(idx, cl) {
+      head_idx = head(idx, sample_n_diff)
+      data.frame(row = head_idx,
+                 column = cl,
+                 df1_value = df1[[cl]][head_idx],
+                 df2_value = df2[[cl]][head_idx],
+                 stringsAsFactors = FALSE)
+    }
+    diff_tbl = do.call(rbind, Map(sampler, value_diffs, names(value_diffs)))
+    # tidy row names
+    rownames(diff_tbl) = NULL
+    out$value_mismatch = diff_tbl
+  }
+
+  # ---- return decision ----
+  if (length(out) <= 1) {
+    return(list(identical=TRUE))
+  }
+  out
+}
+
 ```
-### END OF FILE: aic_eval_ex.R
+### END OF FILE: aic_do_test.R
 
 -----------------------------------------------------------
 
@@ -877,20 +1066,17 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
 
   # Parse aggregate definitions: "(stat) var [= newvar] (stat) var [= newvar] ..."
-  # This regex needs to handle multiple aggregate blocks
-  # Find all occurrences of `(stat) var [= newvar]`
-  # Let's use stri_match_all_regex
-  # Pattern: \( - literal parenthesis
-  # ([a-zA-Z_]+) - stat name (group 1)
-  # \) - literal parenthesis
-  # \s+ - one or more spaces
-  # ([a-zA-Z0-9_]+) - source var name (group 2)
-  # (?: - non-capturing group for optional assignment
-  # \s*=\s* - equals sign with optional spaces
-  # ([a-zA-Z0-9_]+) - new var name (group 3)
-  # )? - end optional group
+  # Regex: \(stat_word\)\s+(target_var_word)(?:\s*=\s*(source_var_word))?  -- This is for form (stat) target = source
+  # OR    \(stat_word\)\s+(source_and_target_var_word)                     -- This is for form (stat) source
+  # The current regex is: \\(([a-zA-Z_]+)\\)\\s+([a-zA-Z0-9_]+)(?:\\s*=\s*([a-zA-Z0-9_]+))?
+  # G1: stat (stat_from_regex)
+  # G2: varname1 (g2_val_from_regex)
+  # G3: varname2 (g3_val_from_regex) - optional
+  # If G3 is NA: Stata form is (stat) G2. Here, G2 is source and target.
+  # If G3 is not NA: Stata form is (stat) G2 = G3. Here, G2 is target, G3 is source.
+
   aggregate_matches = stringi::stri_match_all_regex(aggregate_part, "\\(([a-zA-Z_]+)\\)\\s+([a-zA-Z0-9_]+)(?:\\s*=\\s*([a-zA-Z0-9_]+))?")[[1]]
-  # aggregate_matches will be a matrix: [match, stat, source_var, new_var]
+  # aggregate_matches will be a matrix: [match, stat, g2_val, g3_val]
 
   if (NROW(aggregate_matches) == 0) {
     return(paste0("# Failed to parse collapse aggregate definitions: ", aggregate_part))
@@ -913,23 +1099,16 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
 
   # Translate the if/in condition for subsetting *before* collapse
-  # Stata collapse applies if/in *before* grouping and aggregation
   r_subset_cond = NA_character_
   data_source_for_collapse = "data"
   r_code_prefix = "" # Code to create subset if needed
 
   if (!is.na(stata_if_in_cond) && stata_if_in_cond != "") {
-      # Assuming if/in condition for collapse applies to original data rows
-      # The context for _n/_N here should be the original data, not the group
       r_subset_cond = translate_stata_expression_with_r_values(stata_if_in_cond, line_num, cmd_df, context = list(is_by_group = FALSE))
-
-      # Check if r_subset_cond is valid
       if (is.na(r_subset_cond) || r_subset_cond == "") {
            return(paste0("# Failed to translate if/in condition for collapse: ", stata_if_in_cond))
       }
-
-      # Create a temporary subset variable
-      data_subset_varname = paste0("data_subset_L", cmd_obj$line) # Use actual line from cmd_obj
+      data_subset_varname = paste0("data_subset_L", cmd_obj$line)
       r_code_prefix = paste0(data_subset_varname, " = base::subset(data, ", r_subset_cond, ")\n")
       data_source_for_collapse = data_subset_varname
   }
@@ -938,23 +1117,33 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Build the summarise/aggregate expressions for collapse::fsummarise
   aggregate_exprs = character(NROW(aggregate_matches))
   for (j in 1:NROW(aggregate_matches)) {
-    stat = aggregate_matches[j, 2]
-    source_var = aggregate_matches[j, 3]
-    new_var = aggregate_matches[j, 4]
+    stat_from_regex = aggregate_matches[j, 2]
+    g2_val_from_regex = aggregate_matches[j, 3]
+    g3_val_from_regex = aggregate_matches[j, 4]
 
-    # Translate source variable name - usually just the name itself
-    r_source_var = translate_stata_expression_with_r_values(source_var, line_num, cmd_df, context)
+    actual_stata_source_var_name = ""
+    actual_stata_target_var_name = ""
+
+    if (is.na(g3_val_from_regex)) { # Matched (stat) g2_val_from_regex
+        actual_stata_source_var_name = g2_val_from_regex
+        actual_stata_target_var_name = g2_val_from_regex
+    } else { # Matched (stat) g2_val_from_regex = g3_val_from_regex
+        actual_stata_source_var_name = g3_val_from_regex    # G3 is source
+        actual_stata_target_var_name = g2_val_from_regex    # G2 is target
+    }
+
+    # Translate actual Stata source variable name
+    r_source_var = translate_stata_expression_with_r_values(actual_stata_source_var_name, line_num, cmd_df, context)
      if (is.na(r_source_var) || r_source_var == "") {
-         return(paste0("# Failed to translate source variable '", source_var, "' for collapse stat '", stat, "'"))
+         return(paste0("# Failed to translate source variable '", actual_stata_source_var_name, "' for collapse stat '", stat_from_regex, "'"))
      }
 
-
     # Map Stata stats to collapse functions
-    collapse_func = switch(stat,
+    collapse_func = switch(stat_from_regex,
       "mean" = paste0("collapse::fmean(", r_source_var, ", na.rm = TRUE)"),
       "sum" = paste0("collapse::fsum(", r_source_var, ", na.rm = TRUE)"),
-      "count" = paste0("collapse::fnobs(", r_source_var, ")"), # counts non-missing
-      "N" = paste0("collapse::fnobs(", r_source_var, ")"), # total obs, including missing for the var? No, count() and N() are synonyms, count non-missing.
+      "count" = paste0("collapse::fnobs(", r_source_var, ")"),
+      "N" = paste0("collapse::fnobs(", r_source_var, ")"),
       "first" = paste0("collapse::ffirst(", r_source_var, ")"),
       "last" = paste0("collapse::flast(", r_source_var, ")"),
       "min" = paste0("collapse::fmin(", r_source_var, ", na.rm = TRUE)"),
@@ -969,25 +1158,16 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       "p90" = paste0("collapse::fquantile(", r_source_var, ", probs = 0.90, na.rm = TRUE)"),
       "p95" = paste0("collapse::fquantile(", r_source_var, ", probs = 0.95, na.rm = TRUE)"),
       "p99" = paste0("collapse::fquantile(", r_source_var, ", probs = 0.99, na.rm = TRUE)"),
-       # Add more stats...
-      NULL # Default for unknown stat
+      NULL
     )
 
     if (is.null(collapse_func)) {
-        return(paste0("# Collapse stat '", stat, "' not yet implemented."))
+        return(paste0("# Collapse stat '", stat_from_regex, "' not yet implemented."))
     }
 
-    # Determine the new variable name
-    if (is.na(new_var) || new_var == "") {
-      # If no newvar specified, Stata uses the source var name.
-      # R collapse::fsummarise requires `newvar = func(sourcevar)`.
-      # If source_var is `i`, the expression is `i = fmean(i)`.
-      r_new_var = r_source_var # Use source_var as the new var name
-    } else {
-      r_new_var = new_var # Use the specified newvar name
-    }
-
-    aggregate_exprs[j] = paste0(r_new_var, " = ", collapse_func)
+    # The new variable name for R code is the actual_stata_target_var_name
+    r_new_var_name = actual_stata_target_var_name
+    aggregate_exprs[j] = paste0(r_new_var_name, " = ", collapse_func)
   }
 
   # Combine aggregate expressions
@@ -1000,16 +1180,14 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     r_code_str = paste0(r_code_str,
                        "data = collapse::fgroup_by(", data_source_for_collapse, ", ", by_vars_r_vec_str, ") %>%\n",
                        "  collapse::fsummarise(", aggregate_exprs_str, ") %>%\n",
-                       "  collapse::fungroup()") # Collapse summarise includes ungroup by default, but explicit is safe.
+                       "  collapse::fungroup()")
   } else {
-     # Collapse without by() aggregates the whole dataset into a single row
      r_code_str = paste0(r_code_str,
                        "data = collapse::fsummarise(", data_source_for_collapse, ", ", aggregate_exprs_str, ")")
   }
 
   return(r_code_str)
 }
-
 
 ```
 ### END OF FILE: t_collapse.R
@@ -2086,42 +2264,30 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 t_expand = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
-  # Parse N expression and optional if/in
-  # Pattern: ^\s*(.*?)(?:\\s+if\\s+(.*?))?(?:\\s+in\\s+(.*?))?$ # if/in order can vary, simpler regex
-  # Let's split at the first space that is *not* inside if/in. This is complex.
-  # Simpler: Assume N is the first part, then look for optional `if` or `in`.
-
   parts_if = stringi::stri_split_regex(rest_of_cmd_trimmed, "\\s+if\\s+", n=2)[[1]]
-  expand_n_part = stringi::stri_trim_both(parts_if[1])
+  expand_n_part_or_cond = stringi::stri_trim_both(parts_if[1])
   stata_if_cond = if(length(parts_if) > 1) stringi::stri_trim_both(parts_if[2]) else NA_character_
 
-  parts_in = stringi::stri_split_regex(expand_n_part, "\\s+in\\s+", n=2)[[1]]
-  expand_n_part = stringi::stri_trim_both(parts_in[1])
+  parts_in = stringi::stri_split_regex(expand_n_part_or_cond, "\\s+in\\s+", n=2)[[1]]
+  stata_n_expr = stringi::stri_trim_both(parts_in[1])
   stata_in_range = if(length(parts_in) > 1) stringi::stri_trim_both(parts_in[2]) else NA_character_
 
-  stata_n_expr = expand_n_part
   if (is.na(stata_n_expr) || stata_n_expr == "") {
        return(paste0("# expand command requires N expression: ", rest_of_cmd))
   }
 
-  # Translate N expression (can be variable or number)
-  # Context for _n/_N etc. here is the original data.
   r_n_expr = translate_stata_expression_with_r_values(stata_n_expr, line_num, cmd_df, context = list(is_by_group=FALSE))
    if (is.na(r_n_expr) || r_n_expr == "") {
        return(paste0("# Failed to translate N expression for expand: ", stata_n_expr))
    }
 
-
-  # Translate if condition
   r_if_cond = NA_character_
   if (!is.na(stata_if_cond) && stata_if_cond != "") {
     r_if_cond = translate_stata_expression_with_r_values(stata_if_cond, line_num, cmd_df, context = list(is_by_group = FALSE))
   }
 
-  # Translate in range (less common with expand, often done with if/in before)
   r_in_range_cond = NA_character_
   if (!is.na(stata_in_range) && stata_in_range != "") {
-       # Stata `in f/l` refers to row numbers.
        range_match = stringi::stri_match_first_regex(stata_in_range, "^(\\d+)(?:/(\\d+))?$")
         if (!is.na(range_match[1,1])) {
             start_row = as.integer(range_match[1,2])
@@ -2136,7 +2302,6 @@ t_expand = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
         }
   }
 
-  # Combine if and in conditions if both exist
   final_r_subset_cond = NA_character_
   if (!is.na(r_if_cond) && !is.na(r_in_range_cond)) {
       final_r_subset_cond = paste0("(", r_if_cond, ") & (", r_in_range_cond, ")")
@@ -2146,78 +2311,44 @@ t_expand = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       final_r_subset_cond = r_in_range_cond
   }
 
-
-  # R equivalent: use base::rep() on row indices.
-  # The index vector will be 1 1 ... 2 2 ... N N ...
-  # The number of repetitions for each row depends on the expression N and the if/in condition.
-  # For rows where the condition is met, repeat N times. For rows where it's not met, repeat 1 time.
-  # The N expression itself can be conditional (e.g., `expand num_copies if group=="A"`).
-  # Example: `expand 2` -> `rep(1:NROW(data), each=2)` or `rep(1:NROW(data), times=2)` depending on desired order.
-  # Stata `expand N` maintains original sort order by default (like `rep(..., each=N)`).
-  # Example: `expand N if condition` -> `rep(1:NROW(data), times = ifelse(condition, N, 1))`
-
-  # Build the `times` argument for rep()
-  times_expr = r_n_expr
+  r_code_str = ""
+  line_id = cmd_obj$line # Actual line number from the do-file for unique temp var names
 
   if (!is.na(final_r_subset_cond) && final_r_subset_cond != "") {
-      # Apply the condition: repeat N if cond, 1 otherwise
-       # Need to evaluate the condition and the N expression row-wise on the original data.
-       # This is hard to do directly in a single rep() call that operates on row indices.
-       # Alternative: Create a temporary variable with the desired repetitions per row.
-       # `data = data %>% mutate(__expand_times = ifelse(condition, N, 1))`
-       # Then use `data[rep(1:NROW(data), times = data$__expand_times), ]`
-       # However, `data` is the dataframe being transformed. We need the old `data` inside mutate.
-
-       # A better approach: evaluate the times vector and the condition vector first, then use rep.
-       # Let's generate R code that does this.
-       temp_times_var = paste0("__expand_times_L", cmd_obj$line)
-       temp_cond_var = paste0("__expand_cond_L", cmd_obj$line)
+       temp_n_values_var = paste0("__expand_n_values_L", line_id)
+       temp_cond_values_var = paste0("__expand_cond_values_L", line_id)
+       final_times_calc_var = paste0("__final_expand_times_L", line_id)
 
        r_code_lines = c(
-           paste0(temp_times_var, " = (", r_n_expr, ")"), # Evaluate N expression
-           paste0(temp_cond_var, " = (", final_r_subset_cond, ")"), # Evaluate condition
-           # If condition is met, use temp_times_var. Otherwise, use 1.
-           # Handle NA in condition: if condition is NA, row is not expanded.
-           paste0(temp_times_final = "ifelse(!is.na(", temp_cond_var, ") & ", temp_cond_var, ", ", temp_times_var, ", 1)"),
-           # Handle NA in N expression itself: Stata expand N where N is missing gives error.
-           # R rep(..., times=NA) gives error. Need to handle.
-           paste0(temp_times_final = "ifelse(is.na(", temp_times_final, "), 1, ", temp_times_final, ")"), # If N is NA, treat as 1? Or error? Stata errors. Let's allow 1 for NA N.
-           # Repeat rows using the calculated times
-           "data = data[base::rep(1:NROW(data), times = ", temp_times_final, "), ]",
-           # Clean up temporary variables if they were created within the environment
-           paste0("rm(", temp_times_var, ", ", temp_cond_var, ", ", temp_times_final, ")") # This assumes translation environment is function scope
-           # If translation env is global, need to be careful with temp vars. Assume function scope for now.
+           paste0(temp_n_values_var, " = ", r_n_expr),
+           paste0(temp_cond_values_var, " = ", final_r_subset_cond),
+           paste0(final_times_calc_var, " = ifelse(!is.na(", temp_cond_values_var, ") & ", temp_cond_values_var, ", ",
+                                             "ifelse(is.na(", temp_n_values_var, "), 1, pmax(0, as.integer(", temp_n_values_var, "))), ", # ensure N is non-negative integer, 1 if NA
+                                             "1)"), # if condition not met, expand 1 time (keep original)
+           paste0(final_times_calc_var, " = ifelse(is.na(", final_times_calc_var, "), 1, ", final_times_calc_var, ")"), # Ensure final times is not NA
+           paste0("data = data[base::rep(1:NROW(data), times = ", final_times_calc_var, "), ]"),
+           paste0("if (exists('", temp_n_values_var, "')) rm(", temp_n_values_var, ", ", temp_cond_values_var, ", ", final_times_calc_var, ")")
        )
        r_code_str = paste(r_code_lines, collapse="\n")
-
-
   } else {
-       # No if/in condition, just expand N times
-       # Check if N is a single number or a variable/expression
-       # If N is a variable/expression, Stata expands each observation N[i] times.
-       # Example: `expand income_value` expands row i income_value[i] times.
-       # This is the same logic as the conditional case, but without the condition.
-       temp_times_var = paste0("__expand_times_L", cmd_obj$line)
+       temp_n_values_var = paste0("__expand_n_values_L", line_id)
+       final_times_calc_var = paste0("__final_expand_times_L", line_id)
         r_code_lines = c(
-           paste0(temp_times_var, " = (", r_n_expr, ")"), # Evaluate N expression
-           # Handle NA in N expression itself
-           paste0(temp_times_var, " = ifelse(is.na(", temp_times_var, "), 1, ", temp_times_var, ")"),
-           # Repeat rows using the calculated times
-           "data = data[base::rep(1:NROW(data), times = ", temp_times_var, "), ]",
-           # Clean up temporary variables
-           paste0("rm(", temp_times_var, ")")
+           paste0(temp_n_values_var, " = (", r_n_expr, ")"),
+           paste0(final_times_calc_var, " = ifelse(is.na(", temp_n_values_var, "), 1, pmax(0, as.integer(", temp_n_values_var, ")))"), # ensure N is non-negative integer, 1 if NA
+           paste0("data = data[base::rep(1:NROW(data), times = ", final_times_calc_var, "), ]"),
+           paste0("if (exists('", temp_n_values_var, "')) rm(", temp_n_values_var, ", ", final_times_calc_var, ")")
         )
        r_code_str = paste(r_code_lines, collapse="\n")
-
   }
 
-  # Add comment about options if any were present but not handled
-   options_str_cleaned = options_str # No options handled currently
+  options_str_cleaned = NA_character_ # expand has few options, not handled yet.
+  # If options_str was parsed from original cmd:
+  # options_str_cleaned = options_str
 
    if (!is.na(options_str_cleaned) && options_str_cleaned != "") {
         r_code_str = paste0(r_code_str, paste0(" # Options ignored: ", options_str_cleaned))
    }
-
 
   return(r_code_str)
 }
@@ -3539,68 +3670,15 @@ All R files could be sourced.
 
 
 ---
-Outcome of test 'test_do1.R': not ok
+Outcome of test 'do1': not ok
 
 
 Details:
 
-> library(stata2r)
+cmd_df = do_parse(do_code)
+cmd_df = mark_data_manip_cmd(cmd_df)
 
-> # do code that will be translated
-> do_code = readLines("do1.do", warn=FALSE)
-
-> cat(do_code, sep="\n")
-use "data.dta", clear
-sort group i
-by group: gen seq = _n
-gen logi = log(i)
-gen sqrt_i = sqrt(i)
-gen group_num = cond(group=="A",1,cond(group=="B",2,3))
-egen mean_i_grp = mean(i), by(group)
-egen total_i = total(i)
-bysort group: egen rank_i = rank(i)
-gen flag = (i>20) if group=="A"
-replace flag = 0 if missing(flag)
-keep if flag==1 | group=="B"
-drop if i>35
-collapse (mean) i (sum) total_i_sum = i, by(group)
-rename i mean_i_overall
-expand 2 if group=="C"
-duplicates drop
-encode group, gen(group_code)
-decode group_code, gen(group_str)
-sort group_code
-tempfile t1
-save "`t1'"
-keep if group_code==1
-merge 1:m group_code using "`t1'", keep(match master) nogenerate
-append using "`t1'"
-reshape wide mean_i_overall total_i_sum, i(group_code) j(group_str)
-reshape long mean_i_overall total_i_sum, i(group_code) j(group_str)
-gen id = _n
-bysort group_code (mean_i_overall): gen diff_mean = mean_i_overall - mean_i_overall[_n-1]
-recode group_code (1=10)(2=20)(3=30)
-drop if missing(mean_i_overall)
-keep in 1/10
-order id group_code mean_i_overall
-collapse (sum) sum_mean = mean_i_overall, by(group_code)
-egen total_sum = total(sum_mean)
-gen proportion = sum_mean/total_sum
-sort proportion
-list in 1/5
-save "result_data.dta"
-
-> # transforms do_code to a dataframe with
-> # one row for each code line possible
-> # perform some preparsing
-> # the field do_code should contain th .... [TRUNCATED] 
-
-> # will add field "do_translate"
-> # if FALSE the stata command does not modify the data set
-> # and can be ignored
-> cmd_df = mark_data_manip_cmd(cm .... [TRUNCATED] 
-
-> str(cmd_df)
+str(cmd_df)
 'data.frame':	39 obs. of  8 variables:
  $ line              : int  1 2 3 4 5 6 7 8 9 10 ...
  $ do_code           : chr  "use \"data.dta\", clear" "sort group i" "by group: gen seq = _n" "gen logi = log(i)" ...
@@ -3610,87 +3688,171 @@ save "result_data.dta"
  $ by_vars           : chr  NA NA "group" NA ...
  $ is_by_prefix      : logi  FALSE FALSE TRUE FALSE FALSE FALSE ...
  $ do_translate      : logi  TRUE TRUE TRUE TRUE TRUE TRUE ...
+NULL
 
-> r_li = vector("list", NROW(cmd_df))
+---
+#Translate to R commands
 
-> for (i in seq_along(r_li)) {
-+   cat("\n", i,"of", length(r_li), "translate", cmd_df$do_code[[i]],"\n")
-+   cmd_obj = cmd_df[i,]
-+   r_obj = do_cmd_ .... [TRUNCATED] 
+do:  use "data.dta", clear 
+R:  data = haven::read_dta("data.dta") # 'clear' was used 
 
- 1 of 39 translate use "data.dta", clear 
+do:  sort group i 
+R:  data = collapse::setorder(data, group, i) # Using collapse::setorder for efficiency 
 
-R code: data = haven::read_dta("data.dta") # 'clear' was used 
-
- 2 of 39 translate sort group i 
-
-R code: data = collapse::setorder(data, group, i) # Using collapse::setorder for efficiency 
-
- 3 of 39 translate by group: gen seq = _n 
-
-R code: data = collapse::fgroup_by(data, c("group"))
+do:  by group: gen seq = _n 
+R:  data = collapse::fgroup_by(data, c("group"))
 data = collapse::fmutate(data, seq = dplyr::row_number())
 data = collapse::fungroup(data) 
 
- 4 of 39 translate gen logi = log(i) 
+do:  gen logi = log(i) 
+R:  data = collapse::fmutate(data, logi = log(i)) 
 
-R code: data = collapse::fmutate(data, logi = log(i)) 
+do:  gen sqrt_i = sqrt(i) 
+R:  data = collapse::fmutate(data, sqrt_i = sqrt(i)) 
 
- 5 of 39 translate gen sqrt_i = sqrt(i) 
+do:  gen group_num = cond(group=="A",1,cond(group=="B",2,3)) 
+R:  data = collapse::fmutate(data, group_num = dplyr::if_else(group=="A", 1, cond(group=="B",2,3))) 
 
-R code: data = collapse::fmutate(data, sqrt_i = sqrt(i)) 
-
- 6 of 39 translate gen group_num = cond(group=="A",1,cond(group=="B",2,3)) 
-
-R code: data = collapse::fmutate(data, group_num = dplyr::if_else(group=="A", 1, cond(group=="B",2,3))) 
-
- 7 of 39 translate egen mean_i_grp = mean(i), by(group) 
-
-R code: data = collapse::fgroup_by(data, c("group")) %>%
+do:  egen mean_i_grp = mean(i), by(group) 
+R:  data = collapse::fgroup_by(data, c("group")) %>%
   collapse::fmutate(mean_i_grp = mean(i, na.rm = TRUE)) %>%
   collapse::fungroup() 
 
- 8 of 39 translate egen total_i = total(i) 
+do:  egen total_i = total(i) 
+R:  data = collapse::fmutate(data, total_i = sum(i, na.rm = TRUE)) 
 
-R code: data = collapse::fmutate(data, total_i = sum(i, na.rm = TRUE)) 
-
- 9 of 39 translate bysort group: egen rank_i = rank(i) 
-
-R code: data = collapse::fgroup_by(data, c("group")) %>%
+do:  bysort group: egen rank_i = rank(i) 
+R:  data = collapse::fgroup_by(data, c("group")) %>%
   collapse::fmutate(rank_i = dplyr::min_rank(i)) %>%
   collapse::fungroup() 
 
- 10 of 39 translate gen flag = (i>20) if group=="A" 
+do:  gen flag = (i>20) if group=="A" 
+R:  data = collapse::fmutate(data, flag = dplyr::if_else(group=="A", (i>20), NA_real_)) 
 
-R code: data = collapse::fmutate(data, flag = dplyr::if_else(group=="A", (i>20), NA_real_)) 
+do:  replace flag = 0 if missing(flag) 
+R:  data = collapse::fmutate(data, flag = dplyr::if_else(is.na(flag), 0, flag)) 
 
- 11 of 39 translate replace flag = 0 if missing(flag) 
+do:  keep if flag==1 | group=="B" 
+R:  data = collapse::fsubset(data, flag==1 | group=="B") 
 
-R code: data = collapse::fmutate(data, flag = dplyr::if_else(is.na(flag), 0, flag)) 
+do:  drop if i>35 
+R:  data = collapse::fsubset(data, !(i>35)) 
 
- 12 of 39 translate keep if flag==1 | group=="B" 
-
-R code: data = collapse::fsubset(data, flag==1 | group=="B") 
-
- 13 of 39 translate drop if i>35 
-
-R code: data = collapse::fsubset(data, !(i>35)) 
-
- 14 of 39 translate collapse (mean) i (sum) total_i_sum = i, by(group) 
-
-R code: data = collapse::fgroup_by(data, c("group")) %>%
+do:  collapse (mean) i (sum) total_i_sum = i, by(group) 
+R:  data = collapse::fgroup_by(data, c("group")) %>%
   collapse::fsummarise(i = collapse::fmean(i, na.rm = TRUE),
-  i = collapse::fsum(total_i_sum, na.rm = TRUE)) %>%
+  total_i_sum = collapse::fsum(i, na.rm = TRUE)) %>%
   collapse::fungroup() 
 
- 15 of 39 translate rename i mean_i_overall 
+do:  rename i mean_i_overall 
+R:  data = collapse::frename(data, `i` = `mean_i_overall`) 
 
-R code: data = collapse::frename(data, `i` = `mean_i_overall`) 
+do:  expand 2 if group=="C" 
+R:  __expand_n_values_L16 = 2
+__expand_cond_values_L16 = group=="C"
+__final_expand_times_L16 = ifelse(!is.na(__expand_cond_values_L16) & __expand_cond_values_L16, ifelse(is.na(__expand_n_values_L16), 1, pmax(0, as.integer(__expand_n_values_L16))), 1)
+__final_expand_times_L16 = ifelse(is.na(__final_expand_times_L16), 1, __final_expand_times_L16)
+data = data[base::rep(1:NROW(data), times = __final_expand_times_L16), ]
+if (exists('__expand_n_values_L16')) rm(__expand_n_values_L16, __expand_cond_values_L16, __final_expand_times_L16) 
 
- 16 of 39 translate expand 2 if group=="C" 
-Error in paste0(temp_times_final = "ifelse(is.na(", temp_times_final,  : 
-  object 'temp_times_final' not found
+do:  duplicates drop 
+R:  ## Calculate duplicate flag based on all variablesNA
+__is_duplicate_L17 = base::duplicated(data, fromLast = FALSE)
+## Calculate condition flag
+__satisfies_cond_L17 = TRUE
+data = base::subset(data, !(__is_duplicate_L17 & __satisfies_cond_L17))
+rm(__is_duplicate_L17, __satisfies_cond_L17) 
 
+do:  encode group, gen(group_code) 
+R:  data = collapse::fmutate(data, group_code = NA_integer_)
+__encoded_values_L18 = as.integer(base::factor(data$group, levels = base::unique(data$group[base::order(data$group)])))
+data = collapse::fmutate(data, group_code = __encoded_values_L18)
+rm(__encoded_values_L18) 
+
+do:  decode group_code, gen(group_str) 
+R:  data = collapse::fmutate(data, group_str = NA_character_)
+## Decode values using haven::as_factor
+__decoded_values_L19 = as.character(haven::as_factor(data$group_code, levels = 'labels'))
+data = collapse::fmutate(data, group_str = __decoded_values_L19)
+rm(__decoded_values_L19) 
+
+do:  sort group_code 
+R:  data = collapse::setorder(data, group_code) # Using collapse::setorder for efficiency 
+
+do:  tempfile t1 
+R:  R_tempfile_L21_t1_path = tempfile(fileext = '.dta') # Stata tempfile 't1' 
+
+do:  save "`t1'" 
+R:  haven::write_dta(data, path = "`t1'") 
+
+do:  keep if group_code==1 
+R:  data = collapse::fsubset(data, group_code==1) 
+
+do:  merge 1:m group_code using "`t1'", keep(match master) nogenerate 
+R:  data = collapse::fmerge(data, haven::read_dta("`t1'"), by = c("1:m", "group_code"), all.x = TRUE, all.y = FALSE) # Stata merge type: 1:1, keep(master), nogenerate 
+
+do:  append using "`t1'" 
+R:  data = collapse::fbind(data, haven::read_dta("`t1'")) 
+
+do:  reshape wide mean_i_overall total_i_sum, i(group_code) j(group_str) 
+R:  data = tidyr::pivot_wider(data, id_cols = dplyr::all_of(c("group_code")), names_from = group_str, values_from = dplyr::all_of(c("mean_i_overall", "total_i_sum"))) 
+
+do:  reshape long mean_i_overall total_i_sum, i(group_code) j(group_str) 
+R:  # reshape long with multiple stubnames not yet fully implemented: long mean_i_overall total_i_sum, i(group_code) j(group_str) 
+
+do:  gen id = _n 
+R:  data = collapse::fmutate(data, id = dplyr::row_number()) 
+
+do:  bysort group_code (mean_i_overall): gen diff_mean = mean_i_overall - mean_i_overall[_n-1] 
+R:  data = collapse::fgroup_by(data, c("group_code", "(mean_i_overall)"))
+data = collapse::fmutate(data, diff_mean = mean_i_overall - mean_i_overall[dplyr::row_number()-1])
+data = collapse::fungroup(data) 
+
+do:  recode group_code (1=10)(2=20)(3=30) 
+R:  data = collapse::fmutate(data, group_code = dplyr::case_when(
+    group_code %in% c(1) ~ 10,
+    group_code %in% c(2) ~ 20,
+    group_code %in% c(3) ~ 30
+  )) 
+
+do:  drop if missing(mean_i_overall) 
+R:  data = collapse::fsubset(data, !(is.na(mean_i_overall))) 
+
+do:  keep in 1/10 
+R:  data = data[1:10,] 
+
+do:  order id group_code mean_i_overall 
+R:  data = dplyr::select(data, id, group_code, mean_i_overall, dplyr::everything()) 
+
+do:  collapse (sum) sum_mean = mean_i_overall, by(group_code) 
+R:  data = collapse::fgroup_by(data, c("group_code")) %>%
+  collapse::fsummarise(sum_mean = collapse::fsum(mean_i_overall, na.rm = TRUE)) %>%
+  collapse::fungroup() 
+
+do:  egen total_sum = total(sum_mean) 
+R:  data = collapse::fmutate(data, total_sum = sum(sum_mean, na.rm = TRUE)) 
+
+do:  gen proportion = sum_mean/total_sum 
+R:  data = collapse::fmutate(data, proportion = sum_mean/total_sum) 
+
+do:  sort proportion 
+R:  data = collapse::setorder(data, proportion) # Using collapse::setorder for efficiency 
+
+do:  list in 1/5 
+  no data manipulation command
+
+do:  save "result_data.dta" 
+R:  haven::write_dta(data, path = "result_data.dta") 
+
+---
+# Run R commands and check generated data sets
+
+
+ 1 data = haven::read_dta("data.dta") # 'clear' was used
+
+ 2 data = collapse::setorder(data, group, i) # Using collapse::setorder for efficiency
+
+Error: 'setorder' is not an exported object from 'namespace:collapse'
 
 ##############################
 # YOUR TASK
