@@ -19,8 +19,8 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     r_if_cond = translate_stata_expression_with_r_values(stata_if_cond, line_num, cmd_df, context = list(is_by_group = FALSE))
   }
 
-  # Prepare for by-processing steps as pipe components
-  arrange_step = ""
+  # Determine arrange step if needed
+  arrange_call = ""
   group_vars_r_vec_str = NULL
 
   if (cmd_obj$is_by_prefix) {
@@ -39,7 +39,7 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     if (length(sort_vars_list) > 0) {
       all_sort_vars = c(if(!is.null(group_vars_list)) group_vars_list else character(0), sort_vars_list)
       all_sort_vars_str = paste(all_sort_vars, collapse = ", ")
-      arrange_step = paste0("dplyr::arrange(data, ", all_sort_vars_str, ")")
+      arrange_call = paste0("dplyr::arrange(data, ", all_sort_vars_str, ")")
     }
   }
 
@@ -51,29 +51,21 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
 
   # Build the R code string using pipes
-  r_code_parts = c()
+  r_code_str = "data = "
 
-  if (arrange_step != "") {
-      r_code_parts = c(r_code_parts, arrange_step)
+  if (arrange_call != "") {
+      r_code_str = paste0(r_code_str, arrange_call)
   } else {
-      r_code_parts = c(r_code_parts, "data") # Start with data if no arrange step
+      r_code_str = paste0(r_code_str, "data")
   }
 
   if (!is.null(group_vars_r_vec_str)) {
-      r_code_parts = c(r_code_parts, paste0("  %>% collapse::fgroup_by(", group_vars_r_vec_str, ")"))
-      r_code_parts = c(r_code_parts, paste0("  %>% collapse::fmutate(", mutate_expr, ")"))
-      r_code_parts = c(r_code_parts, paste0("  %>% collapse::fungroup()"))
+      r_code_str = paste0(r_code_str, " %>%\n  collapse::fgroup_by(", group_vars_r_vec_str, ")")
+      r_code_str = paste0(r_code_str, " %>%\n  collapse::fmutate(", mutate_expr, ")")
+      r_code_str = paste0(r_code_str, " %>%\n  collapse::fungroup()")
   } else {
-      # If not grouped, still use a pipe for fmutate for consistency and clarity
-      if (arrange_step == "") { # If no arrange, first pipe is directly to fmutate
-          r_code_parts = c(r_code_parts, paste0("  %>% collapse::fmutate(", mutate_expr, ")"))
-      } else { # If arrange exists, fmutate is another pipe in the chain
-          r_code_parts = c(r_code_parts, paste0("  %>% collapse::fmutate(", mutate_expr, ")"))
-      }
+      r_code_str = paste0(r_code_str, " %>%\n  collapse::fmutate(", mutate_expr, ")")
   }
-
-  # Final assignment: data = first_part %>% ...
-  r_code_str = paste0("data = ", paste(r_code_parts, collapse="\n"))
 
   return(r_code_str)
 }

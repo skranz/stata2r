@@ -102,8 +102,7 @@ stata_data_manip_cmds = c(
   "generate", "gen", "gsort", "input", "insheet", "keep", "label",
   "merge", "modify", "move", "mvdecode", "mvrecode", "order", "pctile", # pctile often part of egen
   "predict", # predict generates new variables
-  "preserve", "recode", "rename", "reshape", "restore", "sample", "save",
-  "set", # e.g. set obs, set type (can change data interpretation)
+  "preserve", "recode", "rename", "reshape", "restore", "sample", "set", # e.g. set obs, set type (can change data interpretation)
   "sort", "stack", "statsby", "stsplit",
   "summarize", "su", # summarize if r() is used, or by default include
   "svar", "sysuse", "tabulate", # tabulate can set r() values
@@ -219,15 +218,21 @@ get_tempfile_macros = function(rest_of_cmd_for_tempfile) {
 # Helper function to unquote Stata string literals or extract macro names
 unquote_stata_string_or_macro_literal = function(s) {
   if (is.na(s) || s == "") return(s)
-  # Stata string literal: "my path with spaces.dta"
+
+  # First, try to remove outer double quotes
   if (stringi::stri_startswith_fixed(s, '"') && stringi::stri_endswith_fixed(s, '"')) {
-    return(stringi::stri_sub(s, 2, -2))
+    s = stringi::stri_sub(s, 2, -2)
   }
-  # Stata local macro: `my_macro'
+  # Then, try to remove outer single quotes (less common for paths, but possible)
+  if (stringi::stri_startswith_fixed(s, "'") && stringi::stri_endswith_fixed(s, "'")) {
+    s = stringi::stri_sub(s, 2, -2)
+  }
+
+  # Now, check if the remaining string is a Stata local macro: `my_macro'
   if (stringi::stri_startswith_fixed(s, "`") && stringi::stri_endswith_fixed(s, "'")) {
     return(stringi::stri_sub(s, 2, -2))
   }
-  # Not quoted by Stata syntax, return as is
+  # Otherwise, return as is (it's a literal path without quotes, or a variable name)
   return(s)
 }
 
@@ -242,4 +247,5 @@ quote_for_r_literal = function(s) {
   # Add double quotes
   paste0('"', s, '"')
 }
+
 
