@@ -78,8 +78,8 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
         if (!is.na(range_match[1,1])) {
             start_row = as.integer(range_match[1,2])
             end_row = range_match[1,3]
-            # Use collapse::fseq() directly, as stata_expression_translator will handle _n
-            row_number_r_expr = "collapse::fseq()"
+            # Use dplyr::row_number(), as stata_expression_translator will handle _n
+            row_number_r_expr = "dplyr::row_number()" # Changed from collapse::fseq()
 
             if (is.na(end_row)) {
                  r_in_range_cond_in_args = paste0(row_number_r_expr, " == ", start_row)
@@ -187,7 +187,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     } else if (egen_func_name == "tag") {
         # Stata `tag` flags the first obs in each group defined by `varlist` (and `by` prefix if any).
         # This is `_n==1` after sorting by all these variables.
-        mutate_value_expr = paste0("as.integer(collapse::fseq() == 1)")
+        mutate_value_expr = paste0("as.integer(dplyr::row_number() == 1)") # Changed from collapse::fseq()
     }
   } else if (egen_func_name == "rowtotal") {
     vars_for_rowop_list = stringi::stri_split_regex(r_egen_args, "\\s+")[[1]] # Use non-conditional args here

@@ -11,7 +11,6 @@ t_save = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   options_part = stringi::stri_trim_both(parts[1,3])  # NA if no options
 
   filename_r = "" # Resulting R path string or variable name
-  save_to_r_object = "" # R code to save data to an R object for direct access
 
   if (is.na(raw_filename_token) || raw_filename_token == "") {
     return("# `save` without filename not fully supported yet. Needs to track original data filename.")
@@ -37,9 +36,6 @@ t_save = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
     
     if (!is.na(found_def_line)) {
       filename_r = paste0("R_tempfile_L", found_def_line, "_", macro_name, "_path")
-      # Storing data to an R object for direct R access if tempfile macro was used.
-      # This allows `use` or `merge using` commands to refer to the in-memory R object.
-      save_to_r_object = paste0("R_tempdata_L", found_def_line, "_", macro_name, " = data # Storing data for Stata macro '", macro_name, "' for direct R access")
     } else {
       warning(paste0("Macro ",raw_filename_token, " in 'save' command at line ",line_num, " not resolved from tempfile. Treating as literal string."))
       filename_r = quote_for_r_literal(unquoted_content)
@@ -49,11 +45,7 @@ t_save = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
     filename_r = quote_for_r_literal(unquoted_content)
   }
 
-  r_code = ""
-  if (save_to_r_object != "") {
-    r_code = paste0(r_code, save_to_r_object, "\n")
-  }
-  r_code = paste0(r_code, "haven::write_dta(data, path = ", filename_r, ")")
+  r_code = paste0("haven::write_dta(data, path = ", filename_r, ")")
   
   if (!is.na(options_part) && options_part != "") {
     r_code = paste0(r_code, paste0(" # Options ignored: ", options_part))
