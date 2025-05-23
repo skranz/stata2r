@@ -111,14 +111,22 @@ t_destring = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
            final_value_expr = destrung_value_expr
       }
 
-      mutate_exprs[k] = paste0(new_var, " = sfun_strip_stata_attributes(", final_value_expr, ")")
+      mutate_exprs[k] = paste0(new_var, " = ", final_value_expr)
   }
 
    # Combine mutate expressions
   mutate_exprs_str = paste(mutate_exprs, collapse = ",\n  ")
 
   # Build the final R code using dplyr::mutate
-  r_code_str = paste0("data = dplyr::mutate(data, ", mutate_exprs_str, ")") # Changed to dplyr::mutate
+  r_code_lines = c(paste0("data = dplyr::mutate(data, ", mutate_exprs_str, ")")) # Changed to dplyr::mutate
+
+  # Apply attribute stripping to the newly created/modified variables
+  for (new_var in new_vars) {
+      r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_strip_stata_attributes(data$", new_var, ")"))
+  }
+
+
+  r_code_str = paste(r_code_lines, collapse="\n")
 
   # Add comment about options if any were present but not handled (excluding generate/replace)
    options_str_cleaned = options_str
@@ -139,4 +147,5 @@ t_destring = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
+
 

@@ -165,28 +165,27 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     }
   }
 
-  # Translate egen function
-  # Resulting expression for mutate: `new_var = R_EQUIVALENT_EXPRESSION`
-  mutate_value_expr = ""
+  # Translate egen function into an R expression for calculation
+  calc_expr = ""
   is_row_function = FALSE # Flag for functions like rowtotal, rowmean that don't use group_by
 
 
   # Switch for egen functions
   if (egen_func_name == "mean") {
-    mutate_value_expr = paste0("mean(", r_egen_args_conditional, ", na.rm = TRUE)")
+    calc_expr = paste0("mean(", r_egen_args_conditional, ", na.rm = TRUE)")
   } else if (egen_func_name == "total" || egen_func_name == "sum") {
-    mutate_value_expr = paste0("sum(", r_egen_args_conditional, ", na.rm = TRUE)")
+    calc_expr = paste0("sum(", r_egen_args_conditional, ", na.rm = TRUE)")
   } else if (egen_func_name == "count") {
     # count(exp) counts non-missing results of exp. If exp is varname, sum(!is.na(varname)).
     # If exp is complex, sum(eval(parse(text=r_egen_args_conditional)) != 0 & !is.na(eval(parse(text=r_egen_args_conditional))))
     # Assuming r_egen_args_conditional results in a numeric or logical vector
-    mutate_value_expr = paste0("sum(!is.na(", r_egen_args_conditional, "))")
+    calc_expr = paste0("sum(!is.na(", r_egen_args_conditional, "))")
   } else if (egen_func_name == "rank") {
-    mutate_value_expr = paste0("dplyr::min_rank(", r_egen_args_conditional, ")")
+    calc_expr = paste0("dplyr::min_rank(", r_egen_args_conditional, ")")
   } else if (egen_func_name == "median" || egen_func_name == "p50") {
-    mutate_value_expr = paste0("median(", r_egen_args_conditional, ", na.rm = TRUE)")
+    calc_expr = paste0("median(", r_egen_args_conditional, ", na.rm = TRUE)")
   } else if (egen_func_name == "sd" || egen_func_name == "std") {
-    mutate_value_expr = paste0("sd(", r_egen_args_conditional, ", na.rm = TRUE)")
+    calc_expr = paste0("sd(", r_egen_args_conditional, ", na.rm = TRUE)")
   } else if (egen_func_name == "group" || egen_func_name == "tag") {
     # For 'group' and 'tag', the effective grouping for dplyr::group_by is the combination
     # of the 'by' prefix/option variables and the variables in the egen function arguments.
@@ -204,12 +203,12 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
     if (egen_func_name == "group") {
         # dplyr::cur_group_id() gives integer for each group.
-        mutate_value_expr = paste0("dplyr::cur_group_id()")
+        calc_expr = paste0("dplyr::cur_group_id()")
     } else if (egen_func_name == "tag") {
         # Stata `tag` flags the first obs in each group defined by `varlist` (and `by` prefix if any).
         # This is `_n==1` after sorting by all these variables.
         # _n is translated by stata_expression_translator_to_r, which will use collapse::fseq() if grouped.
-        mutate_value_expr = paste0("as.integer(dplyr::row_number() == 1)") # This will be translated to fseq() if grouped.
+        calc_expr = paste0("as.integer(dplyr::row_number() == 1)") # This will be translated to fseq() if grouped.
     }
   } else if (egen_func_name == "rowtotal") {
     vars_for_rowop_list = stringi::stri_split_regex(r_egen_args, "\\s+")[[1]] # Use non-conditional args here
@@ -218,37 +217,39 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
     # Stata rowtotal treats NA as 0 *before* summing.
     # Using rowSums on a selection of columns after replacing NA with 0.
-    mutate_value_expr = paste0("rowSums(tidyr::replace_na(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(", vars_for_rowop_r_vec_str, ")), 0), na.rm = FALSE)") # na.rm=FALSE because we replaced NA with 0
+    calc_expr = paste0("rowSums(tidyr::replace_na(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(", vars_for_rowop_r_vec_str, ")), 0), na.rm = FALSE)") # na.rm=FALSE because we replaced NA with 0
     is_row_function = TRUE; by_vars_for_group_by = NULL # Row functions don't use grouping in the same way
   } else if (egen_func_name == "rowmean") {
     vars_for_rowop_list = stringi::stri_split_regex(r_egen_args, "\\s+")[[1]] # Use non-conditional args here
     vars_for_rowop_list = vars_for_rowop_list[vars_for_rowop_list != ""]
     vars_for_rowop_r_vec_str = paste0('c("', paste(vars_for_rowop_list, collapse='", "'), '")')
 
-    mutate_value_expr = paste0("rowMeans(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(", vars_for_rowop_r_vec_str, ")), na.rm = TRUE)")
+    calc_expr = paste0("rowMeans(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(", vars_for_rowop_r_vec_str, ")), na.rm = TRUE)")
     is_row_function = TRUE; by_vars_for_group_by = NULL
   } else {
     return(paste0("# Egen function '", egen_func_name, "' not yet implemented."))
   }
 
-  # Apply attribute stripping
-  mutate_value_expr = paste0("sfun_strip_stata_attributes(", mutate_value_expr, ")")
-
   # Combine into a mutate statement
-  full_mutate_expr = paste0(new_var, " = ", mutate_value_expr)
+  full_mutate_expr = paste0(new_var, " = ", calc_expr)
 
   # Build the R command string using pipes
-  r_code_str = "data = "
+  r_code_lines = c("data = ")
 
   if (!is.null(by_vars_for_group_by) && length(by_vars_list_unquoted) > 0 && !is_row_function) {
-    r_code_str = paste0(r_code_str, "data %>%\n",
+    r_code_lines = c(r_code_lines,
+                        "data %>%\n",
                         "  dplyr::group_by(dplyr::across(", by_vars_for_group_by, ")) %>%\n",
                         "  dplyr::mutate(", full_mutate_expr, ") %>%\n",
                         "  dplyr::ungroup()")
   } else {
-    r_code_str = paste0(r_code_str, "data %>%\n",
+    r_code_lines = c(r_code_lines,
+                        "data %>%\n",
                         "  dplyr::mutate(", full_mutate_expr, ")")
   }
+
+  # Apply attribute stripping after mutate
+  r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_strip_stata_attributes(data$", new_var, ")"))
 
    # Add comment about options if any were present but not handled (excluding by)
    options_str_cleaned = options_str
@@ -259,10 +260,11 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
    }
 
    if (!is.na(options_str_cleaned) && options_str_cleaned != "") {
-        r_code_str = paste0(r_code_str, paste0(" # Other options ignored: ", options_str_cleaned))
+        r_code_lines = c(r_code_lines, paste0(" # Other options ignored: ", options_str_cleaned))
    }
 
 
-  return(r_code_str)
+  return(paste(r_code_lines, collapse="\n"))
 }
+
 

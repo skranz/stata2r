@@ -53,33 +53,39 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     }
   }
 
-  # Construct the mutate expression based on if condition
+  # Step 1: Calculate the value for the new variable, potentially conditionally
+  # Do not strip attributes here, let mutate propagate them, then strip from the final column
   if (!is.na(r_if_cond) && r_if_cond != "") {
-    mutate_expr = paste0(new_var, " = sfun_strip_stata_attributes(dplyr::if_else(", r_if_cond, ", ", r_expr, ", NA))")
+    calc_expr = paste0("dplyr::if_else(", r_if_cond, ", ", r_expr, ", NA)")
   } else {
-    mutate_expr = paste0(new_var, " = sfun_strip_stata_attributes(", r_expr, ")")
+    calc_expr = r_expr
   }
-
-  # Build the R code string using pipes
-  r_code_str = "data = "
+  
+  # Step 2: Build the R code string using pipes for the mutate operation
+  r_code_lines = c()
+  r_code_lines = c(r_code_lines, "data = ")
 
   # Start with data or data after arrange
   if (arrange_call != "") {
-      r_code_str = paste0(r_code_str, arrange_call)
+      r_code_lines = c(r_code_lines, arrange_call)
   } else {
-      r_code_str = paste0(r_code_str, "data")
+      r_code_lines = c(r_code_lines, "data")
   }
 
   # Add grouping and mutate steps
   if (!is.null(group_vars_r_vec_str) && length(group_vars_list) > 0) {
-      r_code_str = paste0(r_code_str, " %>%\n  dplyr::group_by(dplyr::across(", group_vars_r_vec_str, "))")
-      r_code_str = paste0(r_code_str, " %>%\n  dplyr::mutate(", mutate_expr, ")")
-      r_code_str = paste0(r_code_str, " %>%\n  dplyr::ungroup()")
+      r_code_lines = c(r_code_lines, paste0(" %>%\n  dplyr::group_by(dplyr::across(", group_vars_r_vec_str, "))"))
+      r_code_lines = c(r_code_lines, paste0(" %>%\n  dplyr::mutate(", new_var, " = ", calc_expr, ")"))
+      r_code_lines = c(r_code_lines, " %>%\n  dplyr::ungroup()")
   } else {
       # If not grouped, just add the mutate step directly to the pipe chain
-      r_code_str = paste0(r_code_str, " %>%\n  dplyr::mutate(", mutate_expr, ")")
+      r_code_lines = c(r_code_lines, paste0(" %>%\n  dplyr::mutate(", new_var, " = ", calc_expr, ")"))
   }
   
-  return(r_code_str)
+  # Step 3: Strip Stata-specific attributes from the newly created/modified column
+  r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_strip_stata_attributes(data$", new_var, ")"))
+  
+  return(paste(r_code_lines, collapse="\n"))
 }
+
 

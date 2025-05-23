@@ -46,30 +46,36 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     }
   }
 
-
+  # Step 1: Calculate the value for replacement, potentially conditionally
+  # Do not strip attributes here, let mutate propagate them, then strip from the final column
   if (!is.na(r_if_cond) && r_if_cond != "") {
-    mutate_expr = paste0(var_to_replace, " = sfun_strip_stata_attributes(dplyr::if_else(", r_if_cond, ", ", r_expr, ", ", var_to_replace, "))")
+    calc_expr = paste0("dplyr::if_else(", r_if_cond, ", ", r_expr, ", ", var_to_replace, ")")
   } else {
-    mutate_expr = paste0(var_to_replace, " = sfun_strip_stata_attributes(", r_expr, ")")
+    calc_expr = r_expr
   }
 
-  # Build the R code string using pipes
-  r_code_str = "data = "
+  # Step 2: Build the R code string using pipes for the mutate operation
+  r_code_lines = c()
+  r_code_lines = c(r_code_lines, "data = ")
 
   if (arrange_call != "") {
-      r_code_str = paste0(r_code_str, arrange_call)
+      r_code_lines = c(r_code_lines, arrange_call)
   } else {
-      r_code_str = paste0(r_code_str, "data")
+      r_code_lines = c(r_code_lines, "data")
   }
 
   if (!is.null(group_vars_r_vec_str) && length(group_vars_list) > 0) {
-      r_code_str = paste0(r_code_str, " %>%\n  dplyr::group_by(dplyr::across(", group_vars_r_vec_str, "))")
-      r_code_str = paste0(r_code_str, " %>%\n  dplyr::mutate(", mutate_expr, ")")
-      r_code_str = paste0(r_code_str, " %>%\n  dplyr::ungroup()")
+      r_code_lines = c(r_code_lines, paste0(" %>%\n  dplyr::group_by(dplyr::across(", group_vars_r_vec_str, "))"))
+      r_code_lines = c(r_code_lines, paste0(" %>%\n  dplyr::mutate(", var_to_replace, " = ", calc_expr, ")"))
+      r_code_lines = c(r_code_lines, " %>%\n  dplyr::ungroup()")
   } else {
-      r_code_str = paste0(r_code_str, " %>%\n  dplyr::mutate(", mutate_expr, ")")
+      r_code_lines = c(r_code_lines, paste0(" %>%\n  dplyr::mutate(", var_to_replace, " = ", calc_expr, ")"))
   }
 
-  return(r_code_str)
+  # Step 3: Strip Stata-specific attributes from the modified column
+  r_code_lines = c(r_code_lines, paste0("data$", var_to_replace, " = sfun_strip_stata_attributes(data$", var_to_replace, ")"))
+
+  return(paste(r_code_lines, collapse="\n"))
 }
+
 

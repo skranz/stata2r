@@ -79,7 +79,7 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   }
 
 
-  r_code_str = ""
+  r_code_lines = c()
 
   if (subcommand == "drop") {
       # Calculate the condition vector
@@ -94,6 +94,7 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
       }
 
       r_code_lines = c(
+          r_code_lines,
           paste0("## Calculate duplicate flag based on ", comment_vars_part),
           paste0("__is_duplicate_L", cmd_obj$line, " = ", is_duplicate_expr),
           paste0("## Calculate condition flag"),
@@ -101,7 +102,6 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
           paste0("data = dplyr::filter(data, !(__is_duplicate_L", cmd_obj$line, " & __satisfies_cond_L", cmd_obj$line, "))"),
           paste0("rm(__is_duplicate_L", cmd_obj$line, ", __satisfies_cond_L", cmd_obj$line, ")")
       )
-       r_code_str = paste(r_code_lines, collapse="\n")
 
 
   } else if (subcommand == "tag") {
@@ -129,14 +129,16 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
       }
 
        r_code_lines = c(
+          r_code_lines,
           paste0("## Calculate first occurrence flag based on ", comment_vars_part),
           paste0("__is_first_L", cmd_obj$line, " = ", is_first_occurrence_expr),
           paste0("## Calculate condition flag"),
           paste0("__satisfies_cond_L", cmd_obj$line, " = ", cond_vector_expr),
-          paste0("data = dplyr::mutate(data, ", gen_var, " = sfun_strip_stata_attributes(dplyr::if_else(__is_first_L", cmd_obj$line, " & __satisfies_cond_L", cmd_obj$line, ", 1, 0)))"),
-          paste0("rm(__is_first_L", cmd_obj$line, ", __satisfies_cond_L", cmd_obj$line, ")")
+          paste0("data = dplyr::mutate(data, ", gen_var, " = dplyr::if_else(__is_first_L", cmd_obj$line, " & __satisfies_cond_L", cmd_obj$line, ", 1, 0))"),
+          paste0("rm(__is_first_L", cmd_obj$line, ", __satisfies_cond_L", cmd_obj$line, ")"),
+          # Apply attribute stripping after mutate
+          paste0("data$", gen_var, " = sfun_strip_stata_attributes(data$", gen_var, ")")
        )
-      r_code_str = paste(r_code_lines, collapse="\n")
 
   } else if (subcommand == "list") {
        cond_vector_expr = if (!is.na(r_subset_cond) && r_subset_cond != "") r_subset_cond else "TRUE"
@@ -149,6 +151,7 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
       }
 
        r_code_lines = c(
+          r_code_lines,
           paste0("## Calculate duplicate flag based on ", comment_vars_part),
           paste0("__is_duplicate_L", cmd_obj$line, " = ", is_duplicate_expr),
           paste0("## Calculate condition flag"),
@@ -157,11 +160,12 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
           paste0("print(data_duplicates_L", cmd_obj$line, ")"),
           paste0("rm(__is_duplicate_L", cmd_obj$line, ", __satisfies_cond_L", cmd_obj$line, ", data_duplicates_L", cmd_obj$line, ")")
        )
-      r_code_str = paste(r_code_lines, collapse="\n")
 
   } else {
-      r_code_str = paste0("# Unknown duplicates subcommand: ", subcommand)
+      r_code_lines = c(r_code_lines, paste0("# Unknown duplicates subcommand: ", subcommand))
   }
+
+  r_code_str = paste(r_code_lines, collapse="\n")
 
    options_str_cleaned = options_str
    if (subcommand == "tag" && !is.na(options_str_cleaned)) {
@@ -176,4 +180,5 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   return(r_code_str)
 }
+
 

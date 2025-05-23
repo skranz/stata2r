@@ -74,13 +74,9 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       # Generate the new variable initialized to NA (Stata missing)
       # Using dplyr::mutate
       paste0("data = dplyr::mutate(data, ", gen_var, " = NA_integer_)"), # Changed to dplyr::mutate
-      # Apply encode logic only to rows meeting the condition (or all rows if no condition)
-      # Need to select relevant rows and the variable, calculate encoded values, then replace.
-
       # Calculate encoded values: factor() on the source variable
       paste0("__encoded_values_L", cmd_obj$line, " = as.integer(base::factor(data$", varname_str, ", levels = base::unique(data$", varname_str, "[base::order(data$", varname_str, ")])))")
       # Note: base::factor default levels are sorted unique values, matching Stata behavior.
-
    )
 
   # Apply the if/in condition for replacement
@@ -102,10 +98,8 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Clean up temporary variable
   r_code_lines = c(r_code_lines, paste0("rm(__encoded_values_L", cmd_obj$line, ")"))
 
-  # Add value labels to the new factor column for completeness/diagnostics if using haven/labelled
-  # This requires retrieving the original labels/levels.
-  # R factor stores levels. haven::labelled can store value labels.
-  # For now, just perform the numeric conversion.
+  # Apply attribute stripping to the newly created variable
+  r_code_lines = c(r_code_lines, paste0("data$", gen_var, " = sfun_strip_stata_attributes(data$", gen_var, ")"))
 
   r_code_str = paste(r_code_lines, collapse="\n")
 
@@ -124,4 +118,5 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
+
 
