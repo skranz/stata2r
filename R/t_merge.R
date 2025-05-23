@@ -15,6 +15,11 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # G1: type, G2: varlist, G3: filename (can be quoted or macro), G4: options
 
   merge_match = stringi::stri_match_first_regex(rest_of_cmd_trimmed, "^\\s*([1m]:[1m])\\s+(.*?)\\s+using\\s+(\"[^\"]+\"|`[^']+'|[^,\\s]+)(?:,\\s*(.*))?$")
+  merge_type = NA_character_
+  varlist_str = NA_character_
+  raw_filename_token = NA_character_
+  options_str = NA_character_
+
 
   if (is.na(merge_match[1,1])) {
       # Check for older syntax without type: `merge varlist using filename` (defaults to 1:1)
@@ -43,7 +48,7 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
 
   # Resolve the `using filename` - can be a path string or a macro
-  using_source_r = NA_character_ # This will hold the R expression to load the data
+  using_source_r_expr = NA_character_ # This will hold the R expression to load the data
 
   # Extract the unquoted content for macro resolution or literal quoting
   unquoted_content = unquote_stata_string_or_macro_literal(raw_filename_token)
@@ -69,14 +74,21 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     }
 
     if (!is.na(path_r_var)) {
-        using_source_r = paste0("haven::read_dta(", path_r_var, ")")
+        using_source_r_expr = paste0("haven::read_dta(", path_r_var, ")")
     } else {
          warning(paste0("Macro ",raw_filename_token, " in 'merge' command at line ",line_num, " not fully resolved. Treating as filename string."))
-         using_source_r = paste0("haven::read_dta(", quote_for_r_literal(unquoted_content), ")")
+         using_source_r_expr = paste0("haven::read_dta(", quote_for_r_literal(unquoted_content), ")")
     }
   } else {
     # Actual filename string, e.g. "mydata.dta" or mydata.dta (potentially unquoted in Stata)
-    using_source_r = paste0("haven::read_dta(", quote_for_r_literal(unquoted_content), ")")
+    # Determine if it's an absolute path or relative, and prepend data_dir if relative.
+    is_absolute_path = stringi::stri_startswith_fixed(unquoted_content, "/") || stringi::stri_detect_regex(unquoted_content, "^[A-Za-z]:[\\\\/]")
+    if (is_absolute_path) {
+      using_source_r_expr = paste0("haven::read_dta(", quote_for_r_literal(unquoted_content), ")")
+    } else {
+      # Assume relative path for 'merge using' refers to the data_dir
+      using_source_r_expr = paste0("haven::read_dta(file.path(stata2r_env$data_dir, ", quote_for_r_literal(unquoted_content), "))")
+    }
   }
 
 
@@ -122,7 +134,7 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Build the R command string using collapse::fmerge
   # fmerge(x, y, by, all.x, all.y)
-  r_code_str = paste0("data = collapse::fmerge(data, ", using_source_r, ", by = ", vars_to_merge_on_r_vec_str, ", all.x = ", toupper(all_x), ", all.y = ", toupper(all_y), ") ", merge_comment)
+  r_code_str = paste0("data = collapse::fmerge(data, ", using_source_r_expr, ", by = ", vars_to_merge_on_r_vec_str, ", all.x = ", toupper(all_x), ", all.y = ", toupper(all_y), ") ", merge_comment)
 
   return(r_code_str)
 }

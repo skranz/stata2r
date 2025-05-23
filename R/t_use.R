@@ -14,7 +14,7 @@ t_use = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   raw_filename_token = parts[1,2]
   clear_opt = parts[1,3] # NA if not present, "clear" if present
 
-  filename_r = "" # This will hold the R path variable name or a quoted R string literal
+  filename_r_expr = NA_character_ # This will hold the R path expression
 
   # Extract the unquoted content for macro resolution or literal quoting
   unquoted_content = unquote_stata_string_or_macro_literal(raw_filename_token)
@@ -40,17 +40,24 @@ t_use = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
     }
 
     if (!is.na(path_r_var)) {
-        filename_r = path_r_var # This is an R variable name, no quotes needed
+        filename_r_expr = path_r_var # This is an R variable name, no quotes needed
     } else {
         warning(paste0("Macro ",raw_filename_token, " in 'use' command at line ",line_num, " may not be correctly resolved. Treating as literal string."))
-        filename_r = quote_for_r_literal(unquoted_content) # Treat as literal and add R quotes
+        filename_r_expr = quote_for_r_literal(unquoted_content) # Treat as literal and add R quotes
     }
   } else {
     # Actual filename string, e.g. "mydata.dta" or mydata.dta (potentially unquoted in Stata)
-    filename_r = quote_for_r_literal(unquoted_content) # Ensure it's quoted for R literal
+    # Determine if it's an absolute path or relative, and prepend data_dir if relative.
+    is_absolute_path = stringi::stri_startswith_fixed(unquoted_content, "/") || stringi::stri_detect_regex(unquoted_content, "^[A-Za-z]:[\\\\/]")
+    if (is_absolute_path) {
+      filename_r_expr = quote_for_r_literal(unquoted_content) # Use as is if absolute
+    } else {
+      # Assume relative path for 'use' refers to the data_dir
+      filename_r_expr = paste0("file.path(stata2r_env$data_dir, ", quote_for_r_literal(unquoted_content), ")")
+    }
   }
 
-  r_code = paste0("data = haven::read_dta(", filename_r, ")")
+  r_code = paste0("data = haven::read_dta(path = ", filename_r_expr, ")")
 
   # `clear` option in Stata allows overwriting. R `read_dta` just overwrites.
   # So no special handling needed for `clear` in R code.
@@ -64,5 +71,4 @@ t_use = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   return(r_code)
 }
-
 

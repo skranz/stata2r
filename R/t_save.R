@@ -11,7 +11,7 @@ t_save = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   raw_filename_token = stringi::stri_trim_both(parts[1,2]) # Can be empty (uses last used filename)
   options_part = stringi::stri_trim_both(parts[1,3])  # NA if no options
 
-  filename_r = "" # Resulting R path string or variable name
+  filename_r_expr = "" # Resulting R path string or variable name
 
   if (is.na(raw_filename_token) || raw_filename_token == "") {
     return("# `save` without filename not fully supported yet. Needs to track original data filename.")
@@ -36,17 +36,24 @@ t_save = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
     }
     
     if (!is.na(found_def_line)) {
-      filename_r = paste0("R_tempfile_L", found_def_line, "_", macro_name, "_path")
+      filename_r_expr = paste0("R_tempfile_L", found_def_line, "_", macro_name, "_path")
     } else {
       warning(paste0("Macro ",raw_filename_token, " in 'save' command at line ",line_num, " not resolved from tempfile. Treating as literal string."))
-      filename_r = quote_for_r_literal(unquoted_content)
+      filename_r_expr = quote_for_r_literal(unquoted_content)
     }
   } else {
     # Actual filename string, e.g. "mydata.dta" or mydata.dta (potentially unquoted in Stata)
-    filename_r = quote_for_r_literal(unquoted_content)
+    # Determine if it's an absolute path or relative, and prepend working_dir if relative.
+    is_absolute_path = stringi::stri_startswith_fixed(unquoted_content, "/") || stringi::stri_detect_regex(unquoted_content, "^[A-Za-z]:[\\\\/]")
+    if (is_absolute_path) {
+      filename_r_expr = quote_for_r_literal(unquoted_content)
+    } else {
+      # Assume relative path for 'save' refers to the working_dir
+      filename_r_expr = paste0("file.path(stata2r_env$working_dir, ", quote_for_r_literal(unquoted_content), ")")
+    }
   }
 
-  r_code = paste0("haven::write_dta(data, path = ", filename_r, ")")
+  r_code = paste0("haven::write_dta(data, path = ", filename_r_expr, ")")
   
   if (!is.na(options_part) && options_part != "") {
     r_code = paste0(r_code, paste0(" # Options ignored: ", options_part))

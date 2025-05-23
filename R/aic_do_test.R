@@ -18,6 +18,11 @@ aic_stata2r_do_test = function(aic, test_dir, data_dir, data_prefix="") {
 aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="") {
   restore.point("aic_stata2r_do_test_inner")
   setwd(test_dir)
+
+  # Set global environment variables for path resolution in translation functions
+  assign("data_dir", data_dir, envir = stata2r_env)
+  assign("working_dir", test_dir, envir = stata2r_env)
+
   library(stata2r)
   # Explicitly load dependencies for the test environment
   library(collapse)
