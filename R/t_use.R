@@ -57,7 +57,8 @@ t_use = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
     }
   }
 
-  r_code = paste0("data = haven::read_dta(path = ", filename_r_expr, ")")
+  # Corrected: haven::read_dta expects path as the first argument, not named 'path'.
+  r_code = paste0("data = haven::read_dta(", filename_r_expr, ")")
 
   # `clear` option in Stata allows overwriting. R `read_dta` just overwrites.
   # So no special handling needed for `clear` in R code.
