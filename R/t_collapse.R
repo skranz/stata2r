@@ -62,7 +62,7 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   r_code_prefix = "" # Code to create subset if needed
 
   if (!is.na(stata_if_in_cond) && stata_if_in_cond != "") {
-      r_subset_cond = translate_stata_expression_with_r_values(stata_if_in_cond, line_num, cmd_df, context = list(is_by_group = FALSE))
+      r_subset_cond = translate_stata_expression_with_r_values(stata_if_in_cond, cmd_obj$line, cmd_df, context = list(is_by_group = FALSE)) # Use cmd_obj$line
       if (is.na(r_subset_cond) || r_subset_cond == "") {
            return(paste0("# Failed to translate if/in condition for collapse: ", stata_if_in_cond))
       }
@@ -91,7 +91,7 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     }
 
     # Translate actual Stata source variable name
-    r_source_var = translate_stata_expression_with_r_values(actual_stata_source_var_name, line_num, cmd_df, context)
+    r_source_var = translate_stata_expression_with_r_values(actual_stata_source_var_name, cmd_obj$line, cmd_df, context) # Use cmd_obj$line
      if (is.na(r_source_var) || r_source_var == "") {
          return(paste0("# Failed to translate source variable '", actual_stata_source_var_name, "' for collapse stat '", stat_from_regex, "'"))
      }

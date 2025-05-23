@@ -33,15 +33,15 @@ t_summarize = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   is_detail = !is.na(options_str) && stringi::stri_detect_fixed(options_str, "detail")
 
   r_code_lines = c()
-  line_prefix = paste0("stata_r_val_L", line_num, "_")
+  line_prefix = paste0("stata_r_val_L", cmd_obj$line, "_") # Use cmd_obj$line
 
   # Prepare data subset if "if condition" is present
   # This creates a temporary subsetted dataframe for summarization if needed.
   # If no if condition, data_source_for_summary refers to the original 'data'.
   data_source_for_summary = "data"
   if (!is.na(stata_if_cond_expr)) {
-    r_subset_cond = translate_stata_expression_with_r_values(stata_if_cond_expr, line_num, cmd_df, context = list(is_by_group = FALSE))
-    data_subset_varname = paste0("data_subset_L", line_num_for_ids = cmd_obj$line) # Use actual line from cmd_obj
+    r_subset_cond = translate_stata_expression_with_r_values(stata_if_cond_expr, cmd_obj$line, cmd_df, context = list(is_by_group = FALSE)) # Use cmd_obj$line
+    data_subset_varname = paste0("data_subset_L", cmd_obj$line) # Use actual line from cmd_obj
     r_code_lines = c(r_code_lines, paste0(data_subset_varname, " = base::subset(data, ", r_subset_cond, ")"))
     data_source_for_summary = data_subset_varname
   }
@@ -84,5 +84,4 @@ t_summarize = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
-
 

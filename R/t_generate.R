@@ -30,11 +30,10 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     r_if_cond = translate_stata_expression_with_r_values(stata_if_cond, line_num, cmd_df, context = list(is_by_group = FALSE))
   }
 
-  # Prepare for by-processing
-  arrange_code = ""
+  # Prepare for by-processing steps as pipe components
+  arrange_step = ""
   group_vars_r_vec_str = NULL
-  ungroup_code = ""
-
+  
   if (cmd_obj$is_by_prefix) {
     if (!is.na(cmd_obj$by_group_vars)) {
       group_vars_list = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
@@ -52,16 +51,9 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     if (length(sort_vars_list) > 0) {
       all_sort_vars = c(if(!is.null(group_vars_list)) group_vars_list else character(0), sort_vars_list)
       all_sort_vars_str = paste(all_sort_vars, collapse = ", ")
-      # Using dplyr::arrange for flexibility with potential desc() in sort_vars_list if gsort syntax was adapted
-      arrange_code = paste0("data = dplyr::arrange(data, ", all_sort_vars_str, ")\n")
-    }
-
-    if (!is.null(group_vars_r_vec_str)) {
-        arrange_code = paste0(arrange_code, "data = collapse::fgroup_by(data, ", group_vars_r_vec_str, ")\n")
-        ungroup_code = "\ndata = collapse::fungroup(data)"
+      arrange_step = paste0("dplyr::arrange(", all_sort_vars_str, ")")
     }
   }
-
 
   if (!is.na(r_if_cond) && r_if_cond != "") {
     mutate_expr = paste0(new_var, " = dplyr::if_else(", r_if_cond, ", ", r_expr, ", NA_real_)")
@@ -69,18 +61,24 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     mutate_expr = paste0(new_var, " = ", r_expr)
   }
 
-  r_code_str = paste0(arrange_code,
-                      "data = collapse::fmutate(data, ", mutate_expr, ")",
-                      ungroup_code)
+  # Build the R code string using pipes
+  r_code_parts = c("data = data")
 
-  # Clean up multiple newlines if arrange_code or ungroup_code are empty
-  r_code_str = gsub("\n\n", "\n", r_code_str)
-  r_code_str = trimws(r_code_str, which="both", whitespace="[\n]")
+  if (arrange_step != "") {
+      r_code_parts = c(r_code_parts, paste0("  %>% ", arrange_step))
+  }
 
+  if (!is.null(group_vars_r_vec_str)) {
+      r_code_parts = c(r_code_parts, paste0("  %>% collapse::fgroup_by(", group_vars_r_vec_str, ")"))
+      r_code_parts = c(r_code_parts, paste0("  %>% collapse::fmutate(", mutate_expr, ")"))
+      r_code_parts = c(r_code_parts, paste0("  %>% collapse::fungroup()"))
+  } else {
+      # If not grouped, still use a pipe for fmutate for consistency and clarity
+      r_code_parts = c(r_code_parts, paste0("  %>% collapse::fmutate(", mutate_expr, ")"))
+  }
 
+  r_code_str = paste(r_code_parts, collapse="\n")
+  
   return(r_code_str)
 }
-
-
-
 
