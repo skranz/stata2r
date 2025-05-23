@@ -26,6 +26,7 @@ aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="") {
   library(haven)
   library(tidyr) # For reshape
   library(restorepoint) # If used by translated code or framework
+  library(readr) # For destring
 
   # do code that will be translated
   do_code = readLines("do1.do", warn=FALSE)
@@ -209,5 +210,4 @@ compare_df = function(df1, df2,
   }
   out
 }
-
 
