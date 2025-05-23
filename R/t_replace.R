@@ -1,8 +1,9 @@
-# Translate Stata 'replace' command
-# Stata: replace oldvar = expression [if condition]
 t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
-  restore.point("t_replace") # Added restore.point
-  match = stringi::stri_match_first_regex(rest_of_cmd, "^\\s*([^=\\s]+)\\s*=\\s*(.*?)(?:\\s+if\\s+(.*))?$")
+  restore.point("t_replace")
+  # Strip type if present (e.g. replace double oldvar = ...)
+  rest_of_cmd_no_type = stringi::stri_replace_first_regex(rest_of_cmd, "^(?:byte|int|long|float|double|str\\d+)\\s+", "")
+
+  match = stringi::stri_match_first_regex(rest_of_cmd_no_type, "^\\s*([^=\\s]+)\\s*=\\s*(.*?)(?:\\s+if\\s+(.*))?$")
 
   if (is.na(match[1,1])) {
     return(paste0("# Failed to parse replace command: ", rest_of_cmd))
@@ -61,8 +62,8 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       r_code_str = paste0(r_code_str, "data")
   }
 
-  if (!is.null(group_vars_r_vec_str) && length(group_vars_list) > 0) { # Added length(group_vars_list) > 0 check
-      r_code_str = paste0(r_code_str, " %>%\n  dplyr::group_by(dplyr::across(", group_vars_r_vec_str, "))") # Use dplyr::group_by with dplyr::across
+  if (!is.null(group_vars_r_vec_str) && length(group_vars_list) > 0) {
+      r_code_str = paste0(r_code_str, " %>%\n  dplyr::group_by(dplyr::across(", group_vars_r_vec_str, "))")
       r_code_str = paste0(r_code_str, " %>%\n  dplyr::mutate(", mutate_expr, ")")
       r_code_str = paste0(r_code_str, " %>%\n  dplyr::ungroup()")
   } else {

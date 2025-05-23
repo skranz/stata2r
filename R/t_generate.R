@@ -1,16 +1,12 @@
-# Translate Stata 'generate' or 'gen' command
-
-# Example Stata: gen newvar = oldvar * 2 if condition
-# Example Stata: by group: gen seq = _n
 t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
-  restore.point("t_generate") # Added restore.point
+  restore.point("t_generate")
   # Parse `rest_of_cmd` for new variable name, expression, and if condition
   # Example: "newvar = expression [if condition]"
 
   # Strip type if present (e.g. gen double newvar = ...)
-  rest_of_cmd_no_type = stringi::stri_replace_first_regex(rest_of_cmd, "^(?:byte|int|long|float|double)\\s+", "")
+  rest_of_cmd_no_type = stringi::stri_replace_first_regex(rest_of_cmd, "^(?:byte|int|long|float|double|str\\d+)\\s+", "")
 
-  match = stringi::stri_match_first_regex(rest_of_cmd_no_type, "^\\s*([^=\\s]+)\\s*=\\s*(.*?)(?:\\s+if\\s+(.*))?$") # Corrected stri_stri_match_first_regex
+  match = stringi::stri_match_first_regex(rest_of_cmd_no_type, "^\\s*([^=\\s]+)\\s*=\\s*(.*?)(?:\\s+if\\s+(.*))?$")
 
   if (is.na(match[1,1])) {
     return(paste0("# Failed to parse generate command: ", rest_of_cmd))
@@ -75,8 +71,8 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
 
   # Add grouping and mutate steps
-  if (!is.null(group_vars_r_vec_str) && length(group_vars_list) > 0) { # Added length(group_vars_list) > 0 check
-      r_code_str = paste0(r_code_str, " %>%\n  dplyr::group_by(dplyr::across(", group_vars_r_vec_str, "))") # Use dplyr::group_by with dplyr::across
+  if (!is.null(group_vars_r_vec_str) && length(group_vars_list) > 0) {
+      r_code_str = paste0(r_code_str, " %>%\n  dplyr::group_by(dplyr::across(", group_vars_r_vec_str, "))")
       r_code_str = paste0(r_code_str, " %>%\n  dplyr::mutate(", mutate_expr, ")")
       r_code_str = paste0(r_code_str, " %>%\n  dplyr::ungroup()")
   } else {

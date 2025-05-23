@@ -1,10 +1,5 @@
-# Translate Stata 'egen' command
-# Stata: egen [type] newvar = fcn(arguments) [if exp] [in range] [, options]
-
-# This is a complex command with many functions.
-# We'll implement a few common ones like mean, total, rank.
 t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
-  restore.point("t_egen") # Added restore.point
+  restore.point("t_egen")
   # Basic parsing: newvar = function(args) [, by(groupvars)] [if condition]
   # Example: egen mean_i_grp = mean(i), by(group)
   # Example: egen total_i = total(i)
@@ -23,7 +18,6 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   right_part = stringi::stri_trim_both(parts_eq[2])
 
   # Split right_part at the first comma (if any) to separate function/args/if from options
-  # FIX: Corrected typo from stri_stri_split_fixed to stringi::stri_split_fixed
   parts_comma_list = stringi::stri_split_fixed(right_part, ",", n=2)
   parts_comma = parts_comma_list[[1]] 
 
