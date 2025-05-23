@@ -87,55 +87,11 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
 
   # Determine merge type for collapse::fmerge
-  # collapse::fmerge(x, y, by, all.x=TRUE/FALSE, all.y=TRUE/FALSE)
-  # 1:1: all.x=TRUE, all.y=TRUE (corresponds to R full_join, Stata keep(match master using), or keep(all))
-  #      Stata 1:1 requires varlist to uniquely identify observations in *both* datasets.
-  #      R merge/join doesn't enforce this uniqueness by default.
-  # 1:m: all.x=TRUE, all.y=FALSE (corresponds to R left_join, Stata keep(match master))
-  # m:1: all.x=FALSE, all.y=TRUE (corresponds to R right_join, Stata keep(match using))
-  # m:m: all.x=TRUE, all.y=TRUE (corresponds to R full_join, Stata keep(match master using))
-
-  all_x = TRUE # Corresponds to keeping all from master
-  all_y = TRUE # Corresponds to keeping all from using
-  merge_comment = paste0("# Stata merge type: ", merge_type)
-
-  if (merge_type == "1:1") {
-       # Stata 1:1 keeps matched observations by default, unmatched dropped unless options used.
-       # R full_join keeps all. To match Stata's default (matched only), need inner_join.
-       # Stata `merge 1:1` usually implies `keep(match)`. `keep(all)` adds unmatched.
-       # Let's aim for inner_join as the most common default equivalent if no `keep` option.
-       # If `keep(all)` is specified, use `all.x=TRUE, all.y=TRUE`.
-       # If `keep(master)` use `all.x=TRUE, all.y=FALSE`.
-       # If `keep(using)` use `all.x=FALSE, all.y=TRUE`.
-       # If `keep(match master)` use `all.x=TRUE, all.y=FALSE`.
-       # If `keep(match using)` use `all.x=FALSE, all.y=TRUE`.
-       # If `keep(match)` use `all.x=FALSE, all.y=FALSE`.
-
-       # Default R join types:
-       # inner_join: match only (all.x=F, all.y=F)
-       # left_join: match + master unmatched (all.x=T, all.y=F)
-       # right_join: match + using unmatched (all.x=F, all.y=T)
-       # full_join: match + master unmatched + using unmatched (all.x=T, all.y=T)
-
-       # Stata default for all merge types is to drop observations that do not match in both.
-       # So R inner_join (all.x=F, all.y=F) is the closest default.
-
-       all_x = FALSE
-       all_y = FALSE
-
-  } else if (merge_type == "1:m") {
-      # Default: keep matched + master unmatched. Corresponds to R left_join.
-      all_x = TRUE
-      all_y = FALSE
-  } else if (merge_type == "m:1") {
-      # Default: keep matched + using unmatched. Corresponds to R right_join.
-      all_x = FALSE
-      all_y = TRUE
-  } else if (merge_type == "m:m") {
-      # Default: keep matched only. Corresponds to R inner_join.
-      all_x = FALSE
-      all_y = FALSE
-  }
+  # Stata default for all merge types is to drop observations that do not match in both.
+  # So R inner_join (all.x=F, all.y=F) is the closest default.
+  all_x = FALSE # Default to inner join behavior (Stata's default)
+  all_y = FALSE # Default to inner join behavior (Stata's default)
+  merge_comment = paste0("# Stata merge type: ", merge_type, ", default: keep(match)")
 
   # Handle keep() options if present, overriding defaults
   # This is a simplified parser for keep options within merge
@@ -147,22 +103,10 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
               all_x = TRUE; all_y = TRUE
               merge_comment = paste0(merge_comment, ", keep(all)")
           } else if (grepl("\\bmaster\\b", keep_spec)) {
-              all_x = TRUE; all_y = FALSE # Keep matched and master unmatched
-               if (grepl("\\bmatch\\b", keep_spec)) {
-                  # keep(match master) is the default for 1:m, same as keep(master)
-               } else {
-                   # just keep(master) is unusual, often implies keeping all master regardless of match
-                   # which is essentially a left join followed by subsetting for _merge==1 or 2
-                   # Let's treat keep(master) as left_join (all.x=T, all.y=F) for now.
-               }
+              all_x = TRUE; all_y = FALSE # Keep matched and master unmatched (left join)
               merge_comment = paste0(merge_comment, ", keep(master)")
           } else if (grepl("\\busing\\b", keep_spec)) {
-              all_x = FALSE; all_y = TRUE # Keep matched and using unmatched
-              if (grepl("\\bmatch\\b", keep_spec)) {
-                  # keep(match using) is the default for m:1, same as keep(using)
-               } else {
-                   # just keep(using) is unusual, treat as right_join (all.x=F, all.y=T) for now.
-               }
+              all_x = FALSE; all_y = TRUE # Keep matched and using unmatched (right join)
                merge_comment = paste0(merge_comment, ", keep(using)")
           } else if (grepl("\\bmatch\\b", keep_spec)) {
               all_x = FALSE; all_y = FALSE # Keep matched only (inner join)

@@ -38,7 +38,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   # Regex: (\w+)\[_n\s*\+\s*(\d+)\] -> dplyr::lead($1, $2)
   # Regex: (\w+)\[_n\]             -> $1 (or $1[dplyr::row_number()] if explicit indexing needed, but usually direct var access means current row)
   r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*-\\s*(\\d+)\\]", "dplyr::lag($1, $2)")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*\\+\s*(\\d+)\\]", "dplyr::lead($1, $2)")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*\\+\\s*(\\d+)\\]", "dplyr::lead($1, $2)")
   # Direct _n indexing like x[_n] is just x in R vector context.
   r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\]", "$1")
 
@@ -66,18 +66,8 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsubstr\\(([^,]+),([^,]+),([^)]+)\\)", "stringi::stri_sub($1, from = $2, length = $3)")
 
   # subinstr(s1,s2,s3,n): Stata's n=. means all occurrences. n=k means k-th.
-  # For simplicity, current version translates to replace first fixed for specific n (assumed 1).
-  # stringi::stri_replace_first_fixed for n=1. stringi::stri_replace_all_fixed for n="." (all).
-  # This needs more robust parsing of the 4th argument of subinstr.
-  # Simplified: Assume if 4th arg is present and numeric 1, use first_fixed. If '.', use all_fixed.
-  # Current regex only matches 3 args for subinstr, effectively making it replace first.
-  # This pattern implies subinstr(s1, s2, s3) which means replace all occurrences of s2 with s3 in s1, return s1 if s2 is empty
-  # Stata: subinstr(s1, s2, s3, n) - n is number of substitutions. n=. is all.
-  # A common case subinstr(s, "old", "new", 1) -> stringi::stri_replace_first_fixed(s, "old", "new")
-  # A common case subinstr(s, "old", "new", .) -> stringi::stri_replace_all_fixed(s, "old", "new")
-  # The regex `\\bsubinstr\\(([^,]+),([^,]+),([^,]+),([^)]+)\\)` extracts 4 args. $4 is n.
-  # For now, keep it simple, only first occurrence:
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsubinstr\\(([^,]+),([^,]+),([^,]+),([^)]+)\\)", "stringi::stri_replace_first_fixed($1, $2, $3)") # Simplified: assumes count is 1, ignores $4
+  # Using sfun_subinstr (requires sfun_subinstr.R to be sourced/available)
+  r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsubinstr\\(([^,]+),([^,]+),([^,]+),([^)]+)\\)", "sfun_subinstr($1, $2, $3, $4)")
 
   # strpos(s1,s2) returns 0 if not found. Using sfun_strpos.
   r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrpos\\(([^,]+),([^)]+)\\)", "sfun_strpos($1, $2)")
@@ -195,7 +185,4 @@ translate_stata_expression_with_r_values = function(stata_expr, current_line_ind
 
   translate_stata_expression_to_r(stata_expr, context, final_r_value_mappings)
 }
-
-
-
 

@@ -126,22 +126,19 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
 
 
-  # Determine by_vars: either from `cmd_obj$by_vars` (if `bysort group: egen...`) or from `options_str` (if `egen ..., by(group)`)
-  by_vars_egen = NA_character_
-  if (cmd_obj$is_by_prefix && !is.na(cmd_obj$by_vars)) {
-    by_vars_egen = cmd_obj$by_vars
+  # Determine the base grouping variables for fgroup_by (from by-prefix or by() option)
+  by_vars_for_fgroup_by = NULL
+  if (cmd_obj$is_by_prefix && !is.na(cmd_obj$by_group_vars)) {
+    by_vars_list = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
+    by_vars_list = by_vars_list[by_vars_list != ""]
+    by_vars_for_fgroup_by = paste0('c("', paste0(by_vars_list, collapse='", "'), '")')
   } else if (!is.na(options_str)) {
     by_opt_match = stringi::stri_match_first_regex(options_str, "\\bby\\s*\\(([^)]+)\\)")
     if (!is.na(by_opt_match[1,1])) {
-      by_vars_egen = stringi::stri_trim_both(by_opt_match[1,2])
+      by_vars_list = stringi::stri_split_regex(stringi::stri_trim_both(by_opt_match[1,2]), "\\s+")[[1]]
+      by_vars_list = by_vars_list[by_vars_list != ""]
+      by_vars_for_fgroup_by = paste0('c("', paste0(by_vars_list, collapse='", "'), '")')
     }
-  }
-
-  by_vars_r_vec_str = NULL # For collapse group_by: c("var1", "var2")
-  if (!is.na(by_vars_egen)) {
-    by_vars_list = stringi::stri_split_regex(by_vars_egen, "\\s+")[[1]]
-    by_vars_list = by_vars_list[by_vars_list != ""]
-    by_vars_r_vec_str = paste0('c("', paste0(by_vars_list, collapse='", "'), '")')
   }
 
   # Translate egen function
@@ -166,74 +163,34 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     mutate_value_expr = paste0("median(", r_egen_args_conditional, ", na.rm = TRUE)")
   } else if (egen_func_name == "sd" || egen_func_name == "std") {
     mutate_value_expr = paste0("sd(", r_egen_args_conditional, ", na.rm = TRUE)")
-  } else if (egen_func_name == "group") {
-    # egen id = group(var1 var2) -> var1 and var2 are in egen_args_str, space separated.
-    # If by_vars_egen is present, Stata `by group: egen id = group(a b)` implies grouping by group, then within groups by a and b for the ID.
-    # Stata: group(varlist) assigns unique group codes based on varlist values *within* the by group.
-    # Equivalent to sorting by by_vars then varlist, then using a cumulative counter or rank.
-    # If by_vars_egen is present, the actual grouping for the ID is by_vars_egen + egen_args_str.
-    # If by_vars_egen is NOT present, grouping is only by egen_args_str.
-    # The sorting requirement for `tag` also applies to `group`.
-    # Let's use collapse::fgroup_rank which works on a vector of columns within a group.
-    # The columns to group by for fgroup_rank are the arguments in egen_args_str.
-    # We need to pass these as quoted variable names or expressions.
-    group_vars_for_func_list = stringi::stri_split_regex(r_egen_args, "\\s+")[[1]] # Use r_egen_args (translated)
-    group_vars_for_func_list = group_vars_for_func_list[group_vars_for_func_list != ""]
-    group_vars_r_vec_str_for_func = paste0('c("', paste(group_vars_for_func_list, collapse='", "'), '")') # Needs to be quoted vector for select/ftag/fgroup_rank
+  } else if (egen_func_name == "group" || egen_func_name == "tag") {
+    # For 'group' and 'tag', the effective grouping for fgroup_by is the combination
+    # of the 'by' prefix/option variables and the variables in the egen function arguments.
+    egen_func_args_list = stringi::stri_split_regex(egen_args_str, "\\s+")[[1]]
+    egen_func_args_list = egen_func_args_list[egen_func_args_list != ""]
 
-    # The `fgroup_rank` function should be applied within the grouping defined by `by_vars_egen`.
-    # mutate_value_expr = paste0("collapse::fgroup_rank(dplyr::select(., dplyr::all_of(", group_vars_r_vec_str_for_func, ")))")
-    # Using `dplyr::row_number()` within a grouped mutate is simpler and common.
-    # Stata `egen id = group(v)` is like `bysort v: gen id = _n`. But it also handles value labels and sorts levels.
-    # A simple integer sequence per group is `1:.N` or `dplyr::row_number()`.
-    # `fgroup_rank` provides the overall group rank across observations, not row number within group.
-    # `dplyr::group_indices` is also for overall group rank.
-    # `Stata egen group` is closer to a unique identifier for each combination of `varlist` values *within* the `by` group.
-    # `by A: egen id = group(B)` means id is unique for each combination of A and B.
-    # R: `data %>% group_by(A) %>% mutate(id = group_indices(.)) %>% ungroup()` or `dplyr::group_indices(., A, B)`.
-    # The `group()` arguments in Stata should be added to the `by_vars_egen` for R grouping purposes.
-    # Let's combine by_vars_egen and egen_args_str for grouping in R.
-    all_group_vars_list = c(stringi::stri_split_regex(by_vars_egen, "\\s+")[[1]], group_vars_for_func_list)
-    all_group_vars_list = all_group_vars_list[!is.na(all_group_vars_list) & all_group_vars_list != ""]
-    all_group_vars_r_vec_str = paste0('c("', paste(all_group_vars_list, collapse='", "'), '")')
+    current_by_vars_unquoted = if(!is.null(by_vars_for_fgroup_by)) {
+                                 # Extract from c("a", "b") format to a character vector
+                                 gsub('c\\(|"|\\)', '', by_vars_for_fgroup_by) %>% stringi::stri_split_fixed(', ')[[1]]
+                               } else character(0)
 
-    # Use collapse::fgroup_rank on the combined grouping variables
-    mutate_value_expr = paste0("collapse::fgroup_rank(dplyr::select(., dplyr::all_of(", all_group_vars_r_vec_str, ")))")
-    by_vars_r_vec_str = NULL # The grouping for this function is handled by the argument itself, not the by_vars_egen prefix in the typical summarize sense.
+    combined_grouping_vars = unique(c(current_by_vars_unquoted, egen_func_args_list))
+    combined_grouping_vars = combined_grouping_vars[combined_grouping_vars != ""]
 
-  } else if (egen_func_name == "tag") {
-      # egen t = tag(v1 v2) implies sorting by v1 v2 first, then tagging first obs in each group defined by v1 v2.
-      # If `by group: egen t = tag(v1 v2)`, it's within `group`, then by `v1 v2`.
-      # This is complex and depends on whether the bysort prefix or the tag arguments define the "group".
-      # Stata manual: `tag(varlist)` marks the first observation in each group defined by `varlist` *within* the current `by` group (if any).
-      # So if by_vars_egen is present, the tag is within that group. If not, it's based on the tag arguments.
-      # collapse::ftag(v) flags the first observation of each group based on values of v.
-      # For `tag(v1 v2)`, it's `collapse::ftag(v1, v2)`.
-      tag_vars_list = stringi::stri_split_regex(r_egen_args_conditional, "\\s+")[[1]] # Use conditional args? No, tag is based on original values. Use r_egen_args.
-      tag_vars_list = stringi::stri_split_regex(r_egen_args, "\\s+")[[1]]
-      tag_vars_list = tag_vars_list[tag_vars_list != ""]
-      tag_vars_r_vec_str = paste0('c("', paste(tag_vars_list, collapse='", "'), '")')
+    if (length(combined_grouping_vars) > 0) {
+      by_vars_for_fgroup_by = paste0('c("', paste0(combined_grouping_vars, collapse='", "'), '")')
+    } else {
+      by_vars_for_fgroup_by = NULL # No grouping if no vars for group/tag
+    }
 
-      if (!is.null(by_vars_r_vec_str)) {
-           # If there's a by group, tag is within that group.
-           # Stata `by A: egen t = tag(B C)` is equivalent to `bysort A B C: gen byte t = _n==1`.
-           # We need to ensure the correct sort order *before* calculating the first observation flag.
-           # The code should sort by by_vars_egen THEN tag_vars_list before calculating the flag.
-           # Sorting logic should ideally be a separate step if not guaranteed by `bysort` prefix.
-           # If `bysort` prefix is used, data is already sorted. If `by()` option is used, Stata implies sort.
-           # Let's assume the sorting is handled and use the row number within the group.
-           # `.i == 1` in collapse within fmutate and fgroup_by gives the first observation *within* the group defined by fgroup_by.
-           mutate_value_expr = paste0("as.integer(.i == 1)") # Using collapse group index, converted to integer (Stata byte 0/1)
-
-      } else {
-           # No by group. Tag is based on the tag_vars only.
-           # Equivalent to `bysort tag_vars: gen byte t = _n==1`.
-           # Use collapse::ftag which works on selecting columns.
-           mutate_value_expr = paste0("as.integer(collapse::ftag(dplyr::select(., dplyr::all_of(", tag_vars_r_vec_str, "))))")
-           by_vars_r_vec_str = NULL # Tag without BY is not a grouped operation in the same sense for the R code structure.
-      }
-
-
+    if (egen_func_name == "group") {
+        # fgroup_rank without arguments uses the current grouping defined by fgroup_by
+        mutate_value_expr = paste0("collapse::fgroup_rank()")
+    } else if (egen_func_name == "tag") {
+        # Stata `tag` flags the first obs in each group defined by `varlist` (and `by` prefix if any).
+        # This is `_n==1` after sorting by all these variables.
+        mutate_value_expr = paste0("as.integer(.i == 1)")
+    }
   } else if (egen_func_name == "rowtotal") {
     vars_for_rowop_list = stringi::stri_split_regex(r_egen_args, "\\s+")[[1]] # Use non-conditional args here
     vars_for_rowop_list = vars_for_rowop_list[vars_for_rowop_list != ""]
@@ -241,16 +198,15 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
     # Stata rowtotal treats NA as 0 *before* summing.
     # Using rowSums on a selection of columns after replacing NA with 0.
-    # `rowSums(tidyr::replace_na(dplyr::select(., dplyr::all_of(", vars_for_rowop_r_vec_str, ")), 0))`
     mutate_value_expr = paste0("rowSums(tidyr::replace_na(dplyr::select(., dplyr::all_of(", vars_for_rowop_r_vec_str, ")), 0), na.rm = FALSE)") # na.rm=FALSE because we replaced NA with 0
-    is_row_function = TRUE; by_vars_r_vec_str = NULL # Row functions don't use grouping in the same way
+    is_row_function = TRUE; by_vars_for_fgroup_by = NULL # Row functions don't use grouping in the same way
   } else if (egen_func_name == "rowmean") {
     vars_for_rowop_list = stringi::stri_split_regex(r_egen_args, "\\s+")[[1]] # Use non-conditional args here
     vars_for_rowop_list = vars_for_rowop_list[vars_for_rowop_list != ""]
     vars_for_rowop_r_vec_str = paste0('c("', paste(vars_for_rowop_list, collapse='", "'), '")')
 
     mutate_value_expr = paste0("rowMeans(dplyr::select(., dplyr::all_of(", vars_for_rowop_r_vec_str, ")), na.rm = TRUE)")
-    is_row_function = TRUE; by_vars_r_vec_str = NULL
+    is_row_function = TRUE; by_vars_for_fgroup_by = NULL
   } else {
     return(paste0("# Egen function '", egen_func_name, "' not yet implemented."))
   }
@@ -259,8 +215,8 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   full_mutate_expr = paste0(new_var, " = ", mutate_value_expr)
 
   # Build the R command string using collapse functions
-  if (!is.null(by_vars_r_vec_str) && !is_row_function) {
-    r_code_str = paste0("data = collapse::fgroup_by(data, ", by_vars_r_vec_str, ") %>%\n",
+  if (!is.null(by_vars_for_fgroup_by) && !is_row_function) {
+    r_code_str = paste0("data = collapse::fgroup_by(data, ", by_vars_for_fgroup_by, ") %>%\n",
                         "  collapse::fmutate(", full_mutate_expr, ") %>%\n",
                         "  collapse::fungroup()")
   } else {
@@ -282,5 +238,4 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
-
 
