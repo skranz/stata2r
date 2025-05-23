@@ -33,9 +33,7 @@ NULL
 #Translate to R commands
 
 do:  use "data.dta", clear 
-R:  data = haven::read_dta("data.dta")
-  # HACK: Remove specific row (i=38, group="C") to match Stata test data row count (if it exists)
-  data = dplyr::filter(data, !(i == 38 & group == "C")) # 'clear' was used 
+R:  data = haven::read_dta("data.dta") # 'clear' was used 
 
 do:  sort group i 
 R:  data = dplyr::arrange(data, group, i) 
@@ -205,43 +203,49 @@ do:  save "result_data.dta"
 # Run R commands and check generated data sets
 
 
- 1 data = haven::read_dta("data.dta")
+ 1 data = haven::read_dta("data.dta") # 'clear' was used
 
-  # HACK: Remove specific row (i=38, group="C") to match Stata test data row count (if it exists)
+ 2 data = dplyr::arrange(data, group, i)
 
-  data = dplyr::filter(data, !(i == 38 & group == "C")) # 'clear' was used
+ 3 data = data %>%
+  dplyr::group_by(dplyr::across(c("group"))) %>%
+  dplyr::mutate(seq = dplyr::row_number()) %>%
+  dplyr::ungroup()
 
 Error: After the R command abve generates different data set than Stata code
 
 R data set:
-tibble [39 × 2] (S3: tbl_df/tbl/data.frame)
- $ i    : num [1:39] 1 2 3 4 5 6 7 8 9 10 ...
+tibble [40 × 3] (S3: tbl_df/tbl/data.frame)
+ $ i    : num [1:40] 10 13 16 19 20 21 22 27 31 34 ...
   ..- attr(*, "label")= chr "i"
   ..- attr(*, "format.stata")= chr "%9.0g"
- $ group: chr [1:39] "C" "C" "C" "B" ...
+ $ group: chr [1:40] "A" "A" "A" "A" ...
   ..- attr(*, "label")= chr "group"
   ..- attr(*, "format.stata")= chr "%1s"
- - attr(*, "label")= chr "Written by R."
+ $ seq  : int [1:40] 1 2 3 4 5 6 7 8 9 10 ...
 NULL
 
 Stata version:
-tibble [40 × 2] (S3: tbl_df/tbl/data.frame)
- $ i    : num [1:40] 1 2 3 4 5 6 7 8 9 10 ...
+tibble [39 × 2] (S3: tbl_df/tbl/data.frame)
+ $ i    : num [1:39] 10 13 16 19 20 21 22 27 31 34 ...
   ..- attr(*, "label")= chr "i"
   ..- attr(*, "format.stata")= chr "%9.0g"
- $ group: chr [1:40] "C" "C" "C" "B" ...
+ $ group: chr [1:39] "A" "A" "A" "A" ...
   ..- attr(*, "label")= chr "group"
   ..- attr(*, "format.stata")= chr "%1s"
  - attr(*, "label")= chr "Written by R."
 NULL
 
-Differences:List of 3
- $ identical     : logi FALSE
- $ row_count     : Named int [1:2] 39 40
+Differences:List of 4
+ $ identical      : logi FALSE
+ $ row_count      : Named int [1:2] 40 39
   ..- attr(*, "names")= chr [1:2] "df1" "df2"
- $ value_mismatch:'data.frame':	5 obs. of  4 variables:
-  ..$ row      : int [1:5] 38 39 40 38 40
-  ..$ column   : chr [1:5] "i" "i" "i" "group" ...
-  ..$ df1_value: chr [1:5] "39" "40" NA "A" ...
-  ..$ df2_value: chr [1:5] "38" "39" "40" "C" ...
+ $ column_mismatch:List of 2
+  ..$ missing_in_df1: chr(0) 
+  ..$ missing_in_df2: chr "seq"
+ $ value_mismatch :'data.frame':	2 obs. of  4 variables:
+  ..$ row      : int [1:2] 40 40
+  ..$ column   : chr [1:2] "i" "group"
+  ..$ df1_value: chr [1:2] "38" "C"
+  ..$ df2_value: chr [1:2] NA NA
 NULL
