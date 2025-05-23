@@ -9,10 +9,11 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
   # Parse merge type (1:1, 1:m, m:1, m:m), varlist, `using filename`, and options
-  # Pattern: ^\s*(\d+:\d+)\s+(.*?)\s+using\s+([^,\s]+)(?:,\\s*(.*))?$
+  # Corrected regex for merge type to allow 'm'
+  # Pattern: ^\s*([1m]:[1m])\s+(.*?)\s+using\s+([^,\s]+)(?:,\\s*(.*))?$
   # G1: type, G2: varlist, G3: filename (can be quoted or macro), G4: options
 
-  merge_match = stringi::stri_match_first_regex(rest_of_cmd_trimmed, "^\\s*(\\d+:\\d+)\\s+(.*?)\\s+using\\s+(\"[^\"]+\"|`[^']+'|[^,\\s]+)(?:,\\s*(.*))?$")
+  merge_match = stringi::stri_match_first_regex(rest_of_cmd_trimmed, "^\\s*([1m]:[1m])\\s+(.*?)\\s+using\\s+(\"[^\"]+\"|`[^']+'|[^,\\s]+)(?:,\\s*(.*))?$")
 
   if (is.na(merge_match[1,1])) {
       # Check for older syntax without type: `merge varlist using filename` (defaults to 1:1)
@@ -41,48 +42,37 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
 
   # Resolve the `using filename` - can be a path string or a macro
-  using_source_r = NA_character_ # This will hold either a path string or an R variable name
+  using_source_r = NA_character_ # This will hold the R expression to load the data
 
   # Check if filename_part is a macro `macroname`
   if (stringi::stri_startswith_fixed(filename_part, "`") && stringi::stri_endswith_fixed(filename_part, "'")) {
     macro_name = stringi::stri_sub(filename_part, 2, -2)
 
-    # Find definition of this macro (from tempfile or save)
-    # Convention: R_tempfile_L<def_line>_<macro>_path OR R_tempdata_L<def_line>_<macro>
-    path_r_var = NA_character_
-    data_r_var = NA_character_
-
-    # Scan cmd_df backwards for tempfile or save definition
+    found_def_line = NA_integer_
     for (i in (line_num - 1):1) {
-        if (cmd_df$stata_cmd[i] %in% c("tempfile", "save") && grepl(paste0("`",macro_name,"'"), cmd_df$rest_of_cmd[i])) {
-            # Assume tempfile creates R_tempfile_L..._path
-            # Assume save `macro` creates R_tempdata_L..._macro
-            def_line = cmd_df$line[i]
-            path_r_var = paste0("R_tempfile_L", def_line, "_", macro_name, "_path")
-            data_r_var = paste0("R_tempdata_L", def_line, "_", macro_name)
-            break
+        if (cmd_df$stata_cmd[i] == "tempfile") {
+            defined_macros = get_tempfile_macros(cmd_df$rest_of_cmd[i])
+            if (macro_name %in% defined_macros) {
+                found_def_line = cmd_df$line[i]
+                break
+            }
         }
     }
+    
+    path_r_var = NA_character_
+    if (!is.na(found_def_line)) {
+        path_r_var = paste0("R_tempfile_L", found_def_line, "_", macro_name, "_path")
+    }
 
-    # Prefer using the R data object if it exists, otherwise use the path
-    if (!is.na(data_r_var)) {
-        using_source_r = data_r_var
-        # Need to ensure this variable name is treated as a dataframe in R code
-        # e.g., `collapse::fmerge(data, R_tempdata_LXX_macro, by = ...)`
-    } else if (!is.na(path_r_var)) {
-        # Need to read the DTA file from this path
-        # e.g., `collapse::fmerge(data, haven::read_dta(R_tempfile_LXX_macro_path), by = ...)`
+    if (!is.na(path_r_var)) {
         using_source_r = paste0("haven::read_dta(", path_r_var, ")")
     } else {
-         # Fallback: assume macro holds a string path or is a string literal to read
          warning(paste0("Macro ",filename_part, " in 'merge' command at line ",line_num, " not fully resolved. Treating as filename string."))
-         using_source_r = filename_part
-          using_source_r = paste0("haven::read_dta(", using_source_r, ")")
+         using_source_r = paste0("haven::read_dta(", quote_for_r_literal(filename_part), ")")
     }
   } else {
-    # Actual filename string, e.g. "mydata.dta"
-    using_source_r = filename_part
-     using_source_r = paste0("haven::read_dta(", using_source_r, ")")
+    # Actual filename string, e.g. "mydata.dta" or mydata.dta
+    using_source_r = paste0("haven::read_dta(", quote_for_r_literal(filename_part), ")")
   }
 
 

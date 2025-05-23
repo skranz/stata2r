@@ -123,7 +123,7 @@ stata_non_data_manip_cmds = c( # This list is for marking FALSE explicitly if ne
   "return", "ret", "rmdir", "run", "ru", "scalar", "sc", "search", "shell", "sh", "signestim", "sleep",
   "stata", "st", "tabdisp", "table", "test", "te", "timer", "translate", "truncate",
   "tutorials", "type", "ty", # `type` command to display file content (different from `set type`)
-  "view", "version", "v", "webuse", "which", "w", "while", "window", "winexec", "xmlsav"
+  "view", "version", "v", "webuse", "w", "which", "while", "window", "winexec", "xmlsav"
 )
 
 # Helper to parse basic Stata command line: cmd + rest
@@ -206,5 +206,28 @@ parse_stata_command_line = function(line_text) {
     by_group_vars = if(length(by_group_vars)>0) by_group_vars else NA_character_,
     by_sort_vars = if(length(by_sort_vars)>0) by_sort_vars else NA_character_
   ))
+}
+
+# Helper function to get macro names from a tempfile command's rest_of_cmd
+get_tempfile_macros = function(rest_of_cmd_for_tempfile) {
+    if (is.na(rest_of_cmd_for_tempfile) || rest_of_cmd_for_tempfile == "") return(character(0))
+    stringi::stri_split_regex(rest_of_cmd_for_tempfile, "\\s+")[[1]] %>%
+        stringi::stri_trim_both() %>%
+        .[. != ""]
+}
+
+# Helper function to ensure a string is quoted for R literal use if not already
+quote_for_r_literal = function(s) {
+  if (is.na(s)) return("NA_character_")
+  if (s == "") return('""')
+  # Check if already quoted with " or ' or `...`'
+  if (stringi::stri_startswith_fixed(s, '"') && stringi::stri_endswith_fixed(s, '"')) return(s)
+  if (stringi::stri_startswith_fixed(s, "'") && stringi::stri_endswith_fixed(s, "'")) return(s)
+  # Check for Stata's `macro'` style quoting
+  if (stringi::stri_startswith_fixed(s, "`") && stringi::stri_endswith_fixed(s, "'")) return(s) # This is a Stata macro, not a literal for R path string.
+                                                                                              # It should be handled by macro resolution, not literal quoting.
+                                                                                              # If it reaches here, it's a fallback and should be literally quoted.
+  # Add double quotes
+  paste0('"', s, '"')
 }
 

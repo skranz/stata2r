@@ -18,46 +18,37 @@ t_append = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   options_str = stringi::stri_trim_both(append_match[1,3]) # NA if no options
 
     # Resolve the `using filename` - can be a path string or a macro
-  using_source_r = NA_character_ # This will hold either a path string or an R variable name
+  using_source_r = NA_character_ # This will hold the R expression to load the data
 
   # Check if filename_part is a macro `macroname`
   if (stringi::stri_startswith_fixed(filename_part, "`") && stringi::stri_endswith_fixed(filename_part, "'")) {
     macro_name = stringi::stri_sub(filename_part, 2, -2)
 
-    # Find definition of this macro (from tempfile or save)
-    # Convention: R_tempfile_L<def_line>_<macro>_path OR R_tempdata_L<def_line>_<macro>
-    path_r_var = NA_character_
-    data_r_var = NA_character_
-
-    # Scan cmd_df backwards for tempfile or save definition
+    found_def_line = NA_integer_
     for (i in (line_num - 1):1) {
-        if (cmd_df$stata_cmd[i] %in% c("tempfile", "save") && grepl(paste0("`",macro_name,"'"), cmd_df$rest_of_cmd[i])) {
-            def_line = cmd_df$line[i]
-            path_r_var = paste0("R_tempfile_L", def_line, "_", macro_name, "_path")
-            data_r_var = paste0("R_tempdata_L", def_line, "_", macro_name)
-            break
+        if (cmd_df$stata_cmd[i] == "tempfile") {
+            defined_macros = get_tempfile_macros(cmd_df$rest_of_cmd[i])
+            if (macro_name %in% defined_macros) {
+                found_def_line = cmd_df$line[i]
+                break
+            }
         }
     }
 
-    # Prefer using the R data object if it exists, otherwise use the path
-    if (!is.na(data_r_var)) {
-        using_source_r = data_r_var
-        # Need to ensure this variable name is treated as a dataframe in R code
-        # e.g., `collapse::fbind(data, R_tempdata_LXX_macro)`
-    } else if (!is.na(path_r_var)) {
-        # Need to read the DTA file from this path
-        # e.g., `collapse::fbind(data, haven::read_dta(R_tempfile_LXX_macro_path))`
+    path_r_var = NA_character_
+    if (!is.na(found_def_line)) {
+        path_r_var = paste0("R_tempfile_L", found_def_line, "_", macro_name, "_path")
+    }
+
+    if (!is.na(path_r_var)) {
         using_source_r = paste0("haven::read_dta(", path_r_var, ")")
     } else {
-         # Fallback: assume macro holds a string path or is a string literal to read
          warning(paste0("Macro ",filename_part, " in 'append' command at line ",line_num, " not fully resolved. Treating as filename string."))
-         using_source_r = filename_part
-         using_source_r = paste0("haven::read_dta(", using_source_r, ")")
+         using_source_r = paste0("haven::read_dta(", quote_for_r_literal(filename_part), ")")
     }
   } else {
-    # Actual filename string, e.g. "mydata.dta"
-    using_source_r = filename_part
-    using_source_r = paste0("haven::read_dta(", using_source_r, ")")
+    # Actual filename string, e.g. "mydata.dta" or mydata.dta
+    using_source_r = paste0("haven::read_dta(", quote_for_r_literal(filename_part), ")")
   }
 
 
