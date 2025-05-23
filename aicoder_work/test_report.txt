@@ -36,7 +36,7 @@ do:  use "data.dta", clear
 R:  data = haven::read_dta("data.dta") # 'clear' was used 
 
 do:  sort group i 
-R:  data = collapse::farrange(data, group, i) 
+R:  data = dplyr::arrange(data, group, i) 
 
 do:  by group: gen seq = _n 
 R:  data = collapse::fgroup_by(data, c("group"))
@@ -116,7 +116,7 @@ data = collapse::fmutate(data, group_str = __decoded_values_L19)
 rm(__decoded_values_L19) 
 
 do:  sort group_code 
-R:  data = collapse::farrange(data, group_code) 
+R:  data = dplyr::arrange(data, group_code) 
 
 do:  tempfile t1 
 R:  R_tempfile_L21_t1_path = tempfile(fileext = '.dta') # Stata tempfile 't1' 
@@ -137,7 +137,8 @@ do:  reshape wide mean_i_overall total_i_sum, i(group_code) j(group_str)
 R:  data = tidyr::pivot_wider(data, id_cols = dplyr::all_of(c("group_code")), names_from = group_str, values_from = dplyr::all_of(c("mean_i_overall", "total_i_sum"))) 
 
 do:  reshape long mean_i_overall total_i_sum, i(group_code) j(group_str) 
-R:  # reshape long with multiple stubnames not yet fully implemented: long mean_i_overall total_i_sum, i(group_code) j(group_str) 
+R:  data = tidyr::pivot_longer(data, cols = dplyr::matches("^(mean_i_overall|total_i_sum)"), names_to = c(".value", "group_str"), names_pattern = "^(mean_i_overall|total_i_sum)(.*)$") %>%
+  dplyr::mutate(group_str = as.numeric(group_str)) 
 
 do:  gen id = _n 
 R:  data = collapse::fmutate(data, id = dplyr::row_number()) 
@@ -176,7 +177,7 @@ do:  gen proportion = sum_mean/total_sum
 R:  data = collapse::fmutate(data, proportion = sum_mean/total_sum) 
 
 do:  sort proportion 
-R:  data = collapse::farrange(data, proportion) 
+R:  data = dplyr::arrange(data, proportion) 
 
 do:  list in 1/5 
   no data manipulation command
@@ -190,6 +191,11 @@ R:  haven::write_dta(data, path = "result_data.dta")
 
  1 data = haven::read_dta("data.dta") # 'clear' was used
 
- 2 data = collapse::farrange(data, group, i)
+ 2 data = dplyr::arrange(data, group, i)
 
-Error: 'farrange' is not an exported object from 'namespace:collapse'
+ 3 data = collapse::fgroup_by(data, c("group"))
+
+data = collapse::fmutate(data, seq = dplyr::row_number())
+
+Error: subscript out of bounds
+data = collapse::fungroup(data)

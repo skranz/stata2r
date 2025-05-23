@@ -816,17 +816,29 @@ get_tempfile_macros = function(rest_of_cmd_for_tempfile) {
         .[. != ""]
 }
 
+# Helper function to unquote Stata string literals or extract macro names
+unquote_stata_string_or_macro_literal = function(s) {
+  if (is.na(s) || s == "") return(s)
+  # Stata string literal: "my path with spaces.dta"
+  if (stringi::stri_startswith_fixed(s, '"') && stringi::stri_endswith_fixed(s, '"')) {
+    return(stringi::stri_sub(s, 2, -2))
+  }
+  # Stata local macro: `my_macro'
+  if (stringi::stri_startswith_fixed(s, "`") && stringi::stri_endswith_fixed(s, "'")) {
+    return(stringi::stri_sub(s, 2, -2))
+  }
+  # Not quoted by Stata syntax, return as is
+  return(s)
+}
+
 # Helper function to ensure a string is quoted for R literal use if not already
+# This function expects an already UNQUOTED string (no Stata-style quotes)
 quote_for_r_literal = function(s) {
   if (is.na(s)) return("NA_character_")
   if (s == "") return('""')
-  # Check if already quoted with " or ' or `...`'
+  # Check if already quoted with " or '
   if (stringi::stri_startswith_fixed(s, '"') && stringi::stri_endswith_fixed(s, '"')) return(s)
   if (stringi::stri_startswith_fixed(s, "'") && stringi::stri_endswith_fixed(s, "'")) return(s)
-  # Check for Stata's `macro'` style quoting
-  if (stringi::stri_startswith_fixed(s, "`") && stringi::stri_endswith_fixed(s, "'")) return(s) # This is a Stata macro, not a literal for R path string.
-                                                                                              # It should be handled by macro resolution, not literal quoting.
-                                                                                              # If it reaches here, it's a fallback and should be literally quoted.
   # Add double quotes
   paste0('"', s, '"')
 }
@@ -1007,15 +1019,18 @@ t_append = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
     return(paste0("# Failed to parse append command: ", rest_of_cmd))
   }
 
-  filename_part = stringi::stri_trim_both(append_match[1,2])
+  raw_filename_token = stringi::stri_trim_both(append_match[1,2]) # Updated to raw_filename_token
   options_str = stringi::stri_trim_both(append_match[1,3]) # NA if no options
 
-    # Resolve the `using filename` - can be a path string or a macro
+  # Resolve the `using filename` - can be a path string or a macro
   using_source_r = NA_character_ # This will hold the R expression to load the data
 
+  # Extract the unquoted content for macro resolution or literal quoting
+  unquoted_content = unquote_stata_string_or_macro_literal(raw_filename_token)
+
   # Check if filename_part is a macro `macroname`
-  if (stringi::stri_startswith_fixed(filename_part, "`") && stringi::stri_endswith_fixed(filename_part, "'")) {
-    macro_name = stringi::stri_sub(filename_part, 2, -2)
+  if (stringi::stri_startswith_fixed(raw_filename_token, "`") && stringi::stri_endswith_fixed(raw_filename_token, "'")) {
+    macro_name = unquoted_content # Macro name is the unquoted content
 
     found_def_line = NA_integer_
     for (i in (line_num - 1):1) {
@@ -1036,12 +1051,12 @@ t_append = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
     if (!is.na(path_r_var)) {
         using_source_r = paste0("haven::read_dta(", path_r_var, ")")
     } else {
-         warning(paste0("Macro ",filename_part, " in 'append' command at line ",line_num, " not fully resolved. Treating as filename string."))
-         using_source_r = paste0("haven::read_dta(", quote_for_r_literal(filename_part), ")")
+         warning(paste0("Macro ",raw_filename_token, " in 'append' command at line ",line_num, " not fully resolved. Treating as filename string."))
+         using_source_r = paste0("haven::read_dta(", quote_for_r_literal(unquoted_content), ")")
     }
   } else {
-    # Actual filename string, e.g. "mydata.dta" or mydata.dta
-    using_source_r = paste0("haven::read_dta(", quote_for_r_literal(filename_part), ")")
+    # Actual filename string, e.g. "mydata.dta" or mydata.dta (potentially unquoted in Stata)
+    using_source_r = paste0("haven::read_dta(", quote_for_r_literal(unquoted_content), ")")
   }
 
 
@@ -2423,7 +2438,7 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       if (!is.na(merge_match_old[1,1])) {
            merge_type = "1:1" # Assume 1:1 if type not specified
            varlist_str = stringi::stri_trim_both(merge_match_old[1,2])
-           filename_part = stringi::stri_trim_both(merge_match_old[1,3])
+           raw_filename_token = stringi::stri_trim_both(merge_match_old[1,3]) # Updated to raw_filename_token
            options_str = stringi::stri_trim_both(merge_match_old[1,4])
       } else {
            return(paste0("# Failed to parse merge command: ", rest_of_cmd))
@@ -2431,7 +2446,7 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   } else {
       merge_type = merge_match[1,2]
       varlist_str = stringi::stri_trim_both(merge_match[1,3])
-      filename_part = stringi::stri_trim_both(merge_match[1,4])
+      raw_filename_token = stringi::stri_trim_both(merge_match[1,4]) # Updated to raw_filename_token
       options_str = stringi::stri_trim_both(merge_match[1,5]) # NA if no options
   }
 
@@ -2446,9 +2461,12 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Resolve the `using filename` - can be a path string or a macro
   using_source_r = NA_character_ # This will hold the R expression to load the data
 
+  # Extract the unquoted content for macro resolution or literal quoting
+  unquoted_content = unquote_stata_string_or_macro_literal(raw_filename_token)
+
   # Check if filename_part is a macro `macroname`
-  if (stringi::stri_startswith_fixed(filename_part, "`") && stringi::stri_endswith_fixed(filename_part, "'")) {
-    macro_name = stringi::stri_sub(filename_part, 2, -2)
+  if (stringi::stri_startswith_fixed(raw_filename_token, "`") && stringi::stri_endswith_fixed(raw_filename_token, "'")) {
+    macro_name = unquoted_content # Macro name is the unquoted content
 
     found_def_line = NA_integer_
     for (i in (line_num - 1):1) {
@@ -2469,12 +2487,12 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     if (!is.na(path_r_var)) {
         using_source_r = paste0("haven::read_dta(", path_r_var, ")")
     } else {
-         warning(paste0("Macro ",filename_part, " in 'merge' command at line ",line_num, " not fully resolved. Treating as filename string."))
-         using_source_r = paste0("haven::read_dta(", quote_for_r_literal(filename_part), ")")
+         warning(paste0("Macro ",raw_filename_token, " in 'merge' command at line ",line_num, " not fully resolved. Treating as filename string."))
+         using_source_r = paste0("haven::read_dta(", quote_for_r_literal(unquoted_content), ")")
     }
   } else {
-    # Actual filename string, e.g. "mydata.dta" or mydata.dta
-    using_source_r = paste0("haven::read_dta(", quote_for_r_literal(filename_part), ")")
+    # Actual filename string, e.g. "mydata.dta" or mydata.dta (potentially unquoted in Stata)
+    using_source_r = paste0("haven::read_dta(", quote_for_r_literal(unquoted_content), ")")
   }
 
 
@@ -3066,47 +3084,32 @@ t_reshape = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
       # If multiple stubnames, tidyr can gather them separately.
       # `pivot_longer(..., names_to = c(".value", "year"), names_sep = "_")` if original cols were `inc_1990`, `limit_1990`, etc.
 
-      # The `stubnames_or_varlist` for long format lists the *original* wide variables which become the stubs.
-      # Example: `reshape long inc90 inc91 limit90 limit91, i(id) j(year)`
-      # Stubnames are `inc` and `limit`. The suffix is `90`, `91`.
-      # tidyr needs to know the columns to gather: `c(inc90, inc91, limit90, limit91)`
-      # Stata infers the stubs and suffixes. We need to parse the original wide columns.
-      # This requires analyzing the `stubnames_or_varlist` and potentially options like `string`.
+      # The `stubnames_or_varlist` for long format lists the *stubnames* (e.g., "inc", "limit").
+      # The actual columns to gather are inferred from these stubs and the values of the `j` variable.
+      # This translation assumes that the wide variables are named `stubname` + `j_value`.
+      # e.g., for `stubnames = c("inc", "limit")` and `j_var = "year"`,
+      # it expects columns like `inc1990`, `inc1991`, `limit1990`, `limit1991`.
 
-      # Simple approach: Assume stubnames_or_varlist lists all wide columns to gather.
-      # e.g. `reshape long inc90 inc91, i(id) j(year)`
-      # cols = c(inc90, inc91).
-      # names_to = "year" (this is the j variable name)
-      # values_to = ".value" (this tells pivot_longer to use the original column names as value columns)
-      # names_pattern = "stub(.*)" captures the part that becomes the j variable value.
-      # If stubnames are `inc` and `limit`, and columns are `inc_1990`, `inc_1991`, `limit_1990`, `limit_1991`
-      # `pivot_longer(cols = starts_with("inc_") | starts_with("limit_"), names_to = c(".value", j_var), names_sep = "_", values_to = "???")`
-      # This mapping is tricky.
+      # Construct the `cols` argument for `pivot_longer`
+      # Stata's reshape long can infer columns, e.g., `reshape long income, i(id) j(year)` implies `income*`
+      # `reshape long income educ, i(id) j(year)` implies `income*` and `educ*`
+      # dplyr::matches is suitable for this.
+      cols_to_gather_regex = paste0("^(", paste(stubnames_or_varlist, collapse = "|"), ")")
+      cols_to_gather_expr = paste0("dplyr::matches(\"", cols_to_gather_regex, "\")")
 
-      # Let's assume the simplest case first: one set of stubnames.
-      # `reshape long inc, i(id) j(year)` means original vars are inc1990, inc1991, etc.
-      # stubname="inc", jname="year". Columns to gather are "inc*".
-      # `tidyr::pivot_longer(data, cols = starts_with(stubname), names_to = jname, values_pattern = "stubname(.*)", values_to = stubname)`
-      # Example: `reshape long inc, i(id) j(year)`
-      # `stubnames_or_varlist` = "inc". Let's assume this is the single stubname.
-      # The original wide columns implicitly match this stub (e.g., inc1990, inc1991).
-      # `cols` should match `inc*`. `names_to` is `j_var`. `values_to` is `inc`. `names_pattern` captures the part after "inc".
 
-      if (length(stubnames_or_varlist) > 1) {
-           return(paste0("# reshape long with multiple stubnames not yet fully implemented: ", rest_of_cmd))
-      }
-      stubname = stubnames_or_varlist[1]
-      # Assuming wide variables match `stubname + suffix`
-      names_pattern = paste0(stubname, "(.*)") # Capture suffix as j variable value
-      # If j is string, the captured part is the string. If numeric, need conversion.
-      # Stata j() string means the j variable is stored as string.
-      # tidyr names_to + names_pattern creates the j variable value.
-      # values_to is the name of the variable that holds the actual data values. Stata uses the stubname.
+      # Construct the `names_pattern` to capture stubname and j_value
+      # e.g., (inc|limit)(\\d+)
+      names_pattern = paste0("^(", paste(stubnames_or_varlist, collapse = "|"), ")(.*)$")
 
-      r_code_str = paste0("data = tidyr::pivot_longer(data, cols = starts_with(\"", stubname, "\"), names_to = \"", j_var, "\", names_pattern = \"", names_pattern, "\", values_to = \"", stubname, "\")")
+      # names_to should be c(".value", j_var) to create new columns for each stubname
+      # .value will map the captured stubname part to the correct column name (e.g., "income", "educ")
+      names_to_r = paste0('c(".value", "', j_var, '")')
 
-      # If j() string option was used, need to convert the resulting j_var to string/factor later if tidyr made it numeric.
-      # tidyr's names_pattern captures as string by default. If j_is_string is FALSE, need conversion to numeric.
+      r_code_str = paste0("data = tidyr::pivot_longer(data, cols = ", cols_to_gather_expr, ", names_to = ", names_to_r, ", names_pattern = \"", names_pattern, "\")")
+
+      # If j() string option was NOT used, need to convert the resulting j_var to numeric.
+      # tidyr's names_pattern captures as string by default.
       if (!j_is_string) {
          # Convert j_var to numeric after reshape
          r_code_str = paste0(r_code_str, " %>%\n  dplyr::mutate(", j_var, " = as.numeric(", j_var, "))")
@@ -3141,19 +3144,22 @@ t_save = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   # Example: save `tempfile_macro`, replace
 
   parts = stringi::stri_match_first_regex(rest_of_cmd, "^\\s*([^,]*?)(?:,\\s*(.*))?$")
-  filename_part = stringi::stri_trim_both(parts[1,2]) # Can be empty (uses last used filename)
+  raw_filename_token = stringi::stri_trim_both(parts[1,2]) # Can be empty (uses last used filename)
   options_part = stringi::stri_trim_both(parts[1,3])  # NA if no options
 
   filename_r = "" # Resulting R path string or variable name
   save_to_r_object = "" # R code to save data to an R object for direct access
 
-  if (is.na(filename_part) || filename_part == "") {
+  if (is.na(raw_filename_token) || raw_filename_token == "") {
     return("# `save` without filename not fully supported yet. Needs to track original data filename.")
   }
 
+  # Extract the unquoted content for macro resolution or literal quoting
+  unquoted_content = unquote_stata_string_or_macro_literal(raw_filename_token)
+
   # Check if filename_part is a macro `macroname`
-  if (stringi::stri_startswith_fixed(filename_part, "`") && stringi::stri_endswith_fixed(filename_part, "'")) {
-    macro_name = stringi::stri_sub(filename_part, 2, -2)
+  if (stringi::stri_startswith_fixed(raw_filename_token, "`") && stringi::stri_endswith_fixed(raw_filename_token, "'")) {
+    macro_name = unquoted_content # Macro name is the unquoted content
 
     found_def_line = NA_integer_
     for (i in (line_num - 1):1) {
@@ -3172,12 +3178,12 @@ t_save = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
       # This allows `use` or `merge using` commands to refer to the in-memory R object.
       save_to_r_object = paste0("R_tempdata_L", found_def_line, "_", macro_name, " = data # Storing data for Stata macro '", macro_name, "' for direct R access")
     } else {
-      warning(paste0("Macro ",filename_part, " in 'save' command at line ",line_num, " not resolved from tempfile. Treating as literal string."))
-      filename_r = quote_for_r_literal(filename_part)
+      warning(paste0("Macro ",raw_filename_token, " in 'save' command at line ",line_num, " not resolved from tempfile. Treating as literal string."))
+      filename_r = quote_for_r_literal(unquoted_content)
     }
   } else {
-    # Actual filename string, e.g. "mydata.dta" or mydata.dta
-    filename_r = quote_for_r_literal(filename_part)
+    # Actual filename string, e.g. "mydata.dta" or mydata.dta (potentially unquoted in Stata)
+    filename_r = quote_for_r_literal(unquoted_content)
   }
 
   r_code = ""
@@ -3218,9 +3224,9 @@ t_sort = function(rest_of_cmd, cmd_obj, cmd_df, line_num, type = "sort") {
 
   if (type == "sort") {
     # Plain sort is ascending for all variables
-    # Using collapse::farrange for efficiency
+    # Using dplyr::arrange for consistency with gsort and reliability
     sort_vars_r = paste(vars, collapse = ", ") # pass as bare names
-    r_code_str = paste0("data = collapse::farrange(data, ", sort_vars_r, ")")
+    r_code_str = paste0("data = dplyr::arrange(data, ", sort_vars_r, ")")
 
   } else if (type == "gsort") {
     # gsort allows specifying ascending (+) or descending (-) for each variable
@@ -3397,20 +3403,23 @@ t_use = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
     return(paste0("# Failed to parse use command: ", rest_of_cmd))
   }
 
-  filename_str = parts[1,2]
+  raw_filename_token = parts[1,2]
   clear_opt = parts[1,3] # NA if not present, "clear" if present
 
   filename_r = "" # This will hold the R path variable name or a quoted R string literal
 
+  # Extract the unquoted content for macro resolution or literal quoting
+  unquoted_content = unquote_stata_string_or_macro_literal(raw_filename_token)
+
   # Handle macro `filename'
-  if (stringi::stri_startswith_fixed(filename_str, "`") && stringi::stri_endswith_fixed(filename_str, "'")) {
-    macro_name = stringi::stri_sub(filename_str, 2, -2)
+  if (stringi::stri_startswith_fixed(raw_filename_token, "`") && stringi::stri_endswith_fixed(raw_filename_token, "'")) {
+    macro_name = unquoted_content # Macro name is the unquoted content
     
     found_def_line = NA_integer_
     for (i in (line_num - 1):1) {
         if (cmd_df$stata_cmd[i] == "tempfile") {
             defined_macros = get_tempfile_macros(cmd_df$rest_of_cmd[i])
-            if (macro_name %in% defined_macros) {
+            if (macro_name %in% defined_macros) { # Check if macro name matches
                 found_def_line = cmd_df$line[i]
                 break
             }
@@ -3423,14 +3432,14 @@ t_use = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
     }
 
     if (!is.na(path_r_var)) {
-        filename_r = path_r_var
+        filename_r = path_r_var # This is an R variable name, no quotes needed
     } else {
-        warning(paste0("Macro ",filename_str, " in 'use' command at line ",line_num, " may not be correctly resolved. Treating as literal string."))
-        filename_r = quote_for_r_literal(filename_str)
+        warning(paste0("Macro ",raw_filename_token, " in 'use' command at line ",line_num, " may not be correctly resolved. Treating as literal string."))
+        filename_r = quote_for_r_literal(unquoted_content) # Treat as literal and add R quotes
     }
   } else {
-    # Actual filename string, e.g. "mydata.dta" or mydata.dta
-    filename_r = quote_for_r_literal(filename_str)
+    # Actual filename string, e.g. "mydata.dta" or mydata.dta (potentially unquoted in Stata)
+    filename_r = quote_for_r_literal(unquoted_content) # Ensure it's quoted for R literal
   }
 
   # `clear` option in Stata allows overwriting. R `read_dta` just overwrites.
@@ -3502,7 +3511,7 @@ do:  use "data.dta", clear
 R:  data = haven::read_dta("data.dta") # 'clear' was used 
 
 do:  sort group i 
-R:  data = collapse::farrange(data, group, i) 
+R:  data = dplyr::arrange(data, group, i) 
 
 do:  by group: gen seq = _n 
 R:  data = collapse::fgroup_by(data, c("group"))
@@ -3582,7 +3591,7 @@ data = collapse::fmutate(data, group_str = __decoded_values_L19)
 rm(__decoded_values_L19) 
 
 do:  sort group_code 
-R:  data = collapse::farrange(data, group_code) 
+R:  data = dplyr::arrange(data, group_code) 
 
 do:  tempfile t1 
 R:  R_tempfile_L21_t1_path = tempfile(fileext = '.dta') # Stata tempfile 't1' 
@@ -3603,7 +3612,8 @@ do:  reshape wide mean_i_overall total_i_sum, i(group_code) j(group_str)
 R:  data = tidyr::pivot_wider(data, id_cols = dplyr::all_of(c("group_code")), names_from = group_str, values_from = dplyr::all_of(c("mean_i_overall", "total_i_sum"))) 
 
 do:  reshape long mean_i_overall total_i_sum, i(group_code) j(group_str) 
-R:  # reshape long with multiple stubnames not yet fully implemented: long mean_i_overall total_i_sum, i(group_code) j(group_str) 
+R:  data = tidyr::pivot_longer(data, cols = dplyr::matches("^(mean_i_overall|total_i_sum)"), names_to = c(".value", "group_str"), names_pattern = "^(mean_i_overall|total_i_sum)(.*)$") %>%
+  dplyr::mutate(group_str = as.numeric(group_str)) 
 
 do:  gen id = _n 
 R:  data = collapse::fmutate(data, id = dplyr::row_number()) 
@@ -3642,7 +3652,7 @@ do:  gen proportion = sum_mean/total_sum
 R:  data = collapse::fmutate(data, proportion = sum_mean/total_sum) 
 
 do:  sort proportion 
-R:  data = collapse::farrange(data, proportion) 
+R:  data = dplyr::arrange(data, proportion) 
 
 do:  list in 1/5 
   no data manipulation command
@@ -3656,9 +3666,14 @@ R:  haven::write_dta(data, path = "result_data.dta")
 
  1 data = haven::read_dta("data.dta") # 'clear' was used
 
- 2 data = collapse::farrange(data, group, i)
+ 2 data = dplyr::arrange(data, group, i)
 
-Error: 'farrange' is not an exported object from 'namespace:collapse'
+ 3 data = collapse::fgroup_by(data, c("group"))
+
+data = collapse::fmutate(data, seq = dplyr::row_number())
+
+Error: subscript out of bounds
+data = collapse::fungroup(data)
 
 ##############################
 # YOUR TASK
