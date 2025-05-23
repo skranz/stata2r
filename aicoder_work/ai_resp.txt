@@ -1,5 +1,4 @@
 !CHANGE_FILE R/stata_expression_translator.R
-```R
 # Stata Expression Translator
 
 # Placeholder for Stata results (r() and e() values)
@@ -23,8 +22,8 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*-\\s*(\\d+)\\]", "dplyr::lag($1, $2)")
   r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*\\+\\s*(\\d+)\\]", "dplyr::lead($1, $2)")
   r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\]", "$1")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_n\\b", "collapse::fseq()")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_N\\b", "collapse::fnobs()")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_n\\b", "dplyr::row_number()") # Changed from collapse::fseq()
+  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_N\\b", "dplyr::n()")         # Changed from collapse::fnobs()
 
   # Step 2: Iteratively translate Stata functions (e.g., cond(), round(), log(), etc.)
   # This loop handles nested function calls by repeatedly applying transformations.
@@ -135,11 +134,110 @@ translate_stata_expression_with_r_values = function(stata_expr, current_line_ind
 
   translate_stata_expression_to_r(stata_expr, context, final_r_value_mappings)
 }
-```
 !END_CHANGE_FILE R/stata_expression_translator.R
 
+!CHANGE_FILE R/t_expand.R
+# Translate Stata 'expand' command
+# Stata: expand N [if] [in] [, options]
+# Creates N copies of each observation. N can be an expression.
+# Example: expand 2
+# Example: expand num_copies if condition
+
+t_expand = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
+
+  parts_if = stringi::stri_split_regex(rest_of_cmd_trimmed, "\\s+if\\s+", n=2)[[1]]
+  expand_n_part_or_cond = stringi::stri_trim_both(parts_if[1])
+  stata_if_cond = if(length(parts_if) > 1) stringi::stri_trim_both(parts_if[2]) else NA_character_
+
+  parts_in = stringi::stri_split_regex(expand_n_part_or_cond, "\\s+in\\s+", n=2)[[1]]
+  stata_n_expr = stringi::stri_trim_both(parts_in[1])
+  stata_in_range = if(length(parts_in) > 1) stringi::stri_trim_both(parts_in[2]) else NA_character_
+
+  if (is.na(stata_n_expr) || stata_n_expr == "") {
+       return(paste0("# expand command requires N expression: ", rest_of_cmd))
+  }
+
+  r_n_expr = translate_stata_expression_with_r_values(stata_n_expr, line_num, cmd_df, context = list(is_by_group=FALSE))
+   if (is.na(r_n_expr) || r_n_expr == "") {
+       return(paste0("# Failed to translate N expression for expand: ", stata_n_expr))
+   }
+
+  r_if_cond = NA_character_
+  if (!is.na(stata_if_cond) && stata_if_cond != "") {
+    r_if_cond = translate_stata_expression_with_r_values(stata_if_cond, line_num, cmd_df, context = list(is_by_group = FALSE))
+  }
+
+  r_in_range_cond = NA_character_
+  if (!is.na(stata_in_range) && stata_in_range != "") {
+       range_match = stringi::stri_match_first_regex(stata_in_range, "^(\\d+)(?:/(\\d+))?$")
+        if (!is.na(range_match[1,1])) {
+            start_row = as.integer(range_match[1,2])
+            end_row = range_match[1,3]
+            # Changed to dplyr::row_number() to align with _n translation
+            if (is.na(end_row)) {
+                 r_in_range_cond = paste0("dplyr::row_number() == ", start_row)
+            } else {
+                 r_in_range_cond = paste0("dplyr::row_number() >= ", start_row, " & dplyr::row_number() <= ", as.integer(end_row))
+            }
+        } else {
+            return(paste0("# expand in range '", stata_in_range, "' not fully translated (f/l specifiers)."))
+        }
+  }
+
+  final_r_subset_cond = NA_character_
+  if (!is.na(r_if_cond) && !is.na(r_in_range_cond)) {
+      final_r_subset_cond = paste0("(", r_if_cond, ") & (", r_in_range_cond, ")")
+  } else if (!is.na(r_if_cond)) {
+      final_r_subset_cond = r_if_cond
+  } else if (!is.na(r_in_range_cond)) {
+      final_r_subset_cond = r_in_range_cond
+  }
+
+  r_code_str = ""
+  line_id = cmd_obj$line # Actual line number from the do-file for unique temp var names
+
+  if (!is.na(final_r_subset_cond) && final_r_subset_cond != "") {
+       temp_n_values_var = paste0("__expand_n_values_L", line_id)
+       temp_cond_values_var = paste0("__expand_cond_values_L", line_id)
+       final_times_calc_var = paste0("__final_expand_times_L", line_id)
+
+       r_code_lines = c(
+           paste0(temp_n_values_var, " = ", r_n_expr),
+           paste0(temp_cond_values_var, " = ", final_r_subset_cond),
+           paste0(final_times_calc_var, " = ifelse(!is.na(", temp_cond_values_var, ") & ", temp_cond_values_var, ", ",
+                                             "ifelse(is.na(", temp_n_values_var, "), 1, pmax(0, as.integer(", temp_n_values_var, "))), ", # ensure N is non-negative integer, 1 if NA
+                                             "1)"), # if condition not met, expand 1 time (keep original)
+           paste0(final_times_calc_var, " = ifelse(is.na(", final_times_calc_var, "), 1, ", final_times_calc_var, ")"), # Ensure final times is not NA
+           paste0("data = data[base::rep(1:NROW(data), times = ", final_times_calc_var, "), ]"),
+           paste0("if (exists('", temp_n_values_var, "')) rm(", temp_n_values_var, ", ", temp_cond_values_var, ", ", final_times_calc_var, ")")
+       )
+       r_code_str = paste(r_code_lines, collapse="\n")
+  } else {
+       temp_n_values_var = paste0("__expand_n_values_L", line_id)
+       final_times_calc_var = paste0("__final_expand_times_L", line_id)
+        r_code_lines = c(
+           paste0(temp_n_values_var, " = (", r_n_expr, ")"),
+           paste0(final_times_calc_var, " = ifelse(is.na(", temp_n_values_var, "), 1, pmax(0, as.integer(", temp_n_values_var, ")))"), # ensure N is non-negative integer, 1 if NA
+           paste0("data = data[base::rep(1:NROW(data), times = ", final_times_calc_var, "), ]"),
+           paste0("if (exists('", temp_n_values_var, "')) rm(", temp_n_values_var, ", ", final_times_calc_var, ")")
+        )
+       r_code_str = paste(r_code_lines, collapse="\n")
+  }
+
+  options_str_cleaned = NA_character_ # expand has few options, not handled yet.
+  # If options_str was parsed from original cmd:
+  # options_str_cleaned = options_str
+
+   if (!is.na(options_str_cleaned) && options_str_cleaned != "") {
+        r_code_str = paste0(r_code_str, paste0(" # Options ignored: ", options_str_cleaned))
+   }
+
+  return(r_code_str)
+}
+!END_CHANGE_FILE R/t_expand.R
+
 !CHANGE_FILE R/t_egen.R
-```R
 # Translate Stata 'egen' command
 # Stata: egen [type] newvar = fcn(arguments) [if exp] [in range] [, options]
 
@@ -220,8 +318,8 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
         if (!is.na(range_match[1,1])) {
             start_row = as.integer(range_match[1,2])
             end_row = range_match[1,3]
-            # Use collapse::fseq() directly, as stata_expression_translator will handle _n
-            row_number_r_expr = "collapse::fseq()"
+            # Use dplyr::row_number(), as stata_expression_translator will handle _n
+            row_number_r_expr = "dplyr::row_number()" # Changed from collapse::fseq()
 
             if (is.na(end_row)) {
                  r_in_range_cond_in_args = paste0(row_number_r_expr, " == ", start_row)
@@ -329,7 +427,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     } else if (egen_func_name == "tag") {
         # Stata `tag` flags the first obs in each group defined by `varlist` (and `by` prefix if any).
         # This is `_n==1` after sorting by all these variables.
-        mutate_value_expr = paste0("as.integer(collapse::fseq() == 1)")
+        mutate_value_expr = paste0("as.integer(dplyr::row_number() == 1)") # Changed from collapse::fseq()
     }
   } else if (egen_func_name == "rowtotal") {
     vars_for_rowop_list = stringi::stri_split_regex(r_egen_args, "\\s+")[[1]] # Use non-conditional args here
@@ -378,108 +476,62 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
-```
 !END_CHANGE_FILE R/t_egen.R
 
-!CHANGE_FILE R/t_expand.R
-```R
-# Translate Stata 'expand' command
-# Stata: expand N [if] [in] [, options]
-# Creates N copies of each observation. N can be an expression.
-# Example: expand 2
-# Example: expand num_copies if condition
+!CHANGE_FILE R/t_save.R
+# Translate Stata 'save' command
+# Stata: save [filename] [, options]
+# Options: replace, emptyok, old (version control)
+t_save = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
+  # Parse filename and options
+  # Example: save "mydata.dta", replace
+  # Example: save `tempfile_macro`, replace
 
-t_expand = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
-  rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
+  parts = stringi::stri_match_first_regex(rest_of_cmd, "^\\s*([^,]*?)(?:,\\s*(.*))?$")
+  raw_filename_token = stringi::stri_trim_both(parts[1,2]) # Can be empty (uses last used filename)
+  options_part = stringi::stri_trim_both(parts[1,3])  # NA if no options
 
-  parts_if = stringi::stri_split_regex(rest_of_cmd_trimmed, "\\s+if\\s+", n=2)[[1]]
-  expand_n_part_or_cond = stringi::stri_trim_both(parts_if[1])
-  stata_if_cond = if(length(parts_if) > 1) stringi::stri_trim_both(parts_if[2]) else NA_character_
+  filename_r = "" # Resulting R path string or variable name
 
-  parts_in = stringi::stri_split_regex(expand_n_part_or_cond, "\\s+in\\s+", n=2)[[1]]
-  stata_n_expr = stringi::stri_trim_both(parts_in[1])
-  stata_in_range = if(length(parts_in) > 1) stringi::stri_trim_both(parts_in[2]) else NA_character_
-
-  if (is.na(stata_n_expr) || stata_n_expr == "") {
-       return(paste0("# expand command requires N expression: ", rest_of_cmd))
+  if (is.na(raw_filename_token) || raw_filename_token == "") {
+    return("# `save` without filename not fully supported yet. Needs to track original data filename.")
   }
 
-  r_n_expr = translate_stata_expression_with_r_values(stata_n_expr, line_num, cmd_df, context = list(is_by_group=FALSE))
-   if (is.na(r_n_expr) || r_n_expr == "") {
-       return(paste0("# Failed to translate N expression for expand: ", stata_n_expr))
-   }
+  # Extract the unquoted content for macro resolution or literal quoting
+  unquoted_content = unquote_stata_string_or_macro_literal(raw_filename_token)
 
-  r_if_cond = NA_character_
-  if (!is.na(stata_if_cond) && stata_if_cond != "") {
-    r_if_cond = translate_stata_expression_with_r_values(stata_if_cond, line_num, cmd_df, context = list(is_by_group = FALSE))
-  }
+  # Check if filename_part is a macro `macroname`
+  if (stringi::stri_startswith_fixed(raw_filename_token, "`") && stringi::stri_endswith_fixed(raw_filename_token, "'")) {
+    macro_name = unquoted_content # Macro name is the unquoted content
 
-  r_in_range_cond = NA_character_
-  if (!is.na(stata_in_range) && stata_in_range != "") {
-       range_match = stringi::stri_match_first_regex(stata_in_range, "^(\\d+)(?:/(\\d+))?$")
-        if (!is.na(range_match[1,1])) {
-            start_row = as.integer(range_match[1,2])
-            end_row = range_match[1,3]
-            # Changed dplyr::row_number() to collapse::fseq() for consistency
-            if (is.na(end_row)) {
-                 r_in_range_cond = paste0("collapse::fseq() == ", start_row)
-            } else {
-                 r_in_range_cond = paste0("collapse::fseq() >= ", start_row, " & collapse::fseq() <= ", as.integer(end_row))
-            }
-        } else {
-            return(paste0("# expand in range '", stata_in_range, "' not fully translated (f/l specifiers)."))
+    found_def_line = NA_integer_
+    for (i in (line_num - 1):1) {
+      if (cmd_df$stata_cmd[i] == "tempfile") {
+        defined_macros = get_tempfile_macros(cmd_df$rest_of_cmd[i])
+        if (macro_name %in% defined_macros) {
+          found_def_line = cmd_df$line[i]
+          break
         }
-  }
-
-  final_r_subset_cond = NA_character_
-  if (!is.na(r_if_cond) && !is.na(r_in_range_cond)) {
-      final_r_subset_cond = paste0("(", r_if_cond, ") & (", r_in_range_cond, ")")
-  } else if (!is.na(r_if_cond)) {
-      final_r_subset_cond = r_if_cond
-  } else if (!is.na(r_in_range_cond)) {
-      final_r_subset_cond = r_in_range_cond
-  }
-
-  r_code_str = ""
-  line_id = cmd_obj$line # Actual line number from the do-file for unique temp var names
-
-  if (!is.na(final_r_subset_cond) && final_r_subset_cond != "") {
-       temp_n_values_var = paste0("__expand_n_values_L", line_id)
-       temp_cond_values_var = paste0("__expand_cond_values_L", line_id)
-       final_times_calc_var = paste0("__final_expand_times_L", line_id)
-
-       r_code_lines = c(
-           paste0(temp_n_values_var, " = ", r_n_expr),
-           paste0(temp_cond_values_var, " = ", final_r_subset_cond),
-           paste0(final_times_calc_var, " = ifelse(!is.na(", temp_cond_values_var, ") & ", temp_cond_values_var, ", ",
-                                             "ifelse(is.na(", temp_n_values_var, "), 1, pmax(0, as.integer(", temp_n_values_var, "))), ", # ensure N is non-negative integer, 1 if NA
-                                             "1)"), # if condition not met, expand 1 time (keep original)
-           paste0(final_times_calc_var, " = ifelse(is.na(", final_times_calc_var, "), 1, ", final_times_calc_var, ")"), # Ensure final times is not NA
-           paste0("data = data[base::rep(1:NROW(data), times = ", final_times_calc_var, "), ]"),
-           paste0("if (exists('", temp_n_values_var, "')) rm(", temp_n_values_var, ", ", temp_cond_values_var, ", ", final_times_calc_var, ")")
-       )
-       r_code_str = paste(r_code_lines, collapse="\n")
+      }
+    }
+    
+    if (!is.na(found_def_line)) {
+      filename_r = paste0("R_tempfile_L", found_def_line, "_", macro_name, "_path")
+    } else {
+      warning(paste0("Macro ",raw_filename_token, " in 'save' command at line ",line_num, " not resolved from tempfile. Treating as literal string."))
+      filename_r = quote_for_r_literal(unquoted_content)
+    }
   } else {
-       temp_n_values_var = paste0("__expand_n_values_L", line_id)
-       final_times_calc_var = paste0("__final_expand_times_L", line_id)
-        r_code_lines = c(
-           paste0(temp_n_values_var, " = (", r_n_expr, ")"),
-           paste0(final_times_calc_var, " = ifelse(is.na(", temp_n_values_var, "), 1, pmax(0, as.integer(", temp_n_values_var, ")))"), # ensure N is non-negative integer, 1 if NA
-           paste0("data = data[base::rep(1:NROW(data), times = ", final_times_calc_var, "), ]"),
-           paste0("if (exists('", temp_n_values_var, "')) rm(", temp_n_values_var, ", ", final_times_calc_var, ")")
-        )
-       r_code_str = paste(r_code_lines, collapse="\n")
+    # Actual filename string, e.g. "mydata.dta" or mydata.dta (potentially unquoted in Stata)
+    filename_r = quote_for_r_literal(unquoted_content)
   }
 
-  options_str_cleaned = NA_character_ # expand has few options, not handled yet.
-  # If options_str was parsed from original cmd:
-  # options_str_cleaned = options_str
+  r_code = paste0("haven::write_dta(data, path = ", filename_r, ")")
+  
+  if (!is.na(options_part) && options_part != "") {
+    r_code = paste0(r_code, paste0(" # Options ignored: ", options_part))
+  }
 
-   if (!is.na(options_str_cleaned) && options_str_cleaned != "") {
-        r_code_str = paste0(r_code_str, paste0(" # Options ignored: ", options_str_cleaned))
-   }
-
-  return(r_code_str)
+  return(r_code)
 }
-```
-!END_CHANGE_FILE R/t_expand.R
+!END_CHANGE_FILE R/t_save.R
