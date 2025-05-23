@@ -2,6 +2,7 @@
 # Stata: sort varlist
 # Stata: gsort [+|-]varname [[+|-]varname ...]
 t_sort = function(rest_of_cmd, cmd_obj, cmd_df, line_num, type = "sort") {
+  restore.point("t_sort") # Added restore.point
   if (is.na(rest_of_cmd) || rest_of_cmd == "") {
     return("# sort/gsort command with no variables specified.")
   }

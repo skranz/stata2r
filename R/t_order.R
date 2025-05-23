@@ -3,6 +3,7 @@
 # Changes the order of variables in the dataset.
 
 t_order = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
+  restore.point("t_order") # Added restore.point
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
   # Split varlist from options (like `first`, `last`, `after(var)`)

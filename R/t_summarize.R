@@ -1,5 +1,6 @@
 # Translate Stata 'summarize' or 'su' command
 t_summarize = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_summarize") # Added restore.point
   # Stata: summarize varlist [if] [in] [weight] [, options]
   # Options: detail, meanonly, format, separator(#), nolabel
   # Stores results in r()

@@ -3,6 +3,7 @@
 # Example: recode income (0=.) (100 thru 200 = 150) (300 301 305 = 300) (else=copy), gen(newincome)
 
 t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_recode") # Added restore.point
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
   # Parse varlist, rules, if/in, options (especially gen())

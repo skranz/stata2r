@@ -1,6 +1,7 @@
 # Translate Stata 'rename' command
 # Stata: rename old_var new_var
 t_rename = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
+  restore.point("t_rename") # Added restore.point
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
   # Split into old_var and new_var

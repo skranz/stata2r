@@ -2,6 +2,7 @@
 # Stata: append using filename [, options]
 
 t_append = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
+  restore.point("t_append") # Added restore.point
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
   # Parse `using filename` and options

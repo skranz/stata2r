@@ -3,6 +3,7 @@
 # Example Stata: gen newvar = oldvar * 2 if condition
 # Example Stata: by group: gen seq = _n
 t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_generate") # Added restore.point
   # Parse `rest_of_cmd` for new variable name, expression, and if condition
   # Example: "newvar = expression [if condition]"
 

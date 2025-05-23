@@ -1,6 +1,7 @@
 # Translate Stata 'replace' command
 # Stata: replace oldvar = expression [if condition]
 t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_replace") # Added restore.point
   match = stringi::stri_match_first_regex(rest_of_cmd, "^\\s*([^=\\s]+)\\s*=\\s*(.*?)(?:\\s+if\\s+(.*))?$")
 
   if (is.na(match[1,1])) {

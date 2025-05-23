@@ -5,6 +5,7 @@
 # Example: expand num_copies if condition
 
 t_expand = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_expand") # Added restore.point
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
   parts_if = stringi::stri_split_regex(rest_of_cmd_trimmed, "\\s+if\\s+", n=2)[[1]]

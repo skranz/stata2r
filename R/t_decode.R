@@ -3,6 +3,7 @@
 # Converts numeric varname with value labels into string newvar.
 
 t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_decode") # Added restore.point
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
   # Parse varname, if/in, options (especially gen())

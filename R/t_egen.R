@@ -4,6 +4,7 @@
 # This is a complex command with many functions.
 # We'll implement a few common ones like mean, total, rank.
 t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_egen") # Added restore.point
   # Basic parsing: newvar = function(args) [, by(groupvars)] [if condition]
   # Example: egen mean_i_grp = mean(i), by(group)
   # Example: egen total_i = total(i)

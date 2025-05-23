@@ -4,6 +4,7 @@
 # Stata: duplicates list [varlist] [if] [in] [, options]
 
 t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
+  restore.point("t_duplicates") # Added restore.point
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
   # Parse subcommand (drop, tag, list)

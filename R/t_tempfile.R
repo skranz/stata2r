@@ -1,6 +1,7 @@
 # Translate Stata 'tempfile' command
 # Stata: tempfile macroname1 [macroname2 ...]
 t_tempfile = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
+  restore.point("t_tempfile") # Added restore.point
   macro_names = stringi::stri_split_regex(stringi::stri_trim_both(rest_of_cmd), "\\s+")[[1]]
   macro_names = macro_names[macro_names != ""]
 
@@ -23,5 +24,4 @@ t_tempfile = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
-
 

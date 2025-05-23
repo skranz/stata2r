@@ -2,7 +2,7 @@
 # Can be `keep varlist` or `keep if condition` or `keep in range`
 
 t_keep = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
-
+  restore.point("t_keep") # Added restore.point
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
   is_if_keep = stringi::stri_startswith_fixed(rest_of_cmd_trimmed, "if ")

@@ -2,7 +2,7 @@
 # Can be `drop varlist` or `drop if condition` or `drop in range`
 
 t_drop = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
-
+  restore.point("t_drop") # Added restore.point
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
   is_if_drop = stringi::stri_startswith_fixed(rest_of_cmd_trimmed, "if ")

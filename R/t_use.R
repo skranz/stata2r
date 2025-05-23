@@ -1,5 +1,6 @@
 # Translate Stata 'use' command
 t_use = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
+  restore.point("t_use") # Added restore.point
   # Example: use "filename.dta", clear
   #          use "`macroname'", clear
 

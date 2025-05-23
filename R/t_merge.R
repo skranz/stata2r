@@ -6,6 +6,7 @@
 # Options: keep(match master using all) nogenerate
 
 t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_merge") # Added restore.point
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
   # Parse merge type (1:1, 1:m, m:1, m:m), varlist, `using filename`, and options

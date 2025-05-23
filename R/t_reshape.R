@@ -3,6 +3,7 @@
 # This is a complex command. Basic translation using tidyr.
 
 t_reshape = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
+  restore.point("t_reshape") # Added restore.point
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
   # Parse wide/long, stubnames, options

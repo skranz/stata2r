@@ -2,6 +2,7 @@
 # Stata: save [filename] [, options]
 # Options: replace, emptyok, old (version control)
 t_save = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
+  restore.point("t_save") # Added restore.point
   # Parse filename and options
   # Example: save "mydata.dta", replace
   # Example: save `tempfile_macro`, replace

@@ -3,7 +3,7 @@
 # Often: collapse (stat) varlist, by(groupvars)
 
 t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
-
+  restore.point("t_collapse") # Added restore.point
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
   # Split into aggregate definitions part and options part

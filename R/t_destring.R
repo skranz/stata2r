@@ -3,6 +3,7 @@
 # Converts string variables into numeric variables.
 
 t_destring = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_destring") # Added restore.point
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
   # Parse varlist, if/in, options (generate() or replace)

@@ -7,6 +7,7 @@
 # preserve_stack_name = "stata_preserve_stack_internal" # Name of list in R environment
 
 t_preserve_restore = function(cmd_obj, type = "preserve") { # line_num implicitly from cmd_obj$line
+  restore.point("t_preserve_restore") # Added restore.point
   # Preserve: Make a copy of the current 'data' dataframe.
   # Restore: Replace 'data' with the last preserved version.
 
@@ -27,11 +28,6 @@ t_preserve_restore = function(cmd_obj, type = "preserve") { # line_num implicitl
   # `stata_preserve_stack_L<line_num_of_do_to_r_call>` perhaps.
   # This is hard because `main.R` doesn't pass state.
   # So, the generated code must create and manage this stack itself.
-
-  # R code to initialize stack if not present:
-  # `if (!exists("stata_data_preserve_stack")) stata_data_preserve_stack = list()`
-  # `preserve`: `stata_data_preserve_stack = c(list(data), stata_data_preserve_stack)`
-  # `restore`: `data = stata_data_preserve_stack[[1]]; stata_data_preserve_stack = stata_data_preserve_stack[-1]`
 
   r_code_lines = c(
     "if (!exists('stata_data_preserve_stack_G')) stata_data_preserve_stack_G = list() # Global stack for preserve/restore"
@@ -56,5 +52,4 @@ t_preserve_restore = function(cmd_obj, type = "preserve") { # line_num implicitl
 
   return(paste(r_code_lines, collapse = "\n"))
 }
-
 

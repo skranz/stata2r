@@ -3,6 +3,7 @@
 # Converts string varname into numeric newvar with value labels.
 
 t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_encode") # Added restore.point
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
   # Parse varname, if/in, options (especially gen())
