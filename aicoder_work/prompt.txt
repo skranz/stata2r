@@ -879,8 +879,8 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*-\\s*(\\d+)\\]", "dplyr::lag($1, $2)")
   r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*\\+\\s*(\\d+)\\]", "dplyr::lead($1, $2)")
   r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\]", "$1")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_n\\b", "collapse::fseq()")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_N\\b", "collapse::fnobs()")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_n\\b", "dplyr::row_number()") # Changed from collapse::fseq()
+  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_N\\b", "dplyr::n()")         # Changed from collapse::fnobs()
 
   # Step 2: Iteratively translate Stata functions (e.g., cond(), round(), log(), etc.)
   # This loop handles nested function calls by repeatedly applying transformations.
@@ -1855,8 +1855,8 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
         if (!is.na(range_match[1,1])) {
             start_row = as.integer(range_match[1,2])
             end_row = range_match[1,3]
-            # Use collapse::fseq() directly, as stata_expression_translator will handle _n
-            row_number_r_expr = "collapse::fseq()"
+            # Use dplyr::row_number(), as stata_expression_translator will handle _n
+            row_number_r_expr = "dplyr::row_number()" # Changed from collapse::fseq()
 
             if (is.na(end_row)) {
                  r_in_range_cond_in_args = paste0(row_number_r_expr, " == ", start_row)
@@ -1964,7 +1964,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     } else if (egen_func_name == "tag") {
         # Stata `tag` flags the first obs in each group defined by `varlist` (and `by` prefix if any).
         # This is `_n==1` after sorting by all these variables.
-        mutate_value_expr = paste0("as.integer(collapse::fseq() == 1)")
+        mutate_value_expr = paste0("as.integer(dplyr::row_number() == 1)") # Changed from collapse::fseq()
     }
   } else if (egen_func_name == "rowtotal") {
     vars_for_rowop_list = stringi::stri_split_regex(r_egen_args, "\\s+")[[1]] # Use non-conditional args here
@@ -2191,11 +2191,11 @@ t_expand = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
         if (!is.na(range_match[1,1])) {
             start_row = as.integer(range_match[1,2])
             end_row = range_match[1,3]
-            # Changed dplyr::row_number() to collapse::fseq() for consistency
+            # Changed to dplyr::row_number() to align with _n translation
             if (is.na(end_row)) {
-                 r_in_range_cond = paste0("collapse::fseq() == ", start_row)
+                 r_in_range_cond = paste0("dplyr::row_number() == ", start_row)
             } else {
-                 r_in_range_cond = paste0("collapse::fseq() >= ", start_row, " & collapse::fseq() <= ", as.integer(end_row))
+                 r_in_range_cond = paste0("dplyr::row_number() >= ", start_row, " & dplyr::row_number() <= ", as.integer(end_row))
             }
         } else {
             return(paste0("# expand in range '", stata_in_range, "' not fully translated (f/l specifiers)."))
@@ -3155,7 +3155,6 @@ t_save = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   options_part = stringi::stri_trim_both(parts[1,3])  # NA if no options
 
   filename_r = "" # Resulting R path string or variable name
-  save_to_r_object = "" # R code to save data to an R object for direct access
 
   if (is.na(raw_filename_token) || raw_filename_token == "") {
     return("# `save` without filename not fully supported yet. Needs to track original data filename.")
@@ -3181,9 +3180,6 @@ t_save = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
     
     if (!is.na(found_def_line)) {
       filename_r = paste0("R_tempfile_L", found_def_line, "_", macro_name, "_path")
-      # Storing data to an R object for direct R access if tempfile macro was used.
-      # This allows `use` or `merge using` commands to refer to the in-memory R object.
-      save_to_r_object = paste0("R_tempdata_L", found_def_line, "_", macro_name, " = data # Storing data for Stata macro '", macro_name, "' for direct R access")
     } else {
       warning(paste0("Macro ",raw_filename_token, " in 'save' command at line ",line_num, " not resolved from tempfile. Treating as literal string."))
       filename_r = quote_for_r_literal(unquoted_content)
@@ -3193,11 +3189,7 @@ t_save = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
     filename_r = quote_for_r_literal(unquoted_content)
   }
 
-  r_code = ""
-  if (save_to_r_object != "") {
-    r_code = paste0(r_code, save_to_r_object, "\n")
-  }
-  r_code = paste0(r_code, "haven::write_dta(data, path = ", filename_r, ")")
+  r_code = paste0("haven::write_dta(data, path = ", filename_r, ")")
   
   if (!is.na(options_part) && options_part != "") {
     r_code = paste0(r_code, paste0(" # Options ignored: ", options_part))
@@ -3522,7 +3514,7 @@ R:  data = dplyr::arrange(data, group, i)
 do:  by group: gen seq = _n 
 R:  data = data %>%
   collapse::fgroup_by(c("group")) %>%
-  collapse::fmutate(seq = collapse::fseq()) %>%
+  collapse::fmutate(seq = dplyr::row_number()) %>%
   collapse::fungroup() 
 
 do:  gen logi = log(i) 
@@ -3629,7 +3621,7 @@ R:  data = tidyr::pivot_longer(data, cols = dplyr::matches("^(mean_i_overall|tot
 
 do:  gen id = _n 
 R:  data = data %>%
-  collapse::fmutate(id = collapse::fseq()) 
+  collapse::fmutate(id = dplyr::row_number()) 
 
 do:  bysort group_code (mean_i_overall): gen diff_mean = mean_i_overall - mean_i_overall[_n-1] 
 R:  data = dplyr::arrange(data, group_code, mean_i_overall) %>%
@@ -3684,7 +3676,7 @@ do:  save "result_data.dta"
 
  3 data = data %>%
   collapse::fgroup_by(c("group")) %>%
-  collapse::fmutate(seq = collapse::fseq()) %>%
+  collapse::fmutate(seq = dplyr::row_number()) %>%
   collapse::fungroup()
 
 Error: subscript out of bounds

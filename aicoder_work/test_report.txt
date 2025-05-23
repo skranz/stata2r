@@ -41,7 +41,7 @@ R:  data = dplyr::arrange(data, group, i)
 do:  by group: gen seq = _n 
 R:  data = data %>%
   collapse::fgroup_by(c("group")) %>%
-  collapse::fmutate(seq = collapse::fseq()) %>%
+  collapse::fmutate(seq = dplyr::row_number()) %>%
   collapse::fungroup() 
 
 do:  gen logi = log(i) 
@@ -148,7 +148,7 @@ R:  data = tidyr::pivot_longer(data, cols = dplyr::matches("^(mean_i_overall|tot
 
 do:  gen id = _n 
 R:  data = data %>%
-  collapse::fmutate(id = collapse::fseq()) 
+  collapse::fmutate(id = dplyr::row_number()) 
 
 do:  bysort group_code (mean_i_overall): gen diff_mean = mean_i_overall - mean_i_overall[_n-1] 
 R:  data = dplyr::arrange(data, group_code, mean_i_overall) %>%
@@ -203,7 +203,7 @@ do:  save "result_data.dta"
 
  3 data = data %>%
   collapse::fgroup_by(c("group")) %>%
-  collapse::fmutate(seq = collapse::fseq()) %>%
+  collapse::fmutate(seq = dplyr::row_number()) %>%
   collapse::fungroup()
 
 Error: subscript out of bounds
