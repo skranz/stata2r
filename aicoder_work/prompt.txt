@@ -1015,6 +1015,7 @@ translate_stata_expression_with_r_values = function(stata_expr, current_line_ind
 # Stata: append using filename [, options]
 
 t_append = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
+  restore.point("t_append") # Added restore.point
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
   # Parse `using filename` and options
@@ -1096,7 +1097,7 @@ t_append = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 # Often: collapse (stat) varlist, by(groupvars)
 
 t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
-
+  restore.point("t_collapse") # Added restore.point
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
   # Split into aggregate definitions part and options part
@@ -1256,6 +1257,7 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 # Converts numeric varname with value labels into string newvar.
 
 t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_decode") # Added restore.point
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
   # Parse varname, if/in, options (especially gen())
@@ -1384,6 +1386,7 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 # Converts string variables into numeric variables.
 
 t_destring = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_destring") # Added restore.point
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
   # Parse varlist, if/in, options (generate() or replace)
@@ -1531,7 +1534,7 @@ t_destring = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 # Can be `drop varlist` or `drop if condition` or `drop in range`
 
 t_drop = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
-
+  restore.point("t_drop") # Added restore.point
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
   is_if_drop = stringi::stri_startswith_fixed(rest_of_cmd_trimmed, "if ")
@@ -1588,6 +1591,7 @@ t_drop = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 # Stata: duplicates list [varlist] [if] [in] [, options]
 
 t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
+  restore.point("t_duplicates") # Added restore.point
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
   # Parse subcommand (drop, tag, list)
@@ -1773,6 +1777,7 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 # This is a complex command with many functions.
 # We'll implement a few common ones like mean, total, rank.
 t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_egen") # Added restore.point
   # Basic parsing: newvar = function(args) [, by(groupvars)] [if condition]
   # Example: egen mean_i_grp = mean(i), by(group)
   # Example: egen total_i = total(i)
@@ -2049,6 +2054,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 # Converts string varname into numeric newvar with value labels.
 
 t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_encode") # Added restore.point
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
   # Parse varname, if/in, options (especially gen())
@@ -2184,6 +2190,7 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 # Example: expand num_copies if condition
 
 t_expand = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_expand") # Added restore.point
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
   parts_if = stringi::stri_split_regex(rest_of_cmd_trimmed, "\\s+if\\s+", n=2)[[1]]
@@ -2288,6 +2295,7 @@ t_expand = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 # Example Stata: gen newvar = oldvar * 2 if condition
 # Example Stata: by group: gen seq = _n
 t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_generate") # Added restore.point
   # Parse `rest_of_cmd` for new variable name, expression, and if condition
   # Example: "newvar = expression [if condition]"
 
@@ -2382,7 +2390,7 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 # Can be `keep varlist` or `keep if condition` or `keep in range`
 
 t_keep = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
-
+  restore.point("t_keep") # Added restore.point
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
   is_if_keep = stringi::stri_startswith_fixed(rest_of_cmd_trimmed, "if ")
@@ -2441,6 +2449,7 @@ t_keep = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 # Options: keep(match master using all) nogenerate
 
 t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_merge") # Added restore.point
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
   # Parse merge type (1:1, 1:m, m:1, m:m), varlist, `using filename`, and options
@@ -2573,6 +2582,7 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 # Changes the order of variables in the dataset.
 
 t_order = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
+  restore.point("t_order") # Added restore.point
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
   # Split varlist from options (like `first`, `last`, `after(var)`)
@@ -2623,6 +2633,7 @@ t_order = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 # preserve_stack_name = "stata_preserve_stack_internal" # Name of list in R environment
 
 t_preserve_restore = function(cmd_obj, type = "preserve") { # line_num implicitly from cmd_obj$line
+  restore.point("t_preserve_restore") # Added restore.point
   # Preserve: Make a copy of the current 'data' dataframe.
   # Restore: Replace 'data' with the last preserved version.
 
@@ -2643,11 +2654,6 @@ t_preserve_restore = function(cmd_obj, type = "preserve") { # line_num implicitl
   # `stata_preserve_stack_L<line_num_of_do_to_r_call>` perhaps.
   # This is hard because `main.R` doesn't pass state.
   # So, the generated code must create and manage this stack itself.
-
-  # R code to initialize stack if not present:
-  # `if (!exists("stata_data_preserve_stack")) stata_data_preserve_stack = list()`
-  # `preserve`: `stata_data_preserve_stack = c(list(data), stata_data_preserve_stack)`
-  # `restore`: `data = stata_data_preserve_stack[[1]]; stata_data_preserve_stack = stata_data_preserve_stack[-1]`
 
   r_code_lines = c(
     "if (!exists('stata_data_preserve_stack_G')) stata_data_preserve_stack_G = list() # Global stack for preserve/restore"
@@ -2673,7 +2679,6 @@ t_preserve_restore = function(cmd_obj, type = "preserve") { # line_num implicitl
   return(paste(r_code_lines, collapse = "\n"))
 }
 
-
 ```
 ### END OF FILE: t_preserve_restore.R
 
@@ -2686,6 +2691,7 @@ t_preserve_restore = function(cmd_obj, type = "preserve") { # line_num implicitl
 # Example: recode income (0=.) (100 thru 200 = 150) (300 301 305 = 300) (else=copy), gen(newincome)
 
 t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_recode") # Added restore.point
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
   # Parse varlist, rules, if/in, options (especially gen())
@@ -2907,6 +2913,7 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 # Translate Stata 'rename' command
 # Stata: rename old_var new_var
 t_rename = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
+  restore.point("t_rename") # Added restore.point
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
   # Split into old_var and new_var
@@ -2938,6 +2945,7 @@ t_rename = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 # Translate Stata 'replace' command
 # Stata: replace oldvar = expression [if condition]
 t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_replace") # Added restore.point
   match = stringi::stri_match_first_regex(rest_of_cmd, "^\\s*([^=\\s]+)\\s*=\\s*(.*?)(?:\\s+if\\s+(.*))?$")
 
   if (is.na(match[1,1])) {
@@ -3020,6 +3028,7 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 # This is a complex command. Basic translation using tidyr.
 
 t_reshape = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
+  restore.point("t_reshape") # Added restore.point
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
   # Parse wide/long, stubnames, options
@@ -3159,6 +3168,7 @@ t_reshape = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 # Stata: save [filename] [, options]
 # Options: replace, emptyok, old (version control)
 t_save = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
+  restore.point("t_save") # Added restore.point
   # Parse filename and options
   # Example: save "mydata.dta", replace
   # Example: save `tempfile_macro`, replace
@@ -3222,6 +3232,7 @@ t_save = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 # Stata: sort varlist
 # Stata: gsort [+|-]varname [[+|-]varname ...]
 t_sort = function(rest_of_cmd, cmd_obj, cmd_df, line_num, type = "sort") {
+  restore.point("t_sort") # Added restore.point
   if (is.na(rest_of_cmd) || rest_of_cmd == "") {
     return("# sort/gsort command with no variables specified.")
   }
@@ -3275,6 +3286,7 @@ t_sort = function(rest_of_cmd, cmd_obj, cmd_df, line_num, type = "sort") {
 ```
 # Translate Stata 'summarize' or 'su' command
 t_summarize = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_summarize") # Added restore.point
   # Stata: summarize varlist [if] [in] [weight] [, options]
   # Options: detail, meanonly, format, separator(#), nolabel
   # Stores results in r()
@@ -3367,6 +3379,7 @@ t_summarize = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 # Translate Stata 'tempfile' command
 # Stata: tempfile macroname1 [macroname2 ...]
 t_tempfile = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
+  restore.point("t_tempfile") # Added restore.point
   macro_names = stringi::stri_split_regex(stringi::stri_trim_both(rest_of_cmd), "\\s+")[[1]]
   macro_names = macro_names[macro_names != ""]
 
@@ -3390,7 +3403,6 @@ t_tempfile = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   return(paste(r_code_lines, collapse="\n"))
 }
 
-
 ```
 ### END OF FILE: t_tempfile.R
 
@@ -3400,6 +3412,7 @@ t_tempfile = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 ```
 # Translate Stata 'use' command
 t_use = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
+  restore.point("t_use") # Added restore.point
   # Example: use "filename.dta", clear
   #          use "`macroname'", clear
 
