@@ -54,26 +54,25 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # So R inner_join (all.x=F, all.y=F) is the closest default.
   all_x = FALSE # Default to inner join behavior (Stata's default)
   all_y = FALSE # Default to inner join behavior (Stata's default)
-  merge_comment = paste0("# Stata merge type: ", merge_type, ", default: keep(match)")
+  keep_spec_for_comment = "match" # Default keep() option for comment
 
   # Handle keep() options if present, overriding defaults
-  # This is a simplified parser for keep options within merge
   if (!is.na(options_str)) {
       keep_opt_match = stringi::stri_match_first_regex(options_str, "\\bkeep\\s*\\(([^)]+)\\)")
       if (!is.na(keep_opt_match[1,1])) {
           keep_spec = stringi::stri_trim_both(keep_opt_match[1,2])
           if (grepl("\\ball\\b", keep_spec)) {
               all_x = TRUE; all_y = TRUE
-              merge_comment = paste0(merge_comment, ", keep(all)")
+              keep_spec_for_comment = "all"
           } else if (grepl("\\bmaster\\b", keep_spec)) {
               all_x = TRUE; all_y = FALSE # Keep matched and master unmatched (left join)
-              merge_comment = paste0(merge_comment, ", keep(master)")
+              keep_spec_for_comment = "master"
           } else if (grepl("\\busing\\b", keep_spec)) {
               all_x = FALSE; all_y = TRUE # Keep matched and using unmatched (right join)
-               merge_comment = paste0(merge_comment, ", keep(using)")
+               keep_spec_for_comment = "using"
           } else if (grepl("\\bmatch\\b", keep_spec)) {
               all_x = FALSE; all_y = FALSE # Keep matched only (inner join)
-              merge_comment = paste0(merge_comment, ", keep(match)")
+              keep_spec_for_comment = "match"
           }
           # Other complex keep() specs like `keep(_merge==3)` are not handled here.
       }
@@ -86,7 +85,8 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # If nogenerate is NOT present, we would need to create a merge indicator variable.
   # This is complex. For now, assume nogenerate or don't generate the indicator.
   # Add a comment if _merge variable is expected but not generated.
-  merge_comment = paste0(merge_comment, if(has_nogenerate) ", nogenerate" else " # _merge variable was not generated.")
+  merge_comment = paste0("# Stata merge type: ", merge_type, ", keep(", keep_spec_for_comment, ")",
+                         if(has_nogenerate) ", nogenerate" else " # _merge variable was not generated.")
 
 
   # Build the R command string using collapse::fmerge
@@ -95,4 +95,5 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
+
 
