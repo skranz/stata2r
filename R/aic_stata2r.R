@@ -5,7 +5,9 @@ example = function() {
   for (file in files)  source(file)
   aic = aic_new_stata2r(main_dir)
   aic = aic_test_stata2r(aic)
+  undebug(aic_make_prompt)
   aic = aic_make_prompt_stata2r(aic)
+  cat(aic$prompt)
   aic_view_prompt(aic)
 
   # Manually run prompt and copy to aicoder_work ai_resp.txt
@@ -15,6 +17,18 @@ example = function() {
     aic = aic_changes_stata2r(aic)
     remotes::install_local(aic$repo_dir,upgrade = "never")
   }
+
+  # Run with Gemini
+  library(aicoder)
+  main_dir = "~/aicoder"
+  files = paste0(main_dir, "/stata2r/R/",  c("aic_stata2r.R", "aic_do_test.R","aic_stata_ex.R"))
+  for (file in files)  source(file)
+  rgemini::set_gemini_api_key(file="~/aicoder/gemini_key.txt")
+  aic = aic_new_stata2r(main_dir)
+  aic = aic_test_stata2r(aic)
+  aic = aic_make_prompt_stata2r(aic)
+  aic = aic_run_gemini(aic,model = "gemini-2.5-flash-preview-05-20")
+  aic = aic_changes_stata2r(aic)
 
   remotes::install_local("~/aicoder/stata2r",upgrade = "never", force=TRUE)
   do_file = "C:/libraries/aicoder/stata2r/inst/cases/custom_1/do1.do"
@@ -52,8 +66,11 @@ aic_make_prompt_stata2r = function(aic) {
   test_str = aic$test_report
   cfg=aic$cfg
   if (!is.null(test_str)) {
-    test_str = paste0("\n#PERFORMED TESTS ON CURRENT VERSION:\n",
-      "In total ", num_test_failed, " of ", num_test, " tests failed.\n\n",
+    test_str = paste0("\n
+#################
+# TEST RESULTS
+#################\n",
+      "In total ", num_test_failed, " of ", num_test, " tests failed:\n\n",
       test_str)
   } else {
     test_str = ""
@@ -70,6 +87,7 @@ Other modifications can be performed once all tests pass correctly.
 ")
   }
   cfg$task = task
+  aic$cfg = cfg
   aic = aic_make_prompt(aic, cfg)
   aic
 }
