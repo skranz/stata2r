@@ -21,7 +21,7 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       if (!is.na(merge_match_old[1,1])) {
            merge_type = "1:1" # Assume 1:1 if type not specified
            varlist_str = stringi::stri_trim_both(merge_match_old[1,2])
-           filename_part = stringi::stri_trim_both(merge_match_old[1,3])
+           raw_filename_token = stringi::stri_trim_both(merge_match_old[1,3]) # Updated to raw_filename_token
            options_str = stringi::stri_trim_both(merge_match_old[1,4])
       } else {
            return(paste0("# Failed to parse merge command: ", rest_of_cmd))
@@ -29,7 +29,7 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   } else {
       merge_type = merge_match[1,2]
       varlist_str = stringi::stri_trim_both(merge_match[1,3])
-      filename_part = stringi::stri_trim_both(merge_match[1,4])
+      raw_filename_token = stringi::stri_trim_both(merge_match[1,4]) # Updated to raw_filename_token
       options_str = stringi::stri_trim_both(merge_match[1,5]) # NA if no options
   }
 
@@ -44,9 +44,12 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Resolve the `using filename` - can be a path string or a macro
   using_source_r = NA_character_ # This will hold the R expression to load the data
 
+  # Extract the unquoted content for macro resolution or literal quoting
+  unquoted_content = unquote_stata_string_or_macro_literal(raw_filename_token)
+
   # Check if filename_part is a macro `macroname`
-  if (stringi::stri_startswith_fixed(filename_part, "`") && stringi::stri_endswith_fixed(filename_part, "'")) {
-    macro_name = stringi::stri_sub(filename_part, 2, -2)
+  if (stringi::stri_startswith_fixed(raw_filename_token, "`") && stringi::stri_endswith_fixed(raw_filename_token, "'")) {
+    macro_name = unquoted_content # Macro name is the unquoted content
 
     found_def_line = NA_integer_
     for (i in (line_num - 1):1) {
@@ -67,12 +70,12 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     if (!is.na(path_r_var)) {
         using_source_r = paste0("haven::read_dta(", path_r_var, ")")
     } else {
-         warning(paste0("Macro ",filename_part, " in 'merge' command at line ",line_num, " not fully resolved. Treating as filename string."))
-         using_source_r = paste0("haven::read_dta(", quote_for_r_literal(filename_part), ")")
+         warning(paste0("Macro ",raw_filename_token, " in 'merge' command at line ",line_num, " not fully resolved. Treating as filename string."))
+         using_source_r = paste0("haven::read_dta(", quote_for_r_literal(unquoted_content), ")")
     }
   } else {
-    # Actual filename string, e.g. "mydata.dta" or mydata.dta
-    using_source_r = paste0("haven::read_dta(", quote_for_r_literal(filename_part), ")")
+    # Actual filename string, e.g. "mydata.dta" or mydata.dta (potentially unquoted in Stata)
+    using_source_r = paste0("haven::read_dta(", quote_for_r_literal(unquoted_content), ")")
   }
 
 

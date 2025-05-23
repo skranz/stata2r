@@ -87,47 +87,32 @@ t_reshape = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
       # If multiple stubnames, tidyr can gather them separately.
       # `pivot_longer(..., names_to = c(".value", "year"), names_sep = "_")` if original cols were `inc_1990`, `limit_1990`, etc.
 
-      # The `stubnames_or_varlist` for long format lists the *original* wide variables which become the stubs.
-      # Example: `reshape long inc90 inc91 limit90 limit91, i(id) j(year)`
-      # Stubnames are `inc` and `limit`. The suffix is `90`, `91`.
-      # tidyr needs to know the columns to gather: `c(inc90, inc91, limit90, limit91)`
-      # Stata infers the stubs and suffixes. We need to parse the original wide columns.
-      # This requires analyzing the `stubnames_or_varlist` and potentially options like `string`.
+      # The `stubnames_or_varlist` for long format lists the *stubnames* (e.g., "inc", "limit").
+      # The actual columns to gather are inferred from these stubs and the values of the `j` variable.
+      # This translation assumes that the wide variables are named `stubname` + `j_value`.
+      # e.g., for `stubnames = c("inc", "limit")` and `j_var = "year"`,
+      # it expects columns like `inc1990`, `inc1991`, `limit1990`, `limit1991`.
 
-      # Simple approach: Assume stubnames_or_varlist lists all wide columns to gather.
-      # e.g. `reshape long inc90 inc91, i(id) j(year)`
-      # cols = c(inc90, inc91).
-      # names_to = "year" (this is the j variable name)
-      # values_to = ".value" (this tells pivot_longer to use the original column names as value columns)
-      # names_pattern = "stub(.*)" captures the part that becomes the j variable value.
-      # If stubnames are `inc` and `limit`, and columns are `inc_1990`, `inc_1991`, `limit_1990`, `limit_1991`
-      # `pivot_longer(cols = starts_with("inc_") | starts_with("limit_"), names_to = c(".value", j_var), names_sep = "_", values_to = "???")`
-      # This mapping is tricky.
+      # Construct the `cols` argument for `pivot_longer`
+      # Stata's reshape long can infer columns, e.g., `reshape long income, i(id) j(year)` implies `income*`
+      # `reshape long income educ, i(id) j(year)` implies `income*` and `educ*`
+      # dplyr::matches is suitable for this.
+      cols_to_gather_regex = paste0("^(", paste(stubnames_or_varlist, collapse = "|"), ")")
+      cols_to_gather_expr = paste0("dplyr::matches(\"", cols_to_gather_regex, "\")")
 
-      # Let's assume the simplest case first: one set of stubnames.
-      # `reshape long inc, i(id) j(year)` means original vars are inc1990, inc1991, etc.
-      # stubname="inc", jname="year". Columns to gather are "inc*".
-      # `tidyr::pivot_longer(data, cols = starts_with(stubname), names_to = jname, values_pattern = "stubname(.*)", values_to = stubname)`
-      # Example: `reshape long inc, i(id) j(year)`
-      # `stubnames_or_varlist` = "inc". Let's assume this is the single stubname.
-      # The original wide columns implicitly match this stub (e.g., inc1990, inc1991).
-      # `cols` should match `inc*`. `names_to` is `j_var`. `values_to` is `inc`. `names_pattern` captures the part after "inc".
 
-      if (length(stubnames_or_varlist) > 1) {
-           return(paste0("# reshape long with multiple stubnames not yet fully implemented: ", rest_of_cmd))
-      }
-      stubname = stubnames_or_varlist[1]
-      # Assuming wide variables match `stubname + suffix`
-      names_pattern = paste0(stubname, "(.*)") # Capture suffix as j variable value
-      # If j is string, the captured part is the string. If numeric, need conversion.
-      # Stata j() string means the j variable is stored as string.
-      # tidyr names_to + names_pattern creates the j variable value.
-      # values_to is the name of the variable that holds the actual data values. Stata uses the stubname.
+      # Construct the `names_pattern` to capture stubname and j_value
+      # e.g., (inc|limit)(\\d+)
+      names_pattern = paste0("^(", paste(stubnames_or_varlist, collapse = "|"), ")(.*)$")
 
-      r_code_str = paste0("data = tidyr::pivot_longer(data, cols = starts_with(\"", stubname, "\"), names_to = \"", j_var, "\", names_pattern = \"", names_pattern, "\", values_to = \"", stubname, "\")")
+      # names_to should be c(".value", j_var) to create new columns for each stubname
+      # .value will map the captured stubname part to the correct column name (e.g., "income", "educ")
+      names_to_r = paste0('c(".value", "', j_var, '")')
 
-      # If j() string option was used, need to convert the resulting j_var to string/factor later if tidyr made it numeric.
-      # tidyr's names_pattern captures as string by default. If j_is_string is FALSE, need conversion to numeric.
+      r_code_str = paste0("data = tidyr::pivot_longer(data, cols = ", cols_to_gather_expr, ", names_to = ", names_to_r, ", names_pattern = \"", names_pattern, "\")")
+
+      # If j() string option was NOT used, need to convert the resulting j_var to numeric.
+      # tidyr's names_pattern captures as string by default.
       if (!j_is_string) {
          # Convert j_var to numeric after reshape
          r_code_str = paste0(r_code_str, " %>%\n  dplyr::mutate(", j_var, " = as.numeric(", j_var, "))")

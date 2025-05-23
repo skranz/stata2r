@@ -11,20 +11,23 @@ t_use = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
     return(paste0("# Failed to parse use command: ", rest_of_cmd))
   }
 
-  filename_str = parts[1,2]
+  raw_filename_token = parts[1,2]
   clear_opt = parts[1,3] # NA if not present, "clear" if present
 
   filename_r = "" # This will hold the R path variable name or a quoted R string literal
 
+  # Extract the unquoted content for macro resolution or literal quoting
+  unquoted_content = unquote_stata_string_or_macro_literal(raw_filename_token)
+
   # Handle macro `filename'
-  if (stringi::stri_startswith_fixed(filename_str, "`") && stringi::stri_endswith_fixed(filename_str, "'")) {
-    macro_name = stringi::stri_sub(filename_str, 2, -2)
+  if (stringi::stri_startswith_fixed(raw_filename_token, "`") && stringi::stri_endswith_fixed(raw_filename_token, "'")) {
+    macro_name = unquoted_content # Macro name is the unquoted content
     
     found_def_line = NA_integer_
     for (i in (line_num - 1):1) {
         if (cmd_df$stata_cmd[i] == "tempfile") {
             defined_macros = get_tempfile_macros(cmd_df$rest_of_cmd[i])
-            if (macro_name %in% defined_macros) {
+            if (macro_name %in% defined_macros) { # Check if macro name matches
                 found_def_line = cmd_df$line[i]
                 break
             }
@@ -37,14 +40,14 @@ t_use = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
     }
 
     if (!is.na(path_r_var)) {
-        filename_r = path_r_var
+        filename_r = path_r_var # This is an R variable name, no quotes needed
     } else {
-        warning(paste0("Macro ",filename_str, " in 'use' command at line ",line_num, " may not be correctly resolved. Treating as literal string."))
-        filename_r = quote_for_r_literal(filename_str)
+        warning(paste0("Macro ",raw_filename_token, " in 'use' command at line ",line_num, " may not be correctly resolved. Treating as literal string."))
+        filename_r = quote_for_r_literal(unquoted_content) # Treat as literal and add R quotes
     }
   } else {
-    # Actual filename string, e.g. "mydata.dta" or mydata.dta
-    filename_r = quote_for_r_literal(filename_str)
+    # Actual filename string, e.g. "mydata.dta" or mydata.dta (potentially unquoted in Stata)
+    filename_r = quote_for_r_literal(unquoted_content) # Ensure it's quoted for R literal
   }
 
   # `clear` option in Stata allows overwriting. R `read_dta` just overwrites.

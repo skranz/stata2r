@@ -16,9 +16,9 @@ t_sort = function(rest_of_cmd, cmd_obj, cmd_df, line_num, type = "sort") {
 
   if (type == "sort") {
     # Plain sort is ascending for all variables
-    # Using collapse::farrange for efficiency
+    # Using dplyr::arrange for consistency with gsort and reliability
     sort_vars_r = paste(vars, collapse = ", ") # pass as bare names
-    r_code_str = paste0("data = collapse::farrange(data, ", sort_vars_r, ")")
+    r_code_str = paste0("data = dplyr::arrange(data, ", sort_vars_r, ")")
 
   } else if (type == "gsort") {
     # gsort allows specifying ascending (+) or descending (-) for each variable

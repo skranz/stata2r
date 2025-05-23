@@ -216,17 +216,29 @@ get_tempfile_macros = function(rest_of_cmd_for_tempfile) {
         .[. != ""]
 }
 
+# Helper function to unquote Stata string literals or extract macro names
+unquote_stata_string_or_macro_literal = function(s) {
+  if (is.na(s) || s == "") return(s)
+  # Stata string literal: "my path with spaces.dta"
+  if (stringi::stri_startswith_fixed(s, '"') && stringi::stri_endswith_fixed(s, '"')) {
+    return(stringi::stri_sub(s, 2, -2))
+  }
+  # Stata local macro: `my_macro'
+  if (stringi::stri_startswith_fixed(s, "`") && stringi::stri_endswith_fixed(s, "'")) {
+    return(stringi::stri_sub(s, 2, -2))
+  }
+  # Not quoted by Stata syntax, return as is
+  return(s)
+}
+
 # Helper function to ensure a string is quoted for R literal use if not already
+# This function expects an already UNQUOTED string (no Stata-style quotes)
 quote_for_r_literal = function(s) {
   if (is.na(s)) return("NA_character_")
   if (s == "") return('""')
-  # Check if already quoted with " or ' or `...`'
+  # Check if already quoted with " or '
   if (stringi::stri_startswith_fixed(s, '"') && stringi::stri_endswith_fixed(s, '"')) return(s)
   if (stringi::stri_startswith_fixed(s, "'") && stringi::stri_endswith_fixed(s, "'")) return(s)
-  # Check for Stata's `macro'` style quoting
-  if (stringi::stri_startswith_fixed(s, "`") && stringi::stri_endswith_fixed(s, "'")) return(s) # This is a Stata macro, not a literal for R path string.
-                                                                                              # It should be handled by macro resolution, not literal quoting.
-                                                                                              # If it reaches here, it's a fallback and should be literally quoted.
   # Add double quotes
   paste0('"', s, '"')
 }
