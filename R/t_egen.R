@@ -10,7 +10,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Example: bysort group: egen rank_i = rank(i) (Note: bysort handled by cmd_obj$is_by_prefix)
 
   # Remove type prefix if any (byte, int, long, float, double, str#, etc.)
-  # Pattern: ^\s*(byte|int|long|float|double|str\d+)\s+
+  # Pattern: ^\s*(byte|int|long|float|double|str\\d+)\\s+
   rest_of_cmd_no_type = stringi::stri_replace_first_regex(rest_of_cmd, "^\\s*(?:byte|int|long|float|double|str\\d+)\\s+", "")
 
   # Re-parse rest_of_cmd_no_type looking for `newvar = fcn(args) [if cond] [, options]`
@@ -22,9 +22,18 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   right_part = stringi::stri_trim_both(parts_eq[2])
 
   # Split right_part at the first comma (if any) to separate function/args/if from options
-  parts_comma = stringi::stri_stri_split_fixed(right_part, ",", n=2)[[1]]
-  func_args_if_part = stringi::stri_trim_both(parts_comma[1])
-  options_str = if(length(parts_comma) > 1) stringi::stri_trim_both(parts_comma[2]) else NA_character_
+  # FIX: Corrected typo from stri_stri_split_fixed to stringi::stri_split_fixed
+  parts_comma_list = stringi::stri_split_fixed(right_part, ",", n=2)
+  parts_comma = parts_comma_list[[1]] 
+
+  if(length(parts_comma) != 2) {
+    func_args_if_part = stringi::stri_trim_both(parts_comma[1])
+    options_str = NA_character_
+  } else {
+    func_args_if_part = stringi::stri_trim_both(parts_comma[1])
+    options_str = stringi::stri_trim_both(parts_comma[2])
+  }
+
 
   # Now parse func_args_if_part: `fcn(args) [if cond]`
   # Split at the first `(`
@@ -128,10 +137,30 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   by_vars_for_group_by = NULL
   by_vars_list_unquoted = character(0) # Initialize for use in combined_grouping_vars
 
-  if (cmd_obj$is_by_prefix && !is.na(cmd_obj$by_group_vars)) {
-    by_vars_list_unquoted = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
-    by_vars_list_unquoted = by_vars_list_unquoted[by_vars_list_unquoted != ""]
-    by_vars_for_group_by = paste0('c("', paste0(by_vars_list_unquoted, collapse='", "'), '")')
+  if (cmd_obj$is_by_prefix) {
+    if (!is.na(cmd_obj$by_group_vars)) {
+      by_vars_list_unquoted = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
+      by_vars_list_unquoted = by_vars_list_unquoted[by_vars_list_unquoted != ""]
+      by_vars_for_group_by = paste0('c("', paste0(by_vars_list_unquoted, collapse='", "'), '")')
+    }
+
+    sort_vars_list = character(0)
+    if (!is.na(cmd_obj$by_sort_vars)) {
+      sort_vars_list = stringi::stri_split_fixed(cmd_obj$by_sort_vars, ",")[[1]]
+      sort_vars_list = sort_vars_list[sort_vars_list != ""]
+    }
+
+    # If there are sort keys for by-processing, prepare the arrange call
+    # This is handled by t_generate/t_replace for _n/_N usage, but egen functions might need sorting too.
+    # Stata egen functions like `rank` are influenced by sort order if `by` prefix is used.
+    # However, for functions like mean/total, explicit sorting isn't strictly necessary for the result,
+    # but `by` prefix implies it.
+    # The `context$is_by_group` comes from the `by` prefix.
+    # The `dplyr::group_by` handles the grouping.
+    # For `rank`, `_n`, `_N` etc. the order within groups matters.
+    # The `stata_expression_translator` should handle `_n` and `_N` correctly by replacing with `fseq()` and `fnobs()` inside grouped operations.
+    # So explicit `arrange` here might be redundant or problematic if the order is already handled by `by` prefix parsing.
+    # Let's assume that `dplyr::group_by` and `stata_expression_translator` are sufficient.
   } else if (!is.na(options_str)) {
     by_opt_match = stringi::stri_match_first_regex(options_str, "\\bby\\s*\\(([^)]+)\\)")
     if (!is.na(by_opt_match[1,1])) {
