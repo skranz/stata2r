@@ -39,18 +39,22 @@ do:  sort group i
 R:  data = dplyr::arrange(data, group, i) 
 
 do:  by group: gen seq = _n 
-R:  data = collapse::fgroup_by(data, c("group"))
-data = collapse::fmutate(data, seq = .i)
-data = collapse::fungroup(data) 
+R:  data = data
+  %>% collapse::fgroup_by(c("group"))
+  %>% collapse::fmutate(seq = .i)
+  %>% collapse::fungroup() 
 
 do:  gen logi = log(i) 
-R:  data = collapse::fmutate(data, logi = log(i)) 
+R:  data = data
+  %>% collapse::fmutate(logi = log(i)) 
 
 do:  gen sqrt_i = sqrt(i) 
-R:  data = collapse::fmutate(data, sqrt_i = sqrt(i)) 
+R:  data = data
+  %>% collapse::fmutate(sqrt_i = sqrt(i)) 
 
 do:  gen group_num = cond(group=="A",1,cond(group=="B",2,3)) 
-R:  data = collapse::fmutate(data, group_num = dplyr::if_else(group=="A", 1, dplyr::if_else(group=="B", 2, 3))) 
+R:  data = data
+  %>% collapse::fmutate(group_num = dplyr::if_else(group=="A", 1, dplyr::if_else(group=="B", 2, 3))) 
 
 do:  egen mean_i_grp = mean(i), by(group) 
 R:  data = collapse::fgroup_by(data, c("group")) %>%
@@ -66,10 +70,12 @@ R:  data = collapse::fgroup_by(data, c("group")) %>%
   collapse::fungroup() 
 
 do:  gen flag = (i>20) if group=="A" 
-R:  data = collapse::fmutate(data, flag = dplyr::if_else(group=="A", (i>20), NA_real_)) 
+R:  data = data
+  %>% collapse::fmutate(flag = dplyr::if_else(group=="A", (i>20), NA_real_)) 
 
 do:  replace flag = 0 if missing(flag) 
-R:  data = collapse::fmutate(data, flag = dplyr::if_else(is.na(flag), 0, flag)) 
+R:  data = data
+  %>% collapse::fmutate(flag = dplyr::if_else(is.na(flag), 0, flag)) 
 
 do:  keep if flag==1 | group=="B" 
 R:  data = collapse::fsubset(data, flag==1 | group=="B") 
@@ -141,13 +147,15 @@ R:  data = tidyr::pivot_longer(data, cols = dplyr::matches("^(mean_i_overall|tot
   dplyr::mutate(group_str = as.numeric(group_str)) 
 
 do:  gen id = _n 
-R:  data = collapse::fmutate(data, id = dplyr::row_number()) 
+R:  data = data
+  %>% collapse::fmutate(id = dplyr::row_number()) 
 
 do:  bysort group_code (mean_i_overall): gen diff_mean = mean_i_overall - mean_i_overall[_n-1] 
-R:  data = dplyr::arrange(data, group_code, mean_i_overall)
-data = collapse::fgroup_by(data, c("group_code"))
-data = collapse::fmutate(data, diff_mean = mean_i_overall - dplyr::lag(mean_i_overall, 1))
-data = collapse::fungroup(data) 
+R:  data = data
+  %>% dplyr::arrange(group_code, mean_i_overall)
+  %>% collapse::fgroup_by(c("group_code"))
+  %>% collapse::fmutate(diff_mean = mean_i_overall - dplyr::lag(mean_i_overall, 1))
+  %>% collapse::fungroup() 
 
 do:  recode group_code (1=10)(2=20)(3=30) 
 R:  data = collapse::fmutate(data, group_code = dplyr::case_when(
@@ -174,7 +182,8 @@ do:  egen total_sum = total(sum_mean)
 R:  data = collapse::fmutate(data, total_sum = sum(sum_mean, na.rm = TRUE)) 
 
 do:  gen proportion = sum_mean/total_sum 
-R:  data = collapse::fmutate(data, proportion = sum_mean/total_sum) 
+R:  data = data
+  %>% collapse::fmutate(proportion = sum_mean/total_sum) 
 
 do:  sort proportion 
 R:  data = dplyr::arrange(data, proportion) 
@@ -193,9 +202,11 @@ R:  haven::write_dta(data, path = "result_data.dta")
 
  2 data = dplyr::arrange(data, group, i)
 
- 3 data = collapse::fgroup_by(data, c("group"))
-
-data = collapse::fmutate(data, seq = .i)
-
-Error: object '.i' not found
-data = collapse::fungroup(data)
+ 3 data = data
+  %>% collapse::fgroup_by(c("group"))
+  %>% collapse::fmutate(seq = .i)
+  %>% collapse::fungroup()
+Error: <text>:2:3: unexpected SPECIAL
+1: data = data
+2:   %>%
+     ^

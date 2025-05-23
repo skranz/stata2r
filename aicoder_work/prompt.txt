@@ -1147,7 +1147,7 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   r_code_prefix = "" # Code to create subset if needed
 
   if (!is.na(stata_if_in_cond) && stata_if_in_cond != "") {
-      r_subset_cond = translate_stata_expression_with_r_values(stata_if_in_cond, line_num, cmd_df, context = list(is_by_group = FALSE))
+      r_subset_cond = translate_stata_expression_with_r_values(stata_if_in_cond, cmd_obj$line, cmd_df, context = list(is_by_group = FALSE)) # Use cmd_obj$line
       if (is.na(r_subset_cond) || r_subset_cond == "") {
            return(paste0("# Failed to translate if/in condition for collapse: ", stata_if_in_cond))
       }
@@ -1176,7 +1176,7 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     }
 
     # Translate actual Stata source variable name
-    r_source_var = translate_stata_expression_with_r_values(actual_stata_source_var_name, line_num, cmd_df, context)
+    r_source_var = translate_stata_expression_with_r_values(actual_stata_source_var_name, cmd_obj$line, cmd_df, context) # Use cmd_obj$line
      if (is.na(r_source_var) || r_source_var == "") {
          return(paste0("# Failed to translate source variable '", actual_stata_source_var_name, "' for collapse stat '", stat_from_regex, "'"))
      }
@@ -2287,11 +2287,10 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     r_if_cond = translate_stata_expression_with_r_values(stata_if_cond, line_num, cmd_df, context = list(is_by_group = FALSE))
   }
 
-  # Prepare for by-processing
-  arrange_code = ""
+  # Prepare for by-processing steps as pipe components
+  arrange_step = ""
   group_vars_r_vec_str = NULL
-  ungroup_code = ""
-
+  
   if (cmd_obj$is_by_prefix) {
     if (!is.na(cmd_obj$by_group_vars)) {
       group_vars_list = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
@@ -2309,16 +2308,9 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     if (length(sort_vars_list) > 0) {
       all_sort_vars = c(if(!is.null(group_vars_list)) group_vars_list else character(0), sort_vars_list)
       all_sort_vars_str = paste(all_sort_vars, collapse = ", ")
-      # Using dplyr::arrange for flexibility with potential desc() in sort_vars_list if gsort syntax was adapted
-      arrange_code = paste0("data = dplyr::arrange(data, ", all_sort_vars_str, ")\n")
-    }
-
-    if (!is.null(group_vars_r_vec_str)) {
-        arrange_code = paste0(arrange_code, "data = collapse::fgroup_by(data, ", group_vars_r_vec_str, ")\n")
-        ungroup_code = "\ndata = collapse::fungroup(data)"
+      arrange_step = paste0("dplyr::arrange(", all_sort_vars_str, ")")
     }
   }
-
 
   if (!is.na(r_if_cond) && r_if_cond != "") {
     mutate_expr = paste0(new_var, " = dplyr::if_else(", r_if_cond, ", ", r_expr, ", NA_real_)")
@@ -2326,20 +2318,26 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     mutate_expr = paste0(new_var, " = ", r_expr)
   }
 
-  r_code_str = paste0(arrange_code,
-                      "data = collapse::fmutate(data, ", mutate_expr, ")",
-                      ungroup_code)
+  # Build the R code string using pipes
+  r_code_parts = c("data = data")
 
-  # Clean up multiple newlines if arrange_code or ungroup_code are empty
-  r_code_str = gsub("\n\n", "\n", r_code_str)
-  r_code_str = trimws(r_code_str, which="both", whitespace="[\n]")
+  if (arrange_step != "") {
+      r_code_parts = c(r_code_parts, paste0("  %>% ", arrange_step))
+  }
 
+  if (!is.null(group_vars_r_vec_str)) {
+      r_code_parts = c(r_code_parts, paste0("  %>% collapse::fgroup_by(", group_vars_r_vec_str, ")"))
+      r_code_parts = c(r_code_parts, paste0("  %>% collapse::fmutate(", mutate_expr, ")"))
+      r_code_parts = c(r_code_parts, paste0("  %>% collapse::fungroup()"))
+  } else {
+      # If not grouped, still use a pipe for fmutate for consistency and clarity
+      r_code_parts = c(r_code_parts, paste0("  %>% collapse::fmutate(", mutate_expr, ")"))
+  }
 
+  r_code_str = paste(r_code_parts, collapse="\n")
+  
   return(r_code_str)
 }
-
-
-
 
 ```
 ### END OF FILE: t_generate.R
@@ -2938,10 +2936,9 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     r_if_cond = translate_stata_expression_with_r_values(stata_if_cond, line_num, cmd_df, context = list(is_by_group = FALSE))
   }
 
-  # Prepare for by-processing
-  arrange_code = ""
+  # Prepare for by-processing steps as pipe components
+  arrange_step = ""
   group_vars_r_vec_str = NULL
-  ungroup_code = ""
 
   if (cmd_obj$is_by_prefix) {
     if (!is.na(cmd_obj$by_group_vars)) {
@@ -2959,12 +2956,7 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     if (length(sort_vars_list) > 0) {
       all_sort_vars = c(if(!is.null(group_vars_list)) group_vars_list else character(0), sort_vars_list)
       all_sort_vars_str = paste(all_sort_vars, collapse = ", ")
-      arrange_code = paste0("data = dplyr::arrange(data, ", all_sort_vars_str, ")\n")
-    }
-
-    if (!is.null(group_vars_r_vec_str)) {
-        arrange_code = paste0(arrange_code, "data = collapse::fgroup_by(data, ", group_vars_r_vec_str, ")\n")
-        ungroup_code = "\ndata = collapse::fungroup(data)"
+      arrange_step = paste0("dplyr::arrange(", all_sort_vars_str, ")")
     }
   }
 
@@ -2975,18 +2967,26 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     mutate_expr = paste0(var_to_replace, " = ", r_expr)
   }
 
-  r_code_str = paste0(arrange_code,
-                      "data = collapse::fmutate(data, ", mutate_expr, ")", # fmutate replaces existing var
-                      ungroup_code)
+  # Build the R code string using pipes
+  r_code_parts = c("data = data")
 
-  r_code_str = gsub("\n\n", "\n", r_code_str)
-  r_code_str = trimws(r_code_str, which="both", whitespace="[\n]")
+  if (arrange_step != "") {
+      r_code_parts = c(r_code_parts, paste0("  %>% ", arrange_step))
+  }
 
+  if (!is.null(group_vars_r_vec_str)) {
+      r_code_parts = c(r_code_parts, paste0("  %>% collapse::fgroup_by(", group_vars_r_vec_str, ")"))
+      r_code_parts = c(r_code_parts, paste0("  %>% collapse::fmutate(", mutate_expr, ")"))
+      r_code_parts = c(r_code_parts, paste0("  %>% collapse::fungroup()"))
+  } else {
+      # If not grouped, still use a pipe for fmutate for consistency and clarity
+      r_code_parts = c(r_code_parts, paste0("  %>% collapse::fmutate(", mutate_expr, ")"))
+  }
+
+  r_code_str = paste(r_code_parts, collapse="\n")
 
   return(r_code_str)
 }
-
-
 
 ```
 ### END OF FILE: t_replace.R
@@ -3296,15 +3296,15 @@ t_summarize = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   is_detail = !is.na(options_str) && stringi::stri_detect_fixed(options_str, "detail")
 
   r_code_lines = c()
-  line_prefix = paste0("stata_r_val_L", line_num, "_")
+  line_prefix = paste0("stata_r_val_L", cmd_obj$line, "_") # Use cmd_obj$line
 
   # Prepare data subset if "if condition" is present
   # This creates a temporary subsetted dataframe for summarization if needed.
   # If no if condition, data_source_for_summary refers to the original 'data'.
   data_source_for_summary = "data"
   if (!is.na(stata_if_cond_expr)) {
-    r_subset_cond = translate_stata_expression_with_r_values(stata_if_cond_expr, line_num, cmd_df, context = list(is_by_group = FALSE))
-    data_subset_varname = paste0("data_subset_L", line_num_for_ids = cmd_obj$line) # Use actual line from cmd_obj
+    r_subset_cond = translate_stata_expression_with_r_values(stata_if_cond_expr, cmd_obj$line, cmd_df, context = list(is_by_group = FALSE)) # Use cmd_obj$line
+    data_subset_varname = paste0("data_subset_L", cmd_obj$line) # Use actual line from cmd_obj
     r_code_lines = c(r_code_lines, paste0(data_subset_varname, " = base::subset(data, ", r_subset_cond, ")"))
     data_source_for_summary = data_subset_varname
   }
@@ -3347,7 +3347,6 @@ t_summarize = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
-
 
 ```
 ### END OF FILE: t_summarize.R
@@ -3514,18 +3513,22 @@ do:  sort group i
 R:  data = dplyr::arrange(data, group, i) 
 
 do:  by group: gen seq = _n 
-R:  data = collapse::fgroup_by(data, c("group"))
-data = collapse::fmutate(data, seq = .i)
-data = collapse::fungroup(data) 
+R:  data = data
+  %>% collapse::fgroup_by(c("group"))
+  %>% collapse::fmutate(seq = .i)
+  %>% collapse::fungroup() 
 
 do:  gen logi = log(i) 
-R:  data = collapse::fmutate(data, logi = log(i)) 
+R:  data = data
+  %>% collapse::fmutate(logi = log(i)) 
 
 do:  gen sqrt_i = sqrt(i) 
-R:  data = collapse::fmutate(data, sqrt_i = sqrt(i)) 
+R:  data = data
+  %>% collapse::fmutate(sqrt_i = sqrt(i)) 
 
 do:  gen group_num = cond(group=="A",1,cond(group=="B",2,3)) 
-R:  data = collapse::fmutate(data, group_num = dplyr::if_else(group=="A", 1, dplyr::if_else(group=="B", 2, 3))) 
+R:  data = data
+  %>% collapse::fmutate(group_num = dplyr::if_else(group=="A", 1, dplyr::if_else(group=="B", 2, 3))) 
 
 do:  egen mean_i_grp = mean(i), by(group) 
 R:  data = collapse::fgroup_by(data, c("group")) %>%
@@ -3541,10 +3544,12 @@ R:  data = collapse::fgroup_by(data, c("group")) %>%
   collapse::fungroup() 
 
 do:  gen flag = (i>20) if group=="A" 
-R:  data = collapse::fmutate(data, flag = dplyr::if_else(group=="A", (i>20), NA_real_)) 
+R:  data = data
+  %>% collapse::fmutate(flag = dplyr::if_else(group=="A", (i>20), NA_real_)) 
 
 do:  replace flag = 0 if missing(flag) 
-R:  data = collapse::fmutate(data, flag = dplyr::if_else(is.na(flag), 0, flag)) 
+R:  data = data
+  %>% collapse::fmutate(flag = dplyr::if_else(is.na(flag), 0, flag)) 
 
 do:  keep if flag==1 | group=="B" 
 R:  data = collapse::fsubset(data, flag==1 | group=="B") 
@@ -3616,13 +3621,15 @@ R:  data = tidyr::pivot_longer(data, cols = dplyr::matches("^(mean_i_overall|tot
   dplyr::mutate(group_str = as.numeric(group_str)) 
 
 do:  gen id = _n 
-R:  data = collapse::fmutate(data, id = dplyr::row_number()) 
+R:  data = data
+  %>% collapse::fmutate(id = dplyr::row_number()) 
 
 do:  bysort group_code (mean_i_overall): gen diff_mean = mean_i_overall - mean_i_overall[_n-1] 
-R:  data = dplyr::arrange(data, group_code, mean_i_overall)
-data = collapse::fgroup_by(data, c("group_code"))
-data = collapse::fmutate(data, diff_mean = mean_i_overall - dplyr::lag(mean_i_overall, 1))
-data = collapse::fungroup(data) 
+R:  data = data
+  %>% dplyr::arrange(group_code, mean_i_overall)
+  %>% collapse::fgroup_by(c("group_code"))
+  %>% collapse::fmutate(diff_mean = mean_i_overall - dplyr::lag(mean_i_overall, 1))
+  %>% collapse::fungroup() 
 
 do:  recode group_code (1=10)(2=20)(3=30) 
 R:  data = collapse::fmutate(data, group_code = dplyr::case_when(
@@ -3649,7 +3656,8 @@ do:  egen total_sum = total(sum_mean)
 R:  data = collapse::fmutate(data, total_sum = sum(sum_mean, na.rm = TRUE)) 
 
 do:  gen proportion = sum_mean/total_sum 
-R:  data = collapse::fmutate(data, proportion = sum_mean/total_sum) 
+R:  data = data
+  %>% collapse::fmutate(proportion = sum_mean/total_sum) 
 
 do:  sort proportion 
 R:  data = dplyr::arrange(data, proportion) 
@@ -3668,12 +3676,14 @@ R:  haven::write_dta(data, path = "result_data.dta")
 
  2 data = dplyr::arrange(data, group, i)
 
- 3 data = collapse::fgroup_by(data, c("group"))
-
-data = collapse::fmutate(data, seq = .i)
-
-Error: object '.i' not found
-data = collapse::fungroup(data)
+ 3 data = data
+  %>% collapse::fgroup_by(c("group"))
+  %>% collapse::fmutate(seq = .i)
+  %>% collapse::fungroup()
+Error: <text>:2:3: unexpected SPECIAL
+1: data = data
+2:   %>%
+     ^
 
 ##############################
 # YOUR TASK
