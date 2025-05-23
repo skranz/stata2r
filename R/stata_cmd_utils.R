@@ -242,3 +242,41 @@ quote_for_r_literal = function(s) {
   paste0('"', s, '"')
 }
 
+# Helper function to resolve Stata filenames (literal or macro) to R path expressions
+# default_base_dir_var: name of the variable in stata2r_env (e.g., "working_dir", "data_dir")
+resolve_stata_filename = function(raw_filename_token, cmd_df, line_num, default_base_dir_var = "working_dir") {
+  unquoted_content = unquote_stata_string_literal(raw_filename_token)
+
+  # Check if it's a Stata local macro reference `macroname'`
+  if (stringi::stri_startswith_fixed(unquoted_content, "`") && stringi::stri_endswith_fixed(unquoted_content, "'")) {
+    macro_name = stringi::stri_sub(unquoted_content, 2, -2)
+    
+    found_def_line = NA_integer_
+    for (i in (line_num - 1):1) {
+        if (cmd_df$stata_cmd[i] == "tempfile") {
+            defined_macros = get_tempfile_macros(cmd_df$rest_of_cmd[i])
+            if (macro_name %in% defined_macros) {
+                found_def_line = cmd_df$line[i]
+                break
+            }
+        }
+    }
+    
+    if (!is.na(found_def_line)) {
+        return(paste0("R_tempfile_L", found_def_line, "_", macro_name, "_path"))
+    } else {
+        warning(paste0("Macro ", unquoted_content, " in command at line ", line_num, " not resolved from tempfile. Treating as literal string."))
+        return(quote_for_r_literal(unquoted_content))
+    }
+  } else {
+    # It's a regular path string
+    is_absolute_path = stringi::stri_startswith_fixed(unquoted_content, "/") || stringi::stri_detect_regex(unquoted_content, "^[A-Za-z]:[\\\\/]")
+    if (is_absolute_path) {
+      return(quote_for_r_literal(unquoted_content))
+    } else {
+      # Use the specified default_base_dir_var (e.g., "working_dir" for use/save, "data_dir" for append/merge)
+      return(paste0("file.path(stata2r_env$", default_base_dir_var, ", ", quote_for_r_literal(unquoted_content), ")"))
+    }
+  }
+}
+

@@ -234,17 +234,15 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   full_mutate_expr = paste0(new_var, " = ", calc_expr)
 
   # Build the R command string using pipes
-  r_code_lines = c("data = ")
+  r_code_lines = c("data = data %>%\n") # Start with data and the first pipe
 
   if (!is.null(by_vars_for_group_by) && length(by_vars_list_unquoted) > 0 && !is_row_function) {
     r_code_lines = c(r_code_lines,
-                        "data %>%\n",
                         "  dplyr::group_by(dplyr::across(", by_vars_for_group_by, ")) %>%\n",
                         "  dplyr::mutate(", full_mutate_expr, ") %>%\n",
                         "  dplyr::ungroup()")
   } else {
     r_code_lines = c(r_code_lines,
-                        "data %>%\n",
                         "  dplyr::mutate(", full_mutate_expr, ")")
   }
 
@@ -266,5 +264,4 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
-
 

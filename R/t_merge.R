@@ -27,7 +27,7 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       if (!is.na(merge_match_old[1,1])) {
            merge_type = "1:1" # Assume 1:1 if type not specified
            varlist_str = stringi::stri_trim_both(merge_match_old[1,2])
-           raw_filename_token = stringi::stri_trim_both(merge_match_old[1,3]) # Updated to raw_filename_token
+           raw_filename_token = stringi::stri_trim_both(merge_match_old[1,3])
            options_str = stringi::stri_trim_both(merge_match_old[1,4])
       } else {
            return(paste0("# Failed to parse merge command: ", rest_of_cmd))
@@ -35,7 +35,7 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   } else {
       merge_type = merge_match[1,2]
       varlist_str = stringi::stri_trim_both(merge_match[1,3])
-      raw_filename_token = stringi::stri_trim_both(merge_match[1,4]) # Updated to raw_filename_token
+      raw_filename_token = stringi::stri_trim_both(merge_match[1,4])
       options_str = stringi::stri_trim_both(merge_match[1,5]) # NA if no options
   }
 
@@ -46,46 +46,7 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
   vars_to_merge_on_r_vec_str = paste0('c("', paste(vars_to_merge_on, collapse = '", "'), '")')
 
-
-  using_source_r_expr = NA_character_ # This will hold the R expression to load the data
-
-  # Check if filename_part is a macro `macroname`
-  if (stringi::stri_startswith_fixed(raw_filename_token, "`") && stringi::stri_endswith_fixed(raw_filename_token, "'")) {
-    macro_name = stringi::stri_sub(raw_filename_token, 2, -2) # Extract macro name
-    
-    found_def_line = NA_integer_
-    for (i in (line_num - 1):1) {
-        if (cmd_df$stata_cmd[i] == "tempfile") {
-            defined_macros = get_tempfile_macros(cmd_df$rest_of_cmd[i])
-            if (macro_name %in% defined_macros) {
-                found_def_line = cmd_df$line[i]
-                break
-            }
-        }
-    }
-    
-    path_r_var = NA_character_
-    if (!is.na(found_def_line)) {
-        path_r_var = paste0("R_tempfile_L", found_def_line, "_", macro_name, "_path")
-    }
-
-    if (!is.na(path_r_var)) {
-        using_source_r_expr = paste0("haven::read_dta(", path_r_var, ")")
-    } else {
-         warning(paste0("Macro ",raw_filename_token, " in 'merge' command at line ",line_num, " not fully resolved. Treating as filename string."))
-         using_source_r_expr = paste0("haven::read_dta(", quote_for_r_literal(unquote_stata_string_literal(raw_filename_token)), ")")
-    }
-  } else {
-    # Actual filename string, e.g. "mydata.dta" or mydata.dta (potentially unquoted in Stata)
-    unquoted_content = unquote_stata_string_literal(raw_filename_token)
-    is_absolute_path = stringi::stri_startswith_fixed(unquoted_content, "/") || stringi::stri_detect_regex(unquoted_content, "^[A-Za-z]:[\\\\/]")
-    if (is_absolute_path) {
-      using_source_r_expr = paste0("haven::read_dta(", quote_for_r_literal(unquoted_content), ")")
-    } else {
-      # Assume relative path for 'merge using' refers to the data_dir
-      using_source_r_expr = paste0("haven::read_dta(file.path(stata2r_env$data_dir, ", quote_for_r_literal(unquoted_content), "))")
-    }
-  }
+  using_source_r_expr = resolve_stata_filename(raw_filename_token, cmd_df, line_num, default_base_dir_var = "data_dir")
 
 
   # Determine merge type for collapse::fmerge
@@ -130,9 +91,8 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Build the R command string using collapse::fmerge
   # fmerge(x, y, by, all.x, all.y)
-  r_code_str = paste0("data = collapse::fmerge(data, ", using_source_r_expr, ", by = ", vars_to_merge_on_r_vec_str, ", all.x = ", toupper(all_x), ", all.y = ", toupper(all_y), ") ", merge_comment)
+  r_code_str = paste0("data = collapse::fmerge(data, haven::read_dta(", using_source_r_expr, "), by = ", vars_to_merge_on_r_vec_str, ", all.x = ", toupper(all_x), ", all.y = ", toupper(all_y), ") ", merge_comment)
 
   return(r_code_str)
 }
-
 

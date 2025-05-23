@@ -15,57 +15,18 @@ t_append = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
     return(paste0("# Failed to parse append command: ", rest_of_cmd))
   }
 
-  raw_filename_token = stringi::stri_trim_both(append_match[1,2]) # Updated to raw_filename_token
+  raw_filename_token = stringi::stri_trim_both(append_match[1,2])
   options_str = stringi::stri_trim_both(append_match[1,3]) # NA if no options
 
   # Resolve the `using filename` - can be a path string or a macro
-  using_source_r_expr = NA_character_ # This will hold the R expression to load the data
-
-  # Check if filename_part is a macro `macroname`
-  if (stringi::stri_startswith_fixed(raw_filename_token, "`") && stringi::stri_endswith_fixed(raw_filename_token, "'")) {
-    macro_name = stringi::stri_sub(raw_filename_token, 2, -2) # Extract macro name
-    
-    found_def_line = NA_integer_
-    for (i in (line_num - 1):1) {
-        if (cmd_df$stata_cmd[i] == "tempfile") {
-            defined_macros = get_tempfile_macros(cmd_df$rest_of_cmd[i])
-            if (macro_name %in% defined_macros) {
-                found_def_line = cmd_df$line[i]
-                break
-            }
-        }
-    }
-
-    path_r_var = NA_character_
-    if (!is.na(found_def_line)) {
-        path_r_var = paste0("R_tempfile_L", found_def_line, "_", macro_name, "_path")
-    }
-
-    if (!is.na(path_r_var)) {
-        using_source_r_expr = paste0("haven::read_dta(", path_r_var, ")")
-    } else {
-         warning(paste0("Macro ",raw_filename_token, " in 'append' command at line ",line_num, " not fully resolved. Treating as filename string."))
-         using_source_r_expr = paste0("haven::read_dta(", quote_for_r_literal(unquote_stata_string_literal(raw_filename_token)), ")")
-    }
-  } else {
-    # Actual filename string, e.g. "mydata.dta" or mydata.dta (potentially unquoted in Stata)
-    unquoted_content = unquote_stata_string_literal(raw_filename_token)
-    is_absolute_path = stringi::stri_startswith_fixed(unquoted_content, "/") || stringi::stri_detect_regex(unquoted_content, "^[A-Za-z]:[\\\\/]")
-    if (is_absolute_path) {
-      using_source_r_expr = paste0("haven::read_dta(", quote_for_r_literal(unquoted_content), ")")
-    } else {
-      # Assume relative path for 'append using' refers to the data_dir
-      using_source_r_expr = paste0("haven::read_dta(file.path(stata2r_env$data_dir, ", quote_for_r_literal(unquoted_content), "))")
-    }
-  }
-
+  using_source_r_expr = resolve_stata_filename(raw_filename_token, cmd_df, line_num, default_base_dir_var = "data_dir")
 
   # Stata append requires variable names to match or be harmonized.
   # collapse::fbind matches columns by name. Differences are filled with NA. This is similar to Stata.
   # Options like `force` (append even if variable types don't match) are not handled.
 
   # Using collapse::fbind
-  r_code_str = paste0("data = collapse::fbind(data, ", using_source_r_expr, ")")
+  r_code_str = paste0("data = collapse::fbind(data, haven::read_dta(", using_source_r_expr, "))")
 
   # Add comment about options if any were present but not handled
   if (!is.na(options_str) && options_str != "") {
@@ -75,5 +36,4 @@ t_append = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   return(r_code_str)
 }
-
 

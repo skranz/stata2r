@@ -63,23 +63,22 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   
   # Step 2: Build the R code string using pipes for the mutate operation
   r_code_lines = c()
-  r_code_lines = c(r_code_lines, "data = ")
 
-  # Start with data or data after arrange
+  # Start with data or data after arrange, and add the first pipe
   if (arrange_call != "") {
-      r_code_lines = c(r_code_lines, arrange_call)
+      r_code_lines = c(r_code_lines, paste0("data = ", arrange_call, " %>%\n"))
   } else {
-      r_code_lines = c(r_code_lines, "data")
+      r_code_lines = c(r_code_lines, "data = data %>%\n")
   }
 
   # Add grouping and mutate steps
   if (!is.null(group_vars_r_vec_str) && length(group_vars_list) > 0) {
-      r_code_lines = c(r_code_lines, paste0(" %>%\n  dplyr::group_by(dplyr::across(", group_vars_r_vec_str, "))"))
-      r_code_lines = c(r_code_lines, paste0(" %>%\n  dplyr::mutate(", new_var, " = ", calc_expr, ")"))
-      r_code_lines = c(r_code_lines, " %>%\n  dplyr::ungroup()")
+      r_code_lines = c(r_code_lines, paste0("  dplyr::group_by(dplyr::across(", group_vars_r_vec_str, ")) %>%\n"))
+      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", new_var, " = ", calc_expr, ") %>%\n"))
+      r_code_lines = c(r_code_lines, "  dplyr::ungroup()")
   } else {
       # If not grouped, just add the mutate step directly to the pipe chain
-      r_code_lines = c(r_code_lines, paste0(" %>%\n  dplyr::mutate(", new_var, " = ", calc_expr, ")"))
+      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", new_var, " = ", calc_expr, ")"))
   }
   
   # Step 3: Strip Stata-specific attributes from the newly created/modified column
@@ -87,5 +86,4 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   
   return(paste(r_code_lines, collapse="\n"))
 }
-
 
