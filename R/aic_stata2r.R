@@ -27,10 +27,14 @@ example = function() {
     rgemini::set_gemini_api_key(file="~/aicoder/gemini_key.txt")
     aic = aic_new_stata2r(main_dir)
     aic = aic_test_stata2r(aic)
+    if (isTRUE(aic$last_test_ok)) {
+      cat("\nAll tests ok!")
+      break
+    }
     aic = aic_make_prompt_stata2r(aic)
     aic = aic_run_gemini(aic,model = "gemini-2.5-flash-preview-05-20")
     aic = aic_changes_stata2r(aic)
-
+    Sys.sleep(5)
   }
 
 

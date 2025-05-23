@@ -102,6 +102,9 @@ preverse or restore can generate other data sets. Think of a suitable name.
 Your output format shall be like the following example (the example begins and end with *** lines)
 
 ***
+
+A very brief description of your main changes.
+
 !CHANGE_FILE R/t_generate.R
 # This will be the new content of a file
 t_generate = function(...) {
@@ -133,6 +136,8 @@ use the syntax:
 
 !REMOVE_FILE {file_path}
 
+You can add a very brief description of your plan at the beginning of
+your output before the !CHANGE_FILE blocks if you like.
 You don't need to add any further comments in your output.
 '''
 

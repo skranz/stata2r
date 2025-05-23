@@ -1785,7 +1785,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Example: bysort group: egen rank_i = rank(i) (Note: bysort handled by cmd_obj$is_by_prefix)
 
   # Remove type prefix if any (byte, int, long, float, double, str#, etc.)
-  # Pattern: ^\s*(byte|int|long|float|double|str\d+)\s+
+  # Pattern: ^\s*(byte|int|long|float|double|str\\d+)\\s+
   rest_of_cmd_no_type = stringi::stri_replace_first_regex(rest_of_cmd, "^\\s*(?:byte|int|long|float|double|str\\d+)\\s+", "")
 
   # Re-parse rest_of_cmd_no_type looking for `newvar = fcn(args) [if cond] [, options]`
@@ -1797,9 +1797,18 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   right_part = stringi::stri_trim_both(parts_eq[2])
 
   # Split right_part at the first comma (if any) to separate function/args/if from options
-  parts_comma = stringi::stri_stri_split_fixed(right_part, ",", n=2)[[1]]
-  func_args_if_part = stringi::stri_trim_both(parts_comma[1])
-  options_str = if(length(parts_comma) > 1) stringi::stri_trim_both(parts_comma[2]) else NA_character_
+  # FIX: Corrected typo from stri_stri_split_fixed to stringi::stri_split_fixed
+  parts_comma_list = stringi::stri_split_fixed(right_part, ",", n=2)
+  parts_comma = parts_comma_list[[1]] 
+
+  if(length(parts_comma) != 2) {
+    func_args_if_part = stringi::stri_trim_both(parts_comma[1])
+    options_str = NA_character_
+  } else {
+    func_args_if_part = stringi::stri_trim_both(parts_comma[1])
+    options_str = stringi::stri_trim_both(parts_comma[2])
+  }
+
 
   # Now parse func_args_if_part: `fcn(args) [if cond]`
   # Split at the first `(`
@@ -1903,10 +1912,30 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   by_vars_for_group_by = NULL
   by_vars_list_unquoted = character(0) # Initialize for use in combined_grouping_vars
 
-  if (cmd_obj$is_by_prefix && !is.na(cmd_obj$by_group_vars)) {
-    by_vars_list_unquoted = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
-    by_vars_list_unquoted = by_vars_list_unquoted[by_vars_list_unquoted != ""]
-    by_vars_for_group_by = paste0('c("', paste0(by_vars_list_unquoted, collapse='", "'), '")')
+  if (cmd_obj$is_by_prefix) {
+    if (!is.na(cmd_obj$by_group_vars)) {
+      by_vars_list_unquoted = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
+      by_vars_list_unquoted = by_vars_list_unquoted[by_vars_list_unquoted != ""]
+      by_vars_for_group_by = paste0('c("', paste0(by_vars_list_unquoted, collapse='", "'), '")')
+    }
+
+    sort_vars_list = character(0)
+    if (!is.na(cmd_obj$by_sort_vars)) {
+      sort_vars_list = stringi::stri_split_fixed(cmd_obj$by_sort_vars, ",")[[1]]
+      sort_vars_list = sort_vars_list[sort_vars_list != ""]
+    }
+
+    # If there are sort keys for by-processing, prepare the arrange call
+    # This is handled by t_generate/t_replace for _n/_N usage, but egen functions might need sorting too.
+    # Stata egen functions like `rank` are influenced by sort order if `by` prefix is used.
+    # However, for functions like mean/total, explicit sorting isn't strictly necessary for the result,
+    # but `by` prefix implies it.
+    # The `context$is_by_group` comes from the `by` prefix.
+    # The `dplyr::group_by` handles the grouping.
+    # For `rank`, `_n`, `_N` etc. the order within groups matters.
+    # The `stata_expression_translator` should handle `_n` and `_N` correctly by replacing with `fseq()` and `fnobs()` inside grouped operations.
+    # So explicit `arrange` here might be redundant or problematic if the order is already handled by `by` prefix parsing.
+    # Let's assume that `dplyr::group_by` and `stata_expression_translator` are sufficient.
   } else if (!is.na(options_str)) {
     by_opt_match = stringi::stri_match_first_regex(options_str, "\\bby\\s*\\(([^)]+)\\)")
     if (!is.na(by_opt_match[1,1])) {
@@ -3517,8 +3546,167 @@ R:  data = data %>%
   dplyr::mutate(group_num = dplyr::if_else(group=="A", 1, dplyr::if_else(group=="B", 2, 3))) 
 
 do:  egen mean_i_grp = mean(i), by(group) 
-Error : 'stri_stri_split_fixed' is not an exported object from 'namespace:stringi'
+R:  data = data %>%
+  dplyr::group_by(dplyr::across(c("group"))) %>%
+  dplyr::mutate(mean_i_grp = mean(i, na.rm = TRUE)) %>%
+  dplyr::ungroup() 
 
+do:  egen total_i = total(i) 
+R:  data = data %>%
+  dplyr::mutate(total_i = sum(i, na.rm = TRUE)) 
+
+do:  bysort group: egen rank_i = rank(i) 
+R:  data = data %>%
+  dplyr::group_by(dplyr::across(c("group"))) %>%
+  dplyr::mutate(rank_i = dplyr::min_rank(i)) %>%
+  dplyr::ungroup() 
+
+do:  gen flag = (i>20) if group=="A" 
+R:  data = data %>%
+  dplyr::mutate(flag = dplyr::if_else(group=="A", (i>20), NA_real_)) 
+
+do:  replace flag = 0 if missing(flag) 
+R:  data = data %>%
+  dplyr::mutate(flag = dplyr::if_else(is.na(flag), 0, flag)) 
+
+do:  keep if flag==1 | group=="B" 
+R:  data = dplyr::filter(data, flag==1 | group=="B") 
+
+do:  drop if i>35 
+R:  data = dplyr::filter(data, !(i>35)) 
+
+do:  collapse (mean) i (sum) total_i_sum = i, by(group) 
+R:  data = data %>%
+  dplyr::group_by(dplyr::across(c("group"))) %>%
+  dplyr::summarise(i = mean(i, na.rm = TRUE),
+  total_i_sum = sum(i, na.rm = TRUE)) %>%
+  dplyr::ungroup() 
+
+do:  rename i mean_i_overall 
+R:  data = collapse::frename(data, `i` = `mean_i_overall`) 
+
+do:  expand 2 if group=="C" 
+R:  __expand_n_values_L16 = 2
+__expand_cond_values_L16 = group=="C"
+__final_expand_times_L16 = ifelse(!is.na(__expand_cond_values_L16) & __expand_cond_values_L16, ifelse(is.na(__expand_n_values_L16), 1, pmax(0, as.integer(__expand_n_values_L16))), 1)
+__final_expand_times_L16 = ifelse(is.na(__final_expand_times_L16), 1, __final_expand_times_L16)
+data = data[base::rep(1:NROW(data), times = __final_expand_times_L16), ]
+if (exists('__expand_n_values_L16')) rm(__expand_n_values_L16, __expand_cond_values_L16, __final_expand_times_L16) 
+
+do:  duplicates drop 
+R:  ## Calculate duplicate flag based on all variables
+__is_duplicate_L17 = base::duplicated(data, fromLast = FALSE)
+## Calculate condition flag
+__satisfies_cond_L17 = TRUE
+data = base::subset(data, !(__is_duplicate_L17 & __satisfies_cond_L17))
+rm(__is_duplicate_L17, __satisfies_cond_L17) 
+
+do:  encode group, gen(group_code) 
+R:  data = dplyr::mutate(data, group_code = NA_integer_)
+__encoded_values_L18 = as.integer(base::factor(data$group, levels = base::unique(data$group[base::order(data$group)])))
+data = dplyr::mutate(data, group_code = __encoded_values_L18)
+rm(__encoded_values_L18) 
+
+do:  decode group_code, gen(group_str) 
+R:  data = dplyr::mutate(data, group_str = NA_character_)
+## Decode values using haven::as_factor
+__decoded_values_L19 = as.character(haven::as_factor(data$group_code, levels = 'labels'))
+data = dplyr::mutate(data, group_str = __decoded_values_L19)
+rm(__decoded_values_L19) 
+
+do:  sort group_code 
+R:  data = dplyr::arrange(data, group_code) 
+
+do:  tempfile t1 
+R:  R_tempfile_L21_t1_path = tempfile(fileext = '.dta') # Stata tempfile 't1' 
+
+do:  save "`t1'" 
+  no data manipulation command
+
+do:  keep if group_code==1 
+R:  data = dplyr::filter(data, group_code==1) 
+
+do:  merge 1:m group_code using "`t1'", keep(match master) nogenerate 
+R:  data = collapse::fmerge(data, haven::read_dta("t1"), by = c("group_code"), all.x = TRUE, all.y = FALSE) # Stata merge type: 1:m, default: keep(match), keep(master), nogenerate 
+
+do:  append using "`t1'" 
+R:  data = collapse::fbind(data, haven::read_dta("t1")) 
+
+do:  reshape wide mean_i_overall total_i_sum, i(group_code) j(group_str) 
+R:  data = tidyr::pivot_wider(data, id_cols = dplyr::all_of(c("group_code")), names_from = group_str, values_from = dplyr::all_of(c("mean_i_overall", "total_i_sum"))) 
+
+do:  reshape long mean_i_overall total_i_sum, i(group_code) j(group_str) 
+R:  data = tidyr::pivot_longer(data, cols = dplyr::matches("^(mean_i_overall|total_i_sum)"), names_to = c(".value", "group_str"), names_pattern = "^(mean_i_overall|total_i_sum)(.*)$") %>%
+  dplyr::mutate(group_str = as.numeric(group_str)) 
+
+do:  gen id = _n 
+R:  data = data %>%
+  dplyr::mutate(id = dplyr::row_number()) 
+
+do:  bysort group_code (mean_i_overall): gen diff_mean = mean_i_overall - mean_i_overall[_n-1] 
+R:  data = dplyr::arrange(data, group_code, mean_i_overall) %>%
+  dplyr::group_by(dplyr::across(c("group_code"))) %>%
+  dplyr::mutate(diff_mean = mean_i_overall - dplyr::lag(mean_i_overall, 1)) %>%
+  dplyr::ungroup() 
+
+do:  recode group_code (1=10)(2=20)(3=30) 
+R:  data = dplyr::mutate(data, group_code = dplyr::case_when(
+    group_code %in% c(1) ~ 10,
+    group_code %in% c(2) ~ 20,
+    group_code %in% c(3) ~ 30
+  )) 
+
+do:  drop if missing(mean_i_overall) 
+R:  data = dplyr::filter(data, !(is.na(mean_i_overall))) 
+
+do:  keep in 1/10 
+R:  data = dplyr::slice(data, 1:10) 
+
+do:  order id group_code mean_i_overall 
+R:  data = dplyr::select(data, id, group_code, mean_i_overall, dplyr::everything()) 
+
+do:  collapse (sum) sum_mean = mean_i_overall, by(group_code) 
+R:  data = data %>%
+  dplyr::group_by(dplyr::across(c("group_code"))) %>%
+  dplyr::summarise(sum_mean = sum(mean_i_overall, na.rm = TRUE)) %>%
+  dplyr::ungroup() 
+
+do:  egen total_sum = total(sum_mean) 
+R:  data = data %>%
+  dplyr::mutate(total_sum = sum(sum_mean, na.rm = TRUE)) 
+
+do:  gen proportion = sum_mean/total_sum 
+R:  data = data %>%
+  dplyr::mutate(proportion = sum_mean/total_sum) 
+
+do:  sort proportion 
+R:  data = dplyr::arrange(data, proportion) 
+
+do:  list in 1/5 
+  no data manipulation command
+
+do:  save "result_data.dta" 
+  no data manipulation command
+
+---
+# Run R commands and check generated data sets
+
+
+ 1 data = haven::read_dta("data.dta") # 'clear' was used
+
+ 2 data = dplyr::arrange(data, group, i)
+
+ 3 data = data %>%
+  dplyr::group_by(dplyr::across(c("group"))) %>%
+  dplyr::mutate(seq = collapse::fseq()) %>%
+  dplyr::ungroup()
+
+Error: Problem with `mutate()` column `seq`.
+ℹ `seq = collapse::fseq()`.
+✖ 'fseq' is not an exported object from 'namespace:collapse'
+ℹ The error occurred in group 1: group = "A".
+Caused by error:
+! 'fseq' is not an exported object from 'namespace:collapse'
 
 ##############################
 # YOUR TASK
@@ -3584,6 +3772,9 @@ preverse or restore can generate other data sets. Think of a suitable name.
 Your output format shall be like the following example (the example begins and end with *** lines)
 
 ***
+
+A very brief description of your main changes.
+
 !CHANGE_FILE R/t_generate.R
 # This will be the new content of a file
 t_generate = function(...) {
@@ -3615,6 +3806,8 @@ use the syntax:
 
 !REMOVE_FILE {file_path}
 
+You can add a very brief description of your plan at the beginning of
+your output before the !CHANGE_FILE blocks if you like.
 You don't need to add any further comments in your output.
 
 # Main task given failed tests
