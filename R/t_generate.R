@@ -55,7 +55,7 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Construct the mutate expression based on if condition
   if (!is.na(r_if_cond) && r_if_cond != "") {
-    mutate_expr = paste0(new_var, " = dplyr::if_else(", r_if_cond, ", ", r_expr, ", NA_real_)")
+    mutate_expr = paste0(new_var, " = dplyr::if_else(", r_if_cond, ", ", r_expr, ", NA)")
   } else {
     mutate_expr = paste0(new_var, " = ", r_expr)
   }
