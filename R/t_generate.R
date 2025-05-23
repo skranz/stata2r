@@ -9,7 +9,7 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Strip type if present (e.g. gen double newvar = ...)
   rest_of_cmd_no_type = stringi::stri_replace_first_regex(rest_of_cmd, "^(?:byte|int|long|float|double)\\s+", "")
 
-  match = stringi::stri_match_first_regex(rest_of_cmd_no_type, "^\\s*([^=\\s]+)\\s*=\\s*(.*?)(?:\\s+if\\s+(.*))?$")
+  match = stringi::stri_match_first_regex(rest_of_cmd_no_type, "^\\s*([^=\\s]+)\\s*=\\s*(.*?)(?:\\s+if\\s+(.*))?$") # Corrected stri_stri_match_first_regex
 
   if (is.na(match[1,1])) {
     return(paste0("# Failed to parse generate command: ", rest_of_cmd))
@@ -33,7 +33,8 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Determine arrange step if needed
   arrange_call = ""
   group_vars_r_vec_str = NULL
-  
+  group_vars_list = character(0) # Initialize for use in all_sort_vars
+
   if (cmd_obj$is_by_prefix) {
     if (!is.na(cmd_obj$by_group_vars)) {
       group_vars_list = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
@@ -49,7 +50,7 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
     # If there are sort keys for by-processing, prepare the arrange call
     if (length(sort_vars_list) > 0) {
-      all_sort_vars = c(if(!is.null(group_vars_list)) group_vars_list else character(0), sort_vars_list)
+      all_sort_vars = c(if(length(group_vars_list)>0) group_vars_list else character(0), sort_vars_list)
       all_sort_vars_str = paste(all_sort_vars, collapse = ", ")
       arrange_call = paste0("dplyr::arrange(data, ", all_sort_vars_str, ")")
     }
@@ -73,13 +74,13 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
 
   # Add grouping and mutate steps
-  if (!is.null(group_vars_r_vec_str)) {
-      r_code_str = paste0(r_code_str, " %>%\n  collapse::fgroup_by(", group_vars_r_vec_str, ")")
-      r_code_str = paste0(r_code_str, " %>%\n  collapse::fmutate(", mutate_expr, ")")
-      r_code_str = paste0(r_code_str, " %>%\n  collapse::fungroup()")
+  if (!is.null(group_vars_r_vec_str) && length(group_vars_list) > 0) { # Added length(group_vars_list) > 0 check
+      r_code_str = paste0(r_code_str, " %>%\n  dplyr::group_by(dplyr::across(", group_vars_r_vec_str, "))") # Use dplyr::group_by with dplyr::across
+      r_code_str = paste0(r_code_str, " %>%\n  dplyr::mutate(", mutate_expr, ")")
+      r_code_str = paste0(r_code_str, " %>%\n  dplyr::ungroup()")
   } else {
       # If not grouped, just add the mutate step directly to the pipe chain
-      r_code_str = paste0(r_code_str, " %>%\n  collapse::fmutate(", mutate_expr, ")")
+      r_code_str = paste0(r_code_str, " %>%\n  dplyr::mutate(", mutate_expr, ")")
   }
   
   return(r_code_str)

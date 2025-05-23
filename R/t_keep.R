@@ -12,10 +12,8 @@ t_keep = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     # keep if condition
     stata_if_cond = stringi::stri_sub(rest_of_cmd_trimmed, from = 4)
     r_if_cond = translate_stata_expression_with_r_values(stata_if_cond, line_num, cmd_df, context)
-    # Using collapse for potential efficiency
-    r_code_str = paste0("data = collapse::fsubset(data, ", r_if_cond, ")")
-    # dplyr alternative:
-    # r_code_str = paste0("data = dplyr::filter(data, ", r_if_cond, ")")
+    # Using dplyr::filter
+    r_code_str = paste0("data = dplyr::filter(data, ", r_if_cond, ")")
   } else if (is_in_keep) {
     # keep in range
     range_str = stringi::stri_sub(rest_of_cmd_trimmed, from = 4)
@@ -28,10 +26,8 @@ t_keep = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       } else {
         slice_expr = paste0(start_row, ":", as.integer(end_row)) # Keep range
       }
-      # Using base R for slicing by index
-      r_code_str = paste0("data = data[", slice_expr, ",]")
-      # dplyr alternative:
-      # r_code_str = paste0("data = dplyr::slice(data, ", slice_expr, ")")
+      # Using dplyr::slice
+      r_code_str = paste0("data = dplyr::slice(data, ", slice_expr, ")")
     } else {
       r_code_str = paste0("# keep in range '", range_str, "' not fully translated (f/l specifiers).")
     }
@@ -43,18 +39,10 @@ t_keep = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     if (length(vars_to_keep) == 0) {
       return("# keep command with no variables specified.")
     }
-    # Using collapse::fselect
-    # fselect expects unquoted variable names or a character vector with .cols argument
-    vars_to_keep_r_str = paste0('c("', paste(vars_to_keep, collapse = '","'), '")')
-    r_code_str = paste0("data = collapse::fselect(data, .cols = ", vars_to_keep_r_str, ")")
-    # If using bare var names (less safe):
-    # select_vars_r_fselect_bare = paste0(vars_to_keep, collapse = ", ")
-    # r_code_str = paste0("data = collapse::fselect(data, ", select_vars_r_fselect_bare, ")")
-    # dplyr alternative:
-    # r_code_str = paste0("data = dplyr::select(data, dplyr::all_of(c('", paste(vars_to_keep, collapse="','"), "')))")
+    # Using dplyr::select
+    r_code_str = paste0("data = dplyr::select(data, dplyr::all_of(c('", paste(vars_to_keep, collapse="','"), "')))")
   }
 
   return(r_code_str)
 }
-
 

@@ -90,7 +90,7 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       r_subset_cond = translate_stata_expression_with_r_values(stata_if_in_cond, line_num, cmd_df, context = list(is_by_group = FALSE))
       if (is.na(r_subset_cond) || r_subset_cond == "") {
            return(paste0("# Failed to translate if/in condition for recode: ", stata_if_in_cond))
-      }
+       }
       # The actual recoding logic (case_when/ifelse) will incorporate this condition.
       # No need for a separate subset dataframe here.
   }
@@ -202,8 +202,8 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Combine mutate expressions
   mutate_exprs_str = paste(mutate_exprs, collapse = ",\n  ")
 
-  # Build the final R code using collapse::fmutate
-  r_code_str = paste0("data = collapse::fmutate(data, ", mutate_exprs_str, ")")
+  # Build the final R code using dplyr::mutate
+  r_code_str = paste0("data = dplyr::mutate(data, ", mutate_exprs_str, ")") # Changed to dplyr::mutate
 
   # Add comment about options if any were present but not handled (excluding gen)
    if (!is.na(options_str) && !grepl("\\bgen\\s*\\([^)]+\\)", options_str)) {

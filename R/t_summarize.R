@@ -42,35 +42,32 @@ t_summarize = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   if (!is.na(stata_if_cond_expr)) {
     r_subset_cond = translate_stata_expression_with_r_values(stata_if_cond_expr, cmd_obj$line, cmd_df, context = list(is_by_group = FALSE)) # Use cmd_obj$line
     data_subset_varname = paste0("data_subset_L", cmd_obj$line) # Use actual line from cmd_obj
-    r_code_lines = c(r_code_lines, paste0(data_subset_varname, " = base::subset(data, ", r_subset_cond, ")"))
+    r_code_lines = c(r_code_lines, paste0(data_subset_varname, " = dplyr::filter(data, ", r_subset_cond, ")")) # Changed to dplyr::filter
     data_source_for_summary = data_subset_varname
   }
 
-  # Use collapse functions for summaries
-  # Example: r(N) -> collapse::fnobs(data_source_for_summary[[first_var]])
-  # Example: r(mean) -> collapse::fmean(data_source_for_summary[[first_var]], na.rm = TRUE)
-
+  # Use base R / dplyr functions for summaries
   if (is_meanonly) {
     r_code_lines = c(
       r_code_lines,
-      paste0(line_prefix, "N = collapse::fnobs(", data_source_for_summary, "[['", first_var, "']])"),
-      paste0(line_prefix, "mean = collapse::fmean(", data_source_for_summary, "[['", first_var, "']], na.rm = TRUE)")
+      paste0(line_prefix, "N = NROW(", data_source_for_summary, ")"), # For meanonly, N is total rows
+      paste0(line_prefix, "mean = mean(", data_source_for_summary, "[['", first_var, "']], na.rm = TRUE)")
     )
   } else { # Default summarize or with other options (detail implies more)
     r_code_lines = c(
       r_code_lines,
-      paste0(line_prefix, "N = collapse::fnobs(", data_source_for_summary, "[['", first_var, "']])"),
-      paste0(line_prefix, "mean = collapse::fmean(", data_source_for_summary, "[['", first_var, "']], na.rm = TRUE)"),
-      paste0(line_prefix, "sd = collapse::fsd(", data_source_for_summary, "[['", first_var, "']], na.rm = TRUE)"),
-      paste0(line_prefix, "min = collapse::fmin(", data_source_for_summary, "[['", first_var, "']], na.rm = TRUE)"),
-      paste0(line_prefix, "max = collapse::fmax(", data_source_for_summary, "[['", first_var, "']], na.rm = TRUE)"),
-      paste0(line_prefix, "sum = collapse::fsum(", data_source_for_summary, "[['", first_var, "']], na.rm = TRUE)")
+      paste0(line_prefix, "N = NROW(", data_source_for_summary, ")"),
+      paste0(line_prefix, "mean = mean(", data_source_for_summary, "[['", first_var, "']], na.rm = TRUE)"),
+      paste0(line_prefix, "sd = sd(", data_source_for_summary, "[['", first_var, "']], na.rm = TRUE)"),
+      paste0(line_prefix, "min = min(", data_source_for_summary, "[['", first_var, "']], na.rm = TRUE)"),
+      paste0(line_prefix, "max = max(", data_source_for_summary, "[['", first_var, "']], na.rm = TRUE)"),
+      paste0(line_prefix, "sum = sum(", data_source_for_summary, "[['", first_var, "']], na.rm = TRUE)")
     )
     if (is_detail) {
       r_code_lines = c(
         r_code_lines,
-        paste0(line_prefix, "p50 = collapse::fmedian(", data_source_for_summary, "[['", first_var, "']], na.rm = TRUE)")
-        # Further percentiles: collapse::fquantile(..., probs = c(0.01, ...), na.rm = TRUE)
+        paste0(line_prefix, "p50 = median(", data_source_for_summary, "[['", first_var, "']], na.rm = TRUE)")
+        # Further percentiles: quantile(..., probs = c(0.01, ...), na.rm = TRUE)
         # Stata detail provides: p1, p5, p10, p25, p50, p75, p90, p95, p99
         # Smallest 4, largest 4 values, variance, skewness, kurtosis.
         # This would require more extensive mapping.

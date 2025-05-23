@@ -22,6 +22,7 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Determine arrange step if needed
   arrange_call = ""
   group_vars_r_vec_str = NULL
+  group_vars_list = character(0) # Initialize for use in all_sort_vars
 
   if (cmd_obj$is_by_prefix) {
     if (!is.na(cmd_obj$by_group_vars)) {
@@ -37,7 +38,7 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     }
 
     if (length(sort_vars_list) > 0) {
-      all_sort_vars = c(if(!is.null(group_vars_list)) group_vars_list else character(0), sort_vars_list)
+      all_sort_vars = c(if(length(group_vars_list)>0) group_vars_list else character(0), sort_vars_list)
       all_sort_vars_str = paste(all_sort_vars, collapse = ", ")
       arrange_call = paste0("dplyr::arrange(data, ", all_sort_vars_str, ")")
     }
@@ -59,12 +60,12 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       r_code_str = paste0(r_code_str, "data")
   }
 
-  if (!is.null(group_vars_r_vec_str)) {
-      r_code_str = paste0(r_code_str, " %>%\n  collapse::fgroup_by(", group_vars_r_vec_str, ")")
-      r_code_str = paste0(r_code_str, " %>%\n  collapse::fmutate(", mutate_expr, ")")
-      r_code_str = paste0(r_code_str, " %>%\n  collapse::fungroup()")
+  if (!is.null(group_vars_r_vec_str) && length(group_vars_list) > 0) { # Added length(group_vars_list) > 0 check
+      r_code_str = paste0(r_code_str, " %>%\n  dplyr::group_by(dplyr::across(", group_vars_r_vec_str, "))") # Use dplyr::group_by with dplyr::across
+      r_code_str = paste0(r_code_str, " %>%\n  dplyr::mutate(", mutate_expr, ")")
+      r_code_str = paste0(r_code_str, " %>%\n  dplyr::ungroup()")
   } else {
-      r_code_str = paste0(r_code_str, " %>%\n  collapse::fmutate(", mutate_expr, ")")
+      r_code_str = paste0(r_code_str, " %>%\n  dplyr::mutate(", mutate_expr, ")")
   }
 
   return(r_code_str)

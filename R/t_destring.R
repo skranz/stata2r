@@ -116,8 +116,8 @@ t_destring = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
    # Combine mutate expressions
   mutate_exprs_str = paste(mutate_exprs, collapse = ",\n  ")
 
-  # Build the final R code using collapse::fmutate
-  r_code_str = paste0("data = collapse::fmutate(data, ", mutate_exprs_str, ")")
+  # Build the final R code using dplyr::mutate
+  r_code_str = paste0("data = dplyr::mutate(data, ", mutate_exprs_str, ")") # Changed to dplyr::mutate
 
   # Add comment about options if any were present but not handled (excluding generate/replace)
    options_str_cleaned = options_str

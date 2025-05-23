@@ -22,7 +22,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   right_part = stringi::stri_trim_both(parts_eq[2])
 
   # Split right_part at the first comma (if any) to separate function/args/if from options
-  parts_comma = stringi::stri_split_fixed(right_part, ",", n=2)[[1]]
+  parts_comma = stringi::stri_stri_split_fixed(right_part, ",", n=2)[[1]]
   func_args_if_part = stringi::stri_trim_both(parts_comma[1])
   options_str = if(length(parts_comma) > 1) stringi::stri_trim_both(parts_comma[2]) else NA_character_
 
@@ -79,7 +79,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
             start_row = as.integer(range_match[1,2])
             end_row = range_match[1,3]
             # Use dplyr::row_number(), as stata_expression_translator will handle _n
-            row_number_r_expr = "dplyr::row_number()" # Changed from collapse::fseq()
+            row_number_r_expr = "dplyr::row_number()" # This will be translated based on context
 
             if (is.na(end_row)) {
                  r_in_range_cond_in_args = paste0(row_number_r_expr, " == ", start_row)
@@ -124,18 +124,20 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
 
 
-  # Determine the base grouping variables for fgroup_by (from by-prefix or by() option)
-  by_vars_for_fgroup_by = NULL
+  # Determine the base grouping variables for dplyr::group_by (from by-prefix or by() option)
+  by_vars_for_group_by = NULL
+  by_vars_list_unquoted = character(0) # Initialize for use in combined_grouping_vars
+
   if (cmd_obj$is_by_prefix && !is.na(cmd_obj$by_group_vars)) {
-    by_vars_list = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
-    by_vars_list = by_vars_list[by_vars_list != ""]
-    by_vars_for_fgroup_by = paste0('c("', paste0(by_vars_list, collapse='", "'), '")')
+    by_vars_list_unquoted = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
+    by_vars_list_unquoted = by_vars_list_unquoted[by_vars_list_unquoted != ""]
+    by_vars_for_group_by = paste0('c("', paste0(by_vars_list_unquoted, collapse='", "'), '")')
   } else if (!is.na(options_str)) {
     by_opt_match = stringi::stri_match_first_regex(options_str, "\\bby\\s*\\(([^)]+)\\)")
     if (!is.na(by_opt_match[1,1])) {
-      by_vars_list = stringi::stri_split_regex(stringi::stri_trim_both(by_opt_match[1,2]), "\\s+")[[1]]
-      by_vars_list = by_vars_list[by_vars_list != ""]
-      by_vars_for_fgroup_by = paste0('c("', paste0(by_vars_list, collapse='", "'), '")')
+      by_vars_list_unquoted = stringi::stri_split_regex(stringi::stri_trim_both(by_opt_match[1,2]), "\\s+")[[1]]
+      by_vars_list_unquoted = by_vars_list_unquoted[by_vars_list_unquoted != ""]
+      by_vars_for_group_by = paste0('c("', paste0(by_vars_list_unquoted, collapse='", "'), '")')
     }
   }
 
@@ -162,32 +164,28 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   } else if (egen_func_name == "sd" || egen_func_name == "std") {
     mutate_value_expr = paste0("sd(", r_egen_args_conditional, ", na.rm = TRUE)")
   } else if (egen_func_name == "group" || egen_func_name == "tag") {
-    # For 'group' and 'tag', the effective grouping for fgroup_by is the combination
+    # For 'group' and 'tag', the effective grouping for dplyr::group_by is the combination
     # of the 'by' prefix/option variables and the variables in the egen function arguments.
     egen_func_args_list = stringi::stri_split_regex(egen_args_str, "\\s+")[[1]]
     egen_func_args_list = egen_func_args_list[egen_func_args_list != ""]
 
-    current_by_vars_unquoted = if(!is.null(by_vars_for_fgroup_by)) {
-                                 # Extract from c("a", "b") format to a character vector
-                                 gsub('c\\(|"|\\)', '', by_vars_for_fgroup_by) %>% stringi::stri_split_fixed(', ')[[1]]
-                               } else character(0)
-
-    combined_grouping_vars = unique(c(current_by_vars_unquoted, egen_func_args_list))
+    combined_grouping_vars = unique(c(by_vars_list_unquoted, egen_func_args_list))
     combined_grouping_vars = combined_grouping_vars[combined_grouping_vars != ""]
 
     if (length(combined_grouping_vars) > 0) {
-      by_vars_for_fgroup_by = paste0('c("', paste0(combined_grouping_vars, collapse='", "'), '")')
+      by_vars_for_group_by = paste0('c("', paste0(combined_grouping_vars, collapse='", "'), '")')
     } else {
-      by_vars_for_fgroup_by = NULL # No grouping if no vars for group/tag
+      by_vars_for_group_by = NULL # No grouping if no vars for group/tag
     }
 
     if (egen_func_name == "group") {
-        # fgroup_rank without arguments uses the current grouping defined by fgroup_by
-        mutate_value_expr = paste0("collapse::fgroup_rank()")
+        # dplyr::cur_group_id() gives integer for each group.
+        mutate_value_expr = paste0("dplyr::cur_group_id()")
     } else if (egen_func_name == "tag") {
         # Stata `tag` flags the first obs in each group defined by `varlist` (and `by` prefix if any).
         # This is `_n==1` after sorting by all these variables.
-        mutate_value_expr = paste0("as.integer(dplyr::row_number() == 1)") # Changed from collapse::fseq()
+        # _n is translated by stata_expression_translator_to_r, which will use collapse::fseq() if grouped.
+        mutate_value_expr = paste0("as.integer(dplyr::row_number() == 1)") # This will be translated to fseq() if grouped.
     }
   } else if (egen_func_name == "rowtotal") {
     vars_for_rowop_list = stringi::stri_split_regex(r_egen_args, "\\s+")[[1]] # Use non-conditional args here
@@ -196,15 +194,15 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
     # Stata rowtotal treats NA as 0 *before* summing.
     # Using rowSums on a selection of columns after replacing NA with 0.
-    mutate_value_expr = paste0("rowSums(tidyr::replace_na(dplyr::select(., dplyr::all_of(", vars_for_rowop_r_vec_str, ")), 0), na.rm = FALSE)") # na.rm=FALSE because we replaced NA with 0
-    is_row_function = TRUE; by_vars_for_fgroup_by = NULL # Row functions don't use grouping in the same way
+    mutate_value_expr = paste0("rowSums(tidyr::replace_na(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(", vars_for_rowop_r_vec_str, ")), 0), na.rm = FALSE)") # na.rm=FALSE because we replaced NA with 0
+    is_row_function = TRUE; by_vars_for_group_by = NULL # Row functions don't use grouping in the same way
   } else if (egen_func_name == "rowmean") {
     vars_for_rowop_list = stringi::stri_split_regex(r_egen_args, "\\s+")[[1]] # Use non-conditional args here
     vars_for_rowop_list = vars_for_rowop_list[vars_for_rowop_list != ""]
     vars_for_rowop_r_vec_str = paste0('c("', paste(vars_for_rowop_list, collapse='", "'), '")')
 
-    mutate_value_expr = paste0("rowMeans(dplyr::select(., dplyr::all_of(", vars_for_rowop_r_vec_str, ")), na.rm = TRUE)")
-    is_row_function = TRUE; by_vars_for_fgroup_by = NULL
+    mutate_value_expr = paste0("rowMeans(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(", vars_for_rowop_r_vec_str, ")), na.rm = TRUE)")
+    is_row_function = TRUE; by_vars_for_group_by = NULL
   } else {
     return(paste0("# Egen function '", egen_func_name, "' not yet implemented."))
   }
@@ -212,13 +210,17 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Combine into a mutate statement
   full_mutate_expr = paste0(new_var, " = ", mutate_value_expr)
 
-  # Build the R command string using collapse functions
-  if (!is.null(by_vars_for_fgroup_by) && !is_row_function) {
-    r_code_str = paste0("data = collapse::fgroup_by(data, ", by_vars_for_fgroup_by, ") %>%\n",
-                        "  collapse::fmutate(", full_mutate_expr, ") %>%\n",
-                        "  collapse::fungroup()")
+  # Build the R command string using pipes
+  r_code_str = "data = "
+
+  if (!is.null(by_vars_for_group_by) && length(by_vars_list_unquoted) > 0 && !is_row_function) {
+    r_code_str = paste0(r_code_str, "data %>%\n",
+                        "  dplyr::group_by(dplyr::across(", by_vars_for_group_by, ")) %>%\n",
+                        "  dplyr::mutate(", full_mutate_expr, ") %>%\n",
+                        "  dplyr::ungroup()")
   } else {
-    r_code_str = paste0("data = collapse::fmutate(data, ", full_mutate_expr, ")")
+    r_code_str = paste0(r_code_str, "data %>%\n",
+                        "  dplyr::mutate(", full_mutate_expr, ")")
   }
 
    # Add comment about options if any were present but not handled (excluding by)

@@ -24,9 +24,7 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
 
   # Parse aggregate definitions: "(stat) var [= newvar] (stat) var [= newvar] ..."
-  # Regex: \(stat_word\)\s+(target_var_word)(?:\s*=\s*(source_var_word))?  -- This is for form (stat) target = source
-  # OR    \(stat_word\)\s+(source_and_target_var_word)                     -- This is for form (stat) source
-  # The current regex is: \\(([a-zA-Z_]+)\\)\\s+([a-zA-Z0-9_]+)(?:\\s*=\s*([a-zA-Z0-9_]+))?
+  # Regex: \\(([a-zA-Z_]+)\\)\\s+([a-zA-Z0-9_]+)(?:\\s*=\\s*([a-zA-Z0-9_]+))?
   # G1: stat (stat_from_regex)
   # G2: varname1 (g2_val_from_regex)
   # G3: varname2 (g3_val_from_regex) - optional
@@ -49,11 +47,14 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     }
   }
 
-  by_vars_r_vec_str = NULL # For collapse group_by: character vector c("var1", "var2")
+  by_vars_r_vec_str = NULL # For dplyr group_by: character vector c("var1", "var2")
+  by_vars_list_unquoted = character(0) # For checking length
   if (!is.na(by_vars_collapse)) {
-    by_vars_list = stringi::stri_split_regex(by_vars_collapse, "\\s+")[[1]]
-    by_vars_list = by_vars_list[by_vars_list != ""]
-    by_vars_r_vec_str = paste0('c("', paste0(by_vars_list, collapse='", "'), '")')
+    by_vars_list_unquoted = stringi::stri_split_regex(by_vars_collapse, "\\s+")[[1]]
+    by_vars_list_unquoted = by_vars_list_unquoted[by_vars_list_unquoted != ""]
+    if (length(by_vars_list_unquoted) > 0) {
+        by_vars_r_vec_str = paste0('c("', paste0(by_vars_list_unquoted, collapse='", "'), '")')
+    }
   }
 
   # Translate the if/in condition for subsetting *before* collapse
@@ -67,12 +68,12 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
            return(paste0("# Failed to translate if/in condition for collapse: ", stata_if_in_cond))
       }
       data_subset_varname = paste0("data_subset_L", cmd_obj$line)
-      r_code_prefix = paste0(data_subset_varname, " = base::subset(data, ", r_subset_cond, ")\n")
+      r_code_prefix = paste0(data_subset_varname, " = dplyr::filter(data, ", r_subset_cond, ")\n") # Changed to dplyr::filter
       data_source_for_collapse = data_subset_varname
   }
 
 
-  # Build the summarise/aggregate expressions for collapse::fsummarise
+  # Build the summarise/aggregate expressions for dplyr::summarise
   aggregate_exprs = character(NROW(aggregate_matches))
   for (j in 1:NROW(aggregate_matches)) {
     stat_from_regex = aggregate_matches[j, 2]
@@ -96,36 +97,36 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
          return(paste0("# Failed to translate source variable '", actual_stata_source_var_name, "' for collapse stat '", stat_from_regex, "'"))
      }
 
-    # Map Stata stats to collapse functions
-    collapse_func = switch(stat_from_regex,
-      "mean" = paste0("collapse::fmean(", r_source_var, ", na.rm = TRUE)"),
-      "sum" = paste0("collapse::fsum(", r_source_var, ", na.rm = TRUE)"),
-      "count" = paste0("collapse::fnobs(", r_source_var, ")"),
-      "N" = paste0("collapse::fnobs(", r_source_var, ")"),
-      "first" = paste0("collapse::ffirst(", r_source_var, ")"),
-      "last" = paste0("collapse::flast(", r_source_var, ")"),
-      "min" = paste0("collapse::fmin(", r_source_var, ", na.rm = TRUE)"),
-      "max" = paste0("collapse::fmax(", r_source_var, ", na.rm = TRUE)"),
-      "median" = paste0("collapse::fmedian(", r_source_var, ", na.rm = TRUE)"),
-      "sd" = paste0("collapse::fsd(", r_source_var, ", na.rm = TRUE)"),
-      "p1" = paste0("collapse::fquantile(", r_source_var, ", probs = 0.01, na.rm = TRUE)"),
-      "p5" = paste0("collapse::fquantile(", r_source_var, ", probs = 0.05, na.rm = TRUE)"),
-      "p10" = paste0("collapse::fquantile(", r_source_var, ", probs = 0.10, na.rm = TRUE)"),
-      "p25" = paste0("collapse::fquantile(", r_source_var, ", probs = 0.25, na.rm = TRUE)"),
-      "p75" = paste0("collapse::fquantile(", r_source_var, ", probs = 0.75, na.rm = TRUE)"),
-      "p90" = paste0("collapse::fquantile(", r_source_var, ", probs = 0.90, na.rm = TRUE)"),
-      "p95" = paste0("collapse::fquantile(", r_source_var, ", probs = 0.95, na.rm = TRUE)"),
-      "p99" = paste0("collapse::fquantile(", r_source_var, ", probs = 0.99, na.rm = TRUE)"),
+    # Map Stata stats to dplyr functions (or base R)
+    dplyr_func = switch(stat_from_regex,
+      "mean" = paste0("mean(", r_source_var, ", na.rm = TRUE)"),
+      "sum" = paste0("sum(", r_source_var, ", na.rm = TRUE)"),
+      "count" = paste0("sum(!is.na(", r_source_var, "))"), # Stata count for non-missing values
+      "N" = paste0("dplyr::n()"), # N is number of observations in group
+      "first" = paste0("dplyr::first(", r_source_var, ")"),
+      "last" = paste0("dplyr::last(", r_source_var, ")"),
+      "min" = paste0("min(", r_source_var, ", na.rm = TRUE)"),
+      "max" = paste0("max(", r_source_var, ", na.rm = TRUE)"),
+      "median" = paste0("median(", r_source_var, ", na.rm = TRUE)"),
+      "sd" = paste0("sd(", r_source_var, ", na.rm = TRUE)"),
+      "p1" = paste0("quantile(", r_source_var, ", probs = 0.01, na.rm = TRUE)"),
+      "p5" = paste0("quantile(", r_source_var, ", probs = 0.05, na.rm = TRUE)"),
+      "p10" = paste0("quantile(", r_source_var, ", probs = 0.10, na.rm = TRUE)"),
+      "p25" = paste0("quantile(", r_source_var, ", probs = 0.25, na.rm = TRUE)"),
+      "p75" = paste0("quantile(", r_source_var, ", probs = 0.75, na.rm = TRUE)"),
+      "p90" = paste0("quantile(", r_source_var, ", probs = 0.90, na.rm = TRUE)"),
+      "p95" = paste0("quantile(", r_source_var, ", probs = 0.95, na.rm = TRUE)"),
+      "p99" = paste0("quantile(", r_source_var, ", probs = 0.99, na.rm = TRUE)"),
       NULL
     )
 
-    if (is.null(collapse_func)) {
+    if (is.null(dplyr_func)) {
         return(paste0("# Collapse stat '", stat_from_regex, "' not yet implemented."))
     }
 
     # The new variable name for R code is the actual_stata_target_var_name
     r_new_var_name = actual_stata_target_var_name
-    aggregate_exprs[j] = paste0(r_new_var_name, " = ", collapse_func)
+    aggregate_exprs[j] = paste0(r_new_var_name, " = ", dplyr_func)
   }
 
   # Combine aggregate expressions
@@ -134,15 +135,18 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Build the final R code
   r_code_str = r_code_prefix # Add subsetting code if any
 
-  if (!is.null(by_vars_r_vec_str)) {
+  if (!is.null(by_vars_r_vec_str) && length(by_vars_list_unquoted) > 0) {
     r_code_str = paste0(r_code_str,
-                       "data = collapse::fgroup_by(", data_source_for_collapse, ", ", by_vars_r_vec_str, ") %>%\n",
-                       "  collapse::fsummarise(", aggregate_exprs_str, ") %>%\n",
-                       "  collapse::fungroup()")
+                       data_source_for_collapse, " %>%\n",
+                       "  dplyr::group_by(dplyr::across(", by_vars_r_vec_str, ")) %>%\n", # Changed to dplyr
+                       "  dplyr::summarise(", aggregate_exprs_str, ") %>%\n",           # Changed to dplyr
+                       "  dplyr::ungroup()")                                             # Changed to dplyr
   } else {
      r_code_str = paste0(r_code_str,
-                       "data = collapse::fsummarise(", data_source_for_collapse, ", ", aggregate_exprs_str, ")")
+                       data_source_for_collapse, " %>%\n",
+                       "  dplyr::summarise(", aggregate_exprs_str, ")")                   # Changed to dplyr
   }
+  r_code_str = paste0("data = ", r_code_str) # Assign result back to 'data'
 
   return(r_code_str)
 }

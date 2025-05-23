@@ -71,8 +71,8 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
    r_code_lines = c(
       # Generate the new variable initialized to NA (Stata missing)
-      # Using collapse::fmutate
-      paste0("data = collapse::fmutate(data, ", gen_var, " = NA_integer_)"),
+      # Using dplyr::mutate
+      paste0("data = dplyr::mutate(data, ", gen_var, " = NA_integer_)"), # Changed to dplyr::mutate
       # Apply encode logic only to rows meeting the condition (or all rows if no condition)
       # Need to select relevant rows and the variable, calculate encoded values, then replace.
 
@@ -88,13 +88,13 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
        r_code_lines = c(r_code_lines,
            paste0("## Calculate condition flag"),
            paste0("__satisfies_cond_L", cmd_obj$line, " = ", r_if_in_cond),
-           paste0("data = collapse::fmutate(data, ", gen_var, " = dplyr::if_else(__satisfies_cond_L", cmd_obj$line, ", __encoded_values_L", cmd_obj$line, ", ", gen_var, "))"),
+           paste0("data = dplyr::mutate(data, ", gen_var, " = dplyr::if_else(__satisfies_cond_L", cmd_obj$line, ", __encoded_values_L", cmd_obj$line, ", ", gen_var, "))"), # Changed to dplyr::mutate
            paste0("rm(__satisfies_cond_L", cmd_obj$line, ")")
        )
   } else {
       # Replace values in gen_var for all rows
       r_code_lines = c(r_code_lines,
-           paste0("data = collapse::fmutate(data, ", gen_var, " = __encoded_values_L", cmd_obj$line, ")")
+           paste0("data = dplyr::mutate(data, ", gen_var, " = __encoded_values_L", cmd_obj$line, ")") # Changed to dplyr::mutate
       )
   }
 
