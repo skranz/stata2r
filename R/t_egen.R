@@ -231,6 +231,9 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     return(paste0("# Egen function '", egen_func_name, "' not yet implemented."))
   }
 
+  # Apply attribute stripping
+  mutate_value_expr = paste0("sfun_strip_stata_attributes(", mutate_value_expr, ")")
+
   # Combine into a mutate statement
   full_mutate_expr = paste0(new_var, " = ", mutate_value_expr)
 

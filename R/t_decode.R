@@ -78,7 +78,7 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Need to handle potential errors if the source variable isn't labelled correctly.
    r_code_lines = c(r_code_lines,
       paste0("## Decode values using haven::as_factor"),
-      paste0("__decoded_values_L", cmd_obj$line, " = as.character(haven::as_factor(data$", varname_str, ", levels = 'labels'))") # 'labels' uses value labels
+      paste0("__decoded_values_L", cmd_obj$line, " = sfun_strip_stata_attributes(as.character(haven::as_factor(data$", varname_str, ", levels = 'labels')))") # 'labels' uses value labels
    )
 
   # Apply the if/in condition for replacement
@@ -88,13 +88,13 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
            paste0("## Calculate condition flag"),
            paste0("__satisfies_cond_L", cmd_obj$line, " = ", r_if_in_cond),
            # Need to be careful with types in if_else. If gen_var is character, __decoded_values_L must be character.
-           paste0("data = dplyr::mutate(data, ", gen_var, " = dplyr::if_else(__satisfies_cond_L", cmd_obj$line, ", __decoded_values_L", cmd_obj$line, ", ", gen_var, "))"), # Changed to dplyr::mutate
+           paste0("data = dplyr::mutate(data, ", gen_var, " = sfun_strip_stata_attributes(dplyr::if_else(__satisfies_cond_L", cmd_obj$line, ", __decoded_values_L", cmd_obj$line, ", ", gen_var, ")))"), # Changed to dplyr::mutate
            paste0("rm(__satisfies_cond_L", cmd_obj$line, ")")
        )
   } else {
       # Replace values in gen_var for all rows
       r_code_lines = c(r_code_lines,
-           paste0("data = dplyr::mutate(data, ", gen_var, " = __decoded_values_L", cmd_obj$line, ")") # Changed to dplyr::mutate
+           paste0("data = dplyr::mutate(data, ", gen_var, " = sfun_strip_stata_attributes(__decoded_values_L", cmd_obj$line, "))") # Changed to dplyr::mutate
       )
   }
 

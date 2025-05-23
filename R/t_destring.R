@@ -111,7 +111,7 @@ t_destring = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
            final_value_expr = destrung_value_expr
       }
 
-      mutate_exprs[k] = paste0(new_var, " = ", final_value_expr)
+      mutate_exprs[k] = paste0(new_var, " = sfun_strip_stata_attributes(", final_value_expr, ")")
   }
 
    # Combine mutate expressions

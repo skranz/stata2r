@@ -48,9 +48,9 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
 
   if (!is.na(r_if_cond) && r_if_cond != "") {
-    mutate_expr = paste0(var_to_replace, " = dplyr::if_else(", r_if_cond, ", ", r_expr, ", ", var_to_replace, ")")
+    mutate_expr = paste0(var_to_replace, " = sfun_strip_stata_attributes(dplyr::if_else(", r_if_cond, ", ", r_expr, ", ", var_to_replace, "))")
   } else {
-    mutate_expr = paste0(var_to_replace, " = ", r_expr)
+    mutate_expr = paste0(var_to_replace, " = sfun_strip_stata_attributes(", r_expr, ")")
   }
 
   # Build the R code string using pipes
