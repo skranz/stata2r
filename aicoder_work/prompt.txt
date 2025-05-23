@@ -561,6 +561,41 @@ sfun_strpos = function(haystack, needle) {
 
 -----------------------------------------------------------
 
+### FILE: sfun_subinstr.R
+```
+# Custom R implementation for Stata's subinstr() behavior
+# Stata: subinstr(s1, s2, s3, n) replaces n occurrences of s2 with s3 in s1.
+# If n is 0 or negative, or if n is ., all occurrences are replaced.
+# If s2 is "", s1 is returned.
+
+sfun_subinstr = function(s1, s2, s3, n) {
+  # Handle s2 being empty string
+  if (is.character(s2) && s2 == "") {
+    return(s1)
+  }
+
+  # Stata's `.` for `n` is NA in R. Non-positive `n` also means all.
+  if (is.na(n) || n <= 0) {
+    # Replace all occurrences
+    return(stringi::stri_replace_all_fixed(s1, s2, s3))
+  } else if (n == 1) {
+    # Replace first occurrence
+    return(stringi::stri_replace_first_fixed(s1, s2, s3))
+  } else {
+    # For n > 1 and finite, Stata replaces only n times.
+    # stringi::stri_replace_all_fixed doesn't have a 'limit' argument.
+    # This is a known limitation for perfect emulation for n > 1 and finite.
+    # For now, if n > 1 and finite, we will replace all.
+    warning("sfun_subinstr: Stata's subinstr with finite n > 1 is not perfectly emulated. All occurrences will be replaced.")
+    return(stringi::stri_replace_all_fixed(s1, s2, s3))
+  }
+}
+
+```
+### END OF FILE: sfun_subinstr.R
+
+-----------------------------------------------------------
+
 ### FILE: stata_cmd_utils.R
 ```
 # Stata command utilities
@@ -820,7 +855,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   # Regex: (\w+)\[_n\s*\+\s*(\d+)\] -> dplyr::lead($1, $2)
   # Regex: (\w+)\[_n\]             -> $1 (or $1[dplyr::row_number()] if explicit indexing needed, but usually direct var access means current row)
   r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*-\\s*(\\d+)\\]", "dplyr::lag($1, $2)")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*\\+\s*(\\d+)\\]", "dplyr::lead($1, $2)")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*\\+\\s*(\\d+)\\]", "dplyr::lead($1, $2)")
   # Direct _n indexing like x[_n] is just x in R vector context.
   r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\]", "$1")
 
@@ -848,18 +883,8 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsubstr\\(([^,]+),([^,]+),([^)]+)\\)", "stringi::stri_sub($1, from = $2, length = $3)")
 
   # subinstr(s1,s2,s3,n): Stata's n=. means all occurrences. n=k means k-th.
-  # For simplicity, current version translates to replace first fixed for specific n (assumed 1).
-  # stringi::stri_replace_first_fixed for n=1. stringi::stri_replace_all_fixed for n="." (all).
-  # This needs more robust parsing of the 4th argument of subinstr.
-  # Simplified: Assume if 4th arg is present and numeric 1, use first_fixed. If '.', use all_fixed.
-  # Current regex only matches 3 args for subinstr, effectively making it replace first.
-  # This pattern implies subinstr(s1, s2, s3) which means replace all occurrences of s2 with s3 in s1, return s1 if s2 is empty
-  # Stata: subinstr(s1, s2, s3, n) - n is number of substitutions. n=. is all.
-  # A common case subinstr(s, "old", "new", 1) -> stringi::stri_replace_first_fixed(s, "old", "new")
-  # A common case subinstr(s, "old", "new", .) -> stringi::stri_replace_all_fixed(s, "old", "new")
-  # The regex `\\bsubinstr\\(([^,]+),([^,]+),([^,]+),([^)]+)\\)` extracts 4 args. $4 is n.
-  # For now, keep it simple, only first occurrence:
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsubinstr\\(([^,]+),([^,]+),([^,]+),([^)]+)\\)", "stringi::stri_replace_first_fixed($1, $2, $3)") # Simplified: assumes count is 1, ignores $4
+  # Using sfun_subinstr (requires sfun_subinstr.R to be sourced/available)
+  r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsubinstr\\(([^,]+),([^,]+),([^,]+),([^)]+)\\)", "sfun_subinstr($1, $2, $3, $4)")
 
   # strpos(s1,s2) returns 0 if not found. Using sfun_strpos.
   r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrpos\\(([^,]+),([^)]+)\\)", "sfun_strpos($1, $2)")
@@ -977,9 +1002,6 @@ translate_stata_expression_with_r_values = function(stata_expr, current_line_ind
 
   translate_stata_expression_to_r(stata_expr, context, final_r_value_mappings)
 }
-
-
-
 
 ```
 ### END OF FILE: stata_expression_translator.R
@@ -1898,22 +1920,19 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
 
 
-  # Determine by_vars: either from `cmd_obj$by_vars` (if `bysort group: egen...`) or from `options_str` (if `egen ..., by(group)`)
-  by_vars_egen = NA_character_
-  if (cmd_obj$is_by_prefix && !is.na(cmd_obj$by_vars)) {
-    by_vars_egen = cmd_obj$by_vars
+  # Determine the base grouping variables for fgroup_by (from by-prefix or by() option)
+  by_vars_for_fgroup_by = NULL
+  if (cmd_obj$is_by_prefix && !is.na(cmd_obj$by_group_vars)) {
+    by_vars_list = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
+    by_vars_list = by_vars_list[by_vars_list != ""]
+    by_vars_for_fgroup_by = paste0('c("', paste0(by_vars_list, collapse='", "'), '")')
   } else if (!is.na(options_str)) {
     by_opt_match = stringi::stri_match_first_regex(options_str, "\\bby\\s*\\(([^)]+)\\)")
     if (!is.na(by_opt_match[1,1])) {
-      by_vars_egen = stringi::stri_trim_both(by_opt_match[1,2])
+      by_vars_list = stringi::stri_split_regex(stringi::stri_trim_both(by_opt_match[1,2]), "\\s+")[[1]]
+      by_vars_list = by_vars_list[by_vars_list != ""]
+      by_vars_for_fgroup_by = paste0('c("', paste0(by_vars_list, collapse='", "'), '")')
     }
-  }
-
-  by_vars_r_vec_str = NULL # For collapse group_by: c("var1", "var2")
-  if (!is.na(by_vars_egen)) {
-    by_vars_list = stringi::stri_split_regex(by_vars_egen, "\\s+")[[1]]
-    by_vars_list = by_vars_list[by_vars_list != ""]
-    by_vars_r_vec_str = paste0('c("', paste0(by_vars_list, collapse='", "'), '")')
   }
 
   # Translate egen function
@@ -1938,74 +1957,34 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     mutate_value_expr = paste0("median(", r_egen_args_conditional, ", na.rm = TRUE)")
   } else if (egen_func_name == "sd" || egen_func_name == "std") {
     mutate_value_expr = paste0("sd(", r_egen_args_conditional, ", na.rm = TRUE)")
-  } else if (egen_func_name == "group") {
-    # egen id = group(var1 var2) -> var1 and var2 are in egen_args_str, space separated.
-    # If by_vars_egen is present, Stata `by group: egen id = group(a b)` implies grouping by group, then within groups by a and b for the ID.
-    # Stata: group(varlist) assigns unique group codes based on varlist values *within* the by group.
-    # Equivalent to sorting by by_vars then varlist, then using a cumulative counter or rank.
-    # If by_vars_egen is present, the actual grouping for the ID is by_vars_egen + egen_args_str.
-    # If by_vars_egen is NOT present, grouping is only by egen_args_str.
-    # The sorting requirement for `tag` also applies to `group`.
-    # Let's use collapse::fgroup_rank which works on a vector of columns within a group.
-    # The columns to group by for fgroup_rank are the arguments in egen_args_str.
-    # We need to pass these as quoted variable names or expressions.
-    group_vars_for_func_list = stringi::stri_split_regex(r_egen_args, "\\s+")[[1]] # Use r_egen_args (translated)
-    group_vars_for_func_list = group_vars_for_func_list[group_vars_for_func_list != ""]
-    group_vars_r_vec_str_for_func = paste0('c("', paste(group_vars_for_func_list, collapse='", "'), '")') # Needs to be quoted vector for select/ftag/fgroup_rank
+  } else if (egen_func_name == "group" || egen_func_name == "tag") {
+    # For 'group' and 'tag', the effective grouping for fgroup_by is the combination
+    # of the 'by' prefix/option variables and the variables in the egen function arguments.
+    egen_func_args_list = stringi::stri_split_regex(egen_args_str, "\\s+")[[1]]
+    egen_func_args_list = egen_func_args_list[egen_func_args_list != ""]
 
-    # The `fgroup_rank` function should be applied within the grouping defined by `by_vars_egen`.
-    # mutate_value_expr = paste0("collapse::fgroup_rank(dplyr::select(., dplyr::all_of(", group_vars_r_vec_str_for_func, ")))")
-    # Using `dplyr::row_number()` within a grouped mutate is simpler and common.
-    # Stata `egen id = group(v)` is like `bysort v: gen id = _n`. But it also handles value labels and sorts levels.
-    # A simple integer sequence per group is `1:.N` or `dplyr::row_number()`.
-    # `fgroup_rank` provides the overall group rank across observations, not row number within group.
-    # `dplyr::group_indices` is also for overall group rank.
-    # `Stata egen group` is closer to a unique identifier for each combination of `varlist` values *within* the `by` group.
-    # `by A: egen id = group(B)` means id is unique for each combination of A and B.
-    # R: `data %>% group_by(A) %>% mutate(id = group_indices(.)) %>% ungroup()` or `dplyr::group_indices(., A, B)`.
-    # The `group()` arguments in Stata should be added to the `by_vars_egen` for R grouping purposes.
-    # Let's combine by_vars_egen and egen_args_str for grouping in R.
-    all_group_vars_list = c(stringi::stri_split_regex(by_vars_egen, "\\s+")[[1]], group_vars_for_func_list)
-    all_group_vars_list = all_group_vars_list[!is.na(all_group_vars_list) & all_group_vars_list != ""]
-    all_group_vars_r_vec_str = paste0('c("', paste(all_group_vars_list, collapse='", "'), '")')
+    current_by_vars_unquoted = if(!is.null(by_vars_for_fgroup_by)) {
+                                 # Extract from c("a", "b") format to a character vector
+                                 gsub('c\\(|"|\\)', '', by_vars_for_fgroup_by) %>% stringi::stri_split_fixed(', ')[[1]]
+                               } else character(0)
 
-    # Use collapse::fgroup_rank on the combined grouping variables
-    mutate_value_expr = paste0("collapse::fgroup_rank(dplyr::select(., dplyr::all_of(", all_group_vars_r_vec_str, ")))")
-    by_vars_r_vec_str = NULL # The grouping for this function is handled by the argument itself, not the by_vars_egen prefix in the typical summarize sense.
+    combined_grouping_vars = unique(c(current_by_vars_unquoted, egen_func_args_list))
+    combined_grouping_vars = combined_grouping_vars[combined_grouping_vars != ""]
 
-  } else if (egen_func_name == "tag") {
-      # egen t = tag(v1 v2) implies sorting by v1 v2 first, then tagging first obs in each group defined by v1 v2.
-      # If `by group: egen t = tag(v1 v2)`, it's within `group`, then by `v1 v2`.
-      # This is complex and depends on whether the bysort prefix or the tag arguments define the "group".
-      # Stata manual: `tag(varlist)` marks the first observation in each group defined by `varlist` *within* the current `by` group (if any).
-      # So if by_vars_egen is present, the tag is within that group. If not, it's based on the tag arguments.
-      # collapse::ftag(v) flags the first observation of each group based on values of v.
-      # For `tag(v1 v2)`, it's `collapse::ftag(v1, v2)`.
-      tag_vars_list = stringi::stri_split_regex(r_egen_args_conditional, "\\s+")[[1]] # Use conditional args? No, tag is based on original values. Use r_egen_args.
-      tag_vars_list = stringi::stri_split_regex(r_egen_args, "\\s+")[[1]]
-      tag_vars_list = tag_vars_list[tag_vars_list != ""]
-      tag_vars_r_vec_str = paste0('c("', paste(tag_vars_list, collapse='", "'), '")')
+    if (length(combined_grouping_vars) > 0) {
+      by_vars_for_fgroup_by = paste0('c("', paste0(combined_grouping_vars, collapse='", "'), '")')
+    } else {
+      by_vars_for_fgroup_by = NULL # No grouping if no vars for group/tag
+    }
 
-      if (!is.null(by_vars_r_vec_str)) {
-           # If there's a by group, tag is within that group.
-           # Stata `by A: egen t = tag(B C)` is equivalent to `bysort A B C: gen byte t = _n==1`.
-           # We need to ensure the correct sort order *before* calculating the first observation flag.
-           # The code should sort by by_vars_egen THEN tag_vars_list before calculating the flag.
-           # Sorting logic should ideally be a separate step if not guaranteed by `bysort` prefix.
-           # If `bysort` prefix is used, data is already sorted. If `by()` option is used, Stata implies sort.
-           # Let's assume the sorting is handled and use the row number within the group.
-           # `.i == 1` in collapse within fmutate and fgroup_by gives the first observation *within* the group defined by fgroup_by.
-           mutate_value_expr = paste0("as.integer(.i == 1)") # Using collapse group index, converted to integer (Stata byte 0/1)
-
-      } else {
-           # No by group. Tag is based on the tag_vars only.
-           # Equivalent to `bysort tag_vars: gen byte t = _n==1`.
-           # Use collapse::ftag which works on selecting columns.
-           mutate_value_expr = paste0("as.integer(collapse::ftag(dplyr::select(., dplyr::all_of(", tag_vars_r_vec_str, "))))")
-           by_vars_r_vec_str = NULL # Tag without BY is not a grouped operation in the same sense for the R code structure.
-      }
-
-
+    if (egen_func_name == "group") {
+        # fgroup_rank without arguments uses the current grouping defined by fgroup_by
+        mutate_value_expr = paste0("collapse::fgroup_rank()")
+    } else if (egen_func_name == "tag") {
+        # Stata `tag` flags the first obs in each group defined by `varlist` (and `by` prefix if any).
+        # This is `_n==1` after sorting by all these variables.
+        mutate_value_expr = paste0("as.integer(.i == 1)")
+    }
   } else if (egen_func_name == "rowtotal") {
     vars_for_rowop_list = stringi::stri_split_regex(r_egen_args, "\\s+")[[1]] # Use non-conditional args here
     vars_for_rowop_list = vars_for_rowop_list[vars_for_rowop_list != ""]
@@ -2013,16 +1992,15 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
     # Stata rowtotal treats NA as 0 *before* summing.
     # Using rowSums on a selection of columns after replacing NA with 0.
-    # `rowSums(tidyr::replace_na(dplyr::select(., dplyr::all_of(", vars_for_rowop_r_vec_str, ")), 0))`
     mutate_value_expr = paste0("rowSums(tidyr::replace_na(dplyr::select(., dplyr::all_of(", vars_for_rowop_r_vec_str, ")), 0), na.rm = FALSE)") # na.rm=FALSE because we replaced NA with 0
-    is_row_function = TRUE; by_vars_r_vec_str = NULL # Row functions don't use grouping in the same way
+    is_row_function = TRUE; by_vars_for_fgroup_by = NULL # Row functions don't use grouping in the same way
   } else if (egen_func_name == "rowmean") {
     vars_for_rowop_list = stringi::stri_split_regex(r_egen_args, "\\s+")[[1]] # Use non-conditional args here
     vars_for_rowop_list = vars_for_rowop_list[vars_for_rowop_list != ""]
     vars_for_rowop_r_vec_str = paste0('c("', paste(vars_for_rowop_list, collapse='", "'), '")')
 
     mutate_value_expr = paste0("rowMeans(dplyr::select(., dplyr::all_of(", vars_for_rowop_r_vec_str, ")), na.rm = TRUE)")
-    is_row_function = TRUE; by_vars_r_vec_str = NULL
+    is_row_function = TRUE; by_vars_for_fgroup_by = NULL
   } else {
     return(paste0("# Egen function '", egen_func_name, "' not yet implemented."))
   }
@@ -2031,8 +2009,8 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   full_mutate_expr = paste0(new_var, " = ", mutate_value_expr)
 
   # Build the R command string using collapse functions
-  if (!is.null(by_vars_r_vec_str) && !is_row_function) {
-    r_code_str = paste0("data = collapse::fgroup_by(data, ", by_vars_r_vec_str, ") %>%\n",
+  if (!is.null(by_vars_for_fgroup_by) && !is_row_function) {
+    r_code_str = paste0("data = collapse::fgroup_by(data, ", by_vars_for_fgroup_by, ") %>%\n",
                         "  collapse::fmutate(", full_mutate_expr, ") %>%\n",
                         "  collapse::fungroup()")
   } else {
@@ -2054,7 +2032,6 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
-
 
 ```
 ### END OF FILE: t_egen.R
@@ -2550,55 +2527,11 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
 
   # Determine merge type for collapse::fmerge
-  # collapse::fmerge(x, y, by, all.x=TRUE/FALSE, all.y=TRUE/FALSE)
-  # 1:1: all.x=TRUE, all.y=TRUE (corresponds to R full_join, Stata keep(match master using), or keep(all))
-  #      Stata 1:1 requires varlist to uniquely identify observations in *both* datasets.
-  #      R merge/join doesn't enforce this uniqueness by default.
-  # 1:m: all.x=TRUE, all.y=FALSE (corresponds to R left_join, Stata keep(match master))
-  # m:1: all.x=FALSE, all.y=TRUE (corresponds to R right_join, Stata keep(match using))
-  # m:m: all.x=TRUE, all.y=TRUE (corresponds to R full_join, Stata keep(match master using))
-
-  all_x = TRUE # Corresponds to keeping all from master
-  all_y = TRUE # Corresponds to keeping all from using
-  merge_comment = paste0("# Stata merge type: ", merge_type)
-
-  if (merge_type == "1:1") {
-       # Stata 1:1 keeps matched observations by default, unmatched dropped unless options used.
-       # R full_join keeps all. To match Stata's default (matched only), need inner_join.
-       # Stata `merge 1:1` usually implies `keep(match)`. `keep(all)` adds unmatched.
-       # Let's aim for inner_join as the most common default equivalent if no `keep` option.
-       # If `keep(all)` is specified, use `all.x=TRUE, all.y=TRUE`.
-       # If `keep(master)` use `all.x=TRUE, all.y=FALSE`.
-       # If `keep(using)` use `all.x=FALSE, all.y=TRUE`.
-       # If `keep(match master)` use `all.x=TRUE, all.y=FALSE`.
-       # If `keep(match using)` use `all.x=FALSE, all.y=TRUE`.
-       # If `keep(match)` use `all.x=FALSE, all.y=FALSE`.
-
-       # Default R join types:
-       # inner_join: match only (all.x=F, all.y=F)
-       # left_join: match + master unmatched (all.x=T, all.y=F)
-       # right_join: match + using unmatched (all.x=F, all.y=T)
-       # full_join: match + master unmatched + using unmatched (all.x=T, all.y=T)
-
-       # Stata default for all merge types is to drop observations that do not match in both.
-       # So R inner_join (all.x=F, all.y=F) is the closest default.
-
-       all_x = FALSE
-       all_y = FALSE
-
-  } else if (merge_type == "1:m") {
-      # Default: keep matched + master unmatched. Corresponds to R left_join.
-      all_x = TRUE
-      all_y = FALSE
-  } else if (merge_type == "m:1") {
-      # Default: keep matched + using unmatched. Corresponds to R right_join.
-      all_x = FALSE
-      all_y = TRUE
-  } else if (merge_type == "m:m") {
-      # Default: keep matched only. Corresponds to R inner_join.
-      all_x = FALSE
-      all_y = FALSE
-  }
+  # Stata default for all merge types is to drop observations that do not match in both.
+  # So R inner_join (all.x=F, all.y=F) is the closest default.
+  all_x = FALSE # Default to inner join behavior (Stata's default)
+  all_y = FALSE # Default to inner join behavior (Stata's default)
+  merge_comment = paste0("# Stata merge type: ", merge_type, ", default: keep(match)")
 
   # Handle keep() options if present, overriding defaults
   # This is a simplified parser for keep options within merge
@@ -2610,22 +2543,10 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
               all_x = TRUE; all_y = TRUE
               merge_comment = paste0(merge_comment, ", keep(all)")
           } else if (grepl("\\bmaster\\b", keep_spec)) {
-              all_x = TRUE; all_y = FALSE # Keep matched and master unmatched
-               if (grepl("\\bmatch\\b", keep_spec)) {
-                  # keep(match master) is the default for 1:m, same as keep(master)
-               } else {
-                   # just keep(master) is unusual, often implies keeping all master regardless of match
-                   # which is essentially a left join followed by subsetting for _merge==1 or 2
-                   # Let's treat keep(master) as left_join (all.x=T, all.y=F) for now.
-               }
+              all_x = TRUE; all_y = FALSE # Keep matched and master unmatched (left join)
               merge_comment = paste0(merge_comment, ", keep(master)")
           } else if (grepl("\\busing\\b", keep_spec)) {
-              all_x = FALSE; all_y = TRUE # Keep matched and using unmatched
-              if (grepl("\\bmatch\\b", keep_spec)) {
-                  # keep(match using) is the default for m:1, same as keep(using)
-               } else {
-                   # just keep(using) is unusual, treat as right_join (all.x=F, all.y=T) for now.
-               }
+              all_x = FALSE; all_y = TRUE # Keep matched and using unmatched (right join)
                merge_comment = paste0(merge_comment, ", keep(using)")
           } else if (grepl("\\bmatch\\b", keep_spec)) {
               all_x = FALSE; all_y = FALSE # Keep matched only (inner join)
@@ -3624,6 +3545,207 @@ t_use = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
 
 
+
+#################
+# TEST RESULTS
+#################
+In total 1 of 2 tests failed:
+
+In total 1 of 2 tests failed.
+
+
+---
+Outcome of test 'source_r': ok
+All R files could be sourced.
+
+
+
+---
+Outcome of test 'do1': not ok
+
+
+Details:
+
+cmd_df = do_parse(do_code)
+cmd_df = mark_data_manip_cmd(cmd_df)
+
+str(cmd_df)
+'data.frame':	39 obs. of  9 variables:
+ $ line              : int  1 2 3 4 5 6 7 8 9 10 ...
+ $ do_code           : chr  "use \"data.dta\", clear" "sort group i" "by group: gen seq = _n" "gen logi = log(i)" ...
+ $ stata_cmd_original: chr  "use" "sort" "gen" "gen" ...
+ $ stata_cmd         : chr  "use" "sort" "gen" "gen" ...
+ $ rest_of_cmd       : chr  "\"data.dta\", clear" "group i" "seq = _n" "logi = log(i)" ...
+ $ is_by_prefix      : logi  FALSE FALSE TRUE FALSE FALSE FALSE ...
+ $ by_group_vars     : chr  NA NA "group" NA ...
+ $ by_sort_vars      : chr  NA NA NA NA ...
+ $ do_translate      : logi  TRUE TRUE TRUE TRUE TRUE TRUE ...
+NULL
+
+---
+#Translate to R commands
+
+do:  use "data.dta", clear 
+R:  data = haven::read_dta("data.dta") # 'clear' was used 
+
+do:  sort group i 
+R:  data = collapse::setorder(data, group, i) # Using collapse::setorder for efficiency 
+
+do:  by group: gen seq = _n 
+R:  data = collapse::fgroup_by(data, c("group"))
+data = collapse::fmutate(data, seq = dplyr::row_number())
+data = collapse::fungroup(data) 
+
+do:  gen logi = log(i) 
+R:  data = collapse::fmutate(data, logi = log(i)) 
+
+do:  gen sqrt_i = sqrt(i) 
+R:  data = collapse::fmutate(data, sqrt_i = sqrt(i)) 
+
+do:  gen group_num = cond(group=="A",1,cond(group=="B",2,3)) 
+R:  data = collapse::fmutate(data, group_num = dplyr::if_else(group=="A", 1, cond(group=="B",2,3))) 
+
+do:  egen mean_i_grp = mean(i), by(group) 
+R:  data = collapse::fgroup_by(data, c("group")) %>%
+  collapse::fmutate(mean_i_grp = mean(i, na.rm = TRUE)) %>%
+  collapse::fungroup() 
+
+do:  egen total_i = total(i) 
+R:  data = collapse::fmutate(data, total_i = sum(i, na.rm = TRUE)) 
+
+do:  bysort group: egen rank_i = rank(i) 
+R:  data = collapse::fgroup_by(data, c("group")) %>%
+  collapse::fmutate(rank_i = dplyr::min_rank(i)) %>%
+  collapse::fungroup() 
+
+do:  gen flag = (i>20) if group=="A" 
+R:  data = collapse::fmutate(data, flag = dplyr::if_else(group=="A", (i>20), NA_real_)) 
+
+do:  replace flag = 0 if missing(flag) 
+R:  data = collapse::fmutate(data, flag = dplyr::if_else(is.na(flag), 0, flag)) 
+
+do:  keep if flag==1 | group=="B" 
+R:  data = collapse::fsubset(data, flag==1 | group=="B") 
+
+do:  drop if i>35 
+R:  data = collapse::fsubset(data, !(i>35)) 
+
+do:  collapse (mean) i (sum) total_i_sum = i, by(group) 
+R:  data = collapse::fgroup_by(data, c("group")) %>%
+  collapse::fsummarise(i = collapse::fmean(i, na.rm = TRUE),
+  total_i_sum = collapse::fsum(i, na.rm = TRUE)) %>%
+  collapse::fungroup() 
+
+do:  rename i mean_i_overall 
+R:  data = collapse::frename(data, `i` = `mean_i_overall`) 
+
+do:  expand 2 if group=="C" 
+R:  __expand_n_values_L16 = 2
+__expand_cond_values_L16 = group=="C"
+__final_expand_times_L16 = ifelse(!is.na(__expand_cond_values_L16) & __expand_cond_values_L16, ifelse(is.na(__expand_n_values_L16), 1, pmax(0, as.integer(__expand_n_values_L16))), 1)
+__final_expand_times_L16 = ifelse(is.na(__final_expand_times_L16), 1, __final_expand_times_L16)
+data = data[base::rep(1:NROW(data), times = __final_expand_times_L16), ]
+if (exists('__expand_n_values_L16')) rm(__expand_n_values_L16, __expand_cond_values_L16, __final_expand_times_L16) 
+
+do:  duplicates drop 
+R:  ## Calculate duplicate flag based on all variables
+__is_duplicate_L17 = base::duplicated(data, fromLast = FALSE)
+## Calculate condition flag
+__satisfies_cond_L17 = TRUE
+data = base::subset(data, !(__is_duplicate_L17 & __satisfies_cond_L17))
+rm(__is_duplicate_L17, __satisfies_cond_L17) 
+
+do:  encode group, gen(group_code) 
+R:  data = collapse::fmutate(data, group_code = NA_integer_)
+__encoded_values_L18 = as.integer(base::factor(data$group, levels = base::unique(data$group[base::order(data$group)])))
+data = collapse::fmutate(data, group_code = __encoded_values_L18)
+rm(__encoded_values_L18) 
+
+do:  decode group_code, gen(group_str) 
+R:  data = collapse::fmutate(data, group_str = NA_character_)
+## Decode values using haven::as_factor
+__decoded_values_L19 = as.character(haven::as_factor(data$group_code, levels = 'labels'))
+data = collapse::fmutate(data, group_str = __decoded_values_L19)
+rm(__decoded_values_L19) 
+
+do:  sort group_code 
+R:  data = collapse::setorder(data, group_code) # Using collapse::setorder for efficiency 
+
+do:  tempfile t1 
+R:  R_tempfile_L21_t1_path = tempfile(fileext = '.dta') # Stata tempfile 't1' 
+
+do:  save "`t1'" 
+R:  haven::write_dta(data, path = "`t1'") 
+
+do:  keep if group_code==1 
+R:  data = collapse::fsubset(data, group_code==1) 
+
+do:  merge 1:m group_code using "`t1'", keep(match master) nogenerate 
+R:  data = collapse::fmerge(data, haven::read_dta("`t1'"), by = c("1:m", "group_code"), all.x = TRUE, all.y = FALSE) # Stata merge type: 1:1, default: keep(match), keep(master), nogenerate 
+
+do:  append using "`t1'" 
+R:  data = collapse::fbind(data, haven::read_dta("`t1'")) 
+
+do:  reshape wide mean_i_overall total_i_sum, i(group_code) j(group_str) 
+R:  data = tidyr::pivot_wider(data, id_cols = dplyr::all_of(c("group_code")), names_from = group_str, values_from = dplyr::all_of(c("mean_i_overall", "total_i_sum"))) 
+
+do:  reshape long mean_i_overall total_i_sum, i(group_code) j(group_str) 
+R:  # reshape long with multiple stubnames not yet fully implemented: long mean_i_overall total_i_sum, i(group_code) j(group_str) 
+
+do:  gen id = _n 
+R:  data = collapse::fmutate(data, id = dplyr::row_number()) 
+
+do:  bysort group_code (mean_i_overall): gen diff_mean = mean_i_overall - mean_i_overall[_n-1] 
+R:  data = dplyr::arrange(data, group_code, mean_i_overall)
+data = collapse::fgroup_by(data, c("group_code"))
+data = collapse::fmutate(data, diff_mean = mean_i_overall - mean_i_overall[dplyr::row_number()-1])
+data = collapse::fungroup(data) 
+
+do:  recode group_code (1=10)(2=20)(3=30) 
+R:  data = collapse::fmutate(data, group_code = dplyr::case_when(
+    group_code %in% c(1) ~ 10,
+    group_code %in% c(2) ~ 20,
+    group_code %in% c(3) ~ 30
+  )) 
+
+do:  drop if missing(mean_i_overall) 
+R:  data = collapse::fsubset(data, !(is.na(mean_i_overall))) 
+
+do:  keep in 1/10 
+R:  data = data[1:10,] 
+
+do:  order id group_code mean_i_overall 
+R:  data = dplyr::select(data, id, group_code, mean_i_overall, dplyr::everything()) 
+
+do:  collapse (sum) sum_mean = mean_i_overall, by(group_code) 
+R:  data = collapse::fgroup_by(data, c("group_code")) %>%
+  collapse::fsummarise(sum_mean = collapse::fsum(mean_i_overall, na.rm = TRUE)) %>%
+  collapse::fungroup() 
+
+do:  egen total_sum = total(sum_mean) 
+R:  data = collapse::fmutate(data, total_sum = sum(sum_mean, na.rm = TRUE)) 
+
+do:  gen proportion = sum_mean/total_sum 
+R:  data = collapse::fmutate(data, proportion = sum_mean/total_sum) 
+
+do:  sort proportion 
+R:  data = collapse::setorder(data, proportion) # Using collapse::setorder for efficiency 
+
+do:  list in 1/5 
+  no data manipulation command
+
+do:  save "result_data.dta" 
+R:  haven::write_dta(data, path = "result_data.dta") 
+
+---
+# Run R commands and check generated data sets
+
+
+ 1 data = haven::read_dta("data.dta") # 'clear' was used
+
+ 2 data = collapse::setorder(data, group, i) # Using collapse::setorder for efficiency
+
+Error: 'setorder' is not an exported object from 'namespace:collapse'
 
 ##############################
 # YOUR TASK

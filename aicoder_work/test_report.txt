@@ -1,12 +1,195 @@
-In total 1 of 1 tests failed.
+In total 1 of 2 tests failed.
 
 
 ---
-Outcome of test 'source_r': not ok
-
-Details of failed 'source' commands:
-source("/home/rstudio/aicoder/stata2r/R/stata_expression_translator.R")
-
-Error: '\s' is an unrecognized escape in character string starting ""(\\w+)\\[_n\\s*\\+\s"
+Outcome of test 'source_r': ok
+All R files could be sourced.
 
 
+
+---
+Outcome of test 'do1': not ok
+
+
+Details:
+
+cmd_df = do_parse(do_code)
+cmd_df = mark_data_manip_cmd(cmd_df)
+
+str(cmd_df)
+'data.frame':	39 obs. of  9 variables:
+ $ line              : int  1 2 3 4 5 6 7 8 9 10 ...
+ $ do_code           : chr  "use \"data.dta\", clear" "sort group i" "by group: gen seq = _n" "gen logi = log(i)" ...
+ $ stata_cmd_original: chr  "use" "sort" "gen" "gen" ...
+ $ stata_cmd         : chr  "use" "sort" "gen" "gen" ...
+ $ rest_of_cmd       : chr  "\"data.dta\", clear" "group i" "seq = _n" "logi = log(i)" ...
+ $ is_by_prefix      : logi  FALSE FALSE TRUE FALSE FALSE FALSE ...
+ $ by_group_vars     : chr  NA NA "group" NA ...
+ $ by_sort_vars      : chr  NA NA NA NA ...
+ $ do_translate      : logi  TRUE TRUE TRUE TRUE TRUE TRUE ...
+NULL
+
+---
+#Translate to R commands
+
+do:  use "data.dta", clear 
+R:  data = haven::read_dta("data.dta") # 'clear' was used 
+
+do:  sort group i 
+R:  data = collapse::setorder(data, group, i) # Using collapse::setorder for efficiency 
+
+do:  by group: gen seq = _n 
+R:  data = collapse::fgroup_by(data, c("group"))
+data = collapse::fmutate(data, seq = dplyr::row_number())
+data = collapse::fungroup(data) 
+
+do:  gen logi = log(i) 
+R:  data = collapse::fmutate(data, logi = log(i)) 
+
+do:  gen sqrt_i = sqrt(i) 
+R:  data = collapse::fmutate(data, sqrt_i = sqrt(i)) 
+
+do:  gen group_num = cond(group=="A",1,cond(group=="B",2,3)) 
+R:  data = collapse::fmutate(data, group_num = dplyr::if_else(group=="A", 1, cond(group=="B",2,3))) 
+
+do:  egen mean_i_grp = mean(i), by(group) 
+R:  data = collapse::fgroup_by(data, c("group")) %>%
+  collapse::fmutate(mean_i_grp = mean(i, na.rm = TRUE)) %>%
+  collapse::fungroup() 
+
+do:  egen total_i = total(i) 
+R:  data = collapse::fmutate(data, total_i = sum(i, na.rm = TRUE)) 
+
+do:  bysort group: egen rank_i = rank(i) 
+R:  data = collapse::fgroup_by(data, c("group")) %>%
+  collapse::fmutate(rank_i = dplyr::min_rank(i)) %>%
+  collapse::fungroup() 
+
+do:  gen flag = (i>20) if group=="A" 
+R:  data = collapse::fmutate(data, flag = dplyr::if_else(group=="A", (i>20), NA_real_)) 
+
+do:  replace flag = 0 if missing(flag) 
+R:  data = collapse::fmutate(data, flag = dplyr::if_else(is.na(flag), 0, flag)) 
+
+do:  keep if flag==1 | group=="B" 
+R:  data = collapse::fsubset(data, flag==1 | group=="B") 
+
+do:  drop if i>35 
+R:  data = collapse::fsubset(data, !(i>35)) 
+
+do:  collapse (mean) i (sum) total_i_sum = i, by(group) 
+R:  data = collapse::fgroup_by(data, c("group")) %>%
+  collapse::fsummarise(i = collapse::fmean(i, na.rm = TRUE),
+  total_i_sum = collapse::fsum(i, na.rm = TRUE)) %>%
+  collapse::fungroup() 
+
+do:  rename i mean_i_overall 
+R:  data = collapse::frename(data, `i` = `mean_i_overall`) 
+
+do:  expand 2 if group=="C" 
+R:  __expand_n_values_L16 = 2
+__expand_cond_values_L16 = group=="C"
+__final_expand_times_L16 = ifelse(!is.na(__expand_cond_values_L16) & __expand_cond_values_L16, ifelse(is.na(__expand_n_values_L16), 1, pmax(0, as.integer(__expand_n_values_L16))), 1)
+__final_expand_times_L16 = ifelse(is.na(__final_expand_times_L16), 1, __final_expand_times_L16)
+data = data[base::rep(1:NROW(data), times = __final_expand_times_L16), ]
+if (exists('__expand_n_values_L16')) rm(__expand_n_values_L16, __expand_cond_values_L16, __final_expand_times_L16) 
+
+do:  duplicates drop 
+R:  ## Calculate duplicate flag based on all variables
+__is_duplicate_L17 = base::duplicated(data, fromLast = FALSE)
+## Calculate condition flag
+__satisfies_cond_L17 = TRUE
+data = base::subset(data, !(__is_duplicate_L17 & __satisfies_cond_L17))
+rm(__is_duplicate_L17, __satisfies_cond_L17) 
+
+do:  encode group, gen(group_code) 
+R:  data = collapse::fmutate(data, group_code = NA_integer_)
+__encoded_values_L18 = as.integer(base::factor(data$group, levels = base::unique(data$group[base::order(data$group)])))
+data = collapse::fmutate(data, group_code = __encoded_values_L18)
+rm(__encoded_values_L18) 
+
+do:  decode group_code, gen(group_str) 
+R:  data = collapse::fmutate(data, group_str = NA_character_)
+## Decode values using haven::as_factor
+__decoded_values_L19 = as.character(haven::as_factor(data$group_code, levels = 'labels'))
+data = collapse::fmutate(data, group_str = __decoded_values_L19)
+rm(__decoded_values_L19) 
+
+do:  sort group_code 
+R:  data = collapse::setorder(data, group_code) # Using collapse::setorder for efficiency 
+
+do:  tempfile t1 
+R:  R_tempfile_L21_t1_path = tempfile(fileext = '.dta') # Stata tempfile 't1' 
+
+do:  save "`t1'" 
+R:  haven::write_dta(data, path = "`t1'") 
+
+do:  keep if group_code==1 
+R:  data = collapse::fsubset(data, group_code==1) 
+
+do:  merge 1:m group_code using "`t1'", keep(match master) nogenerate 
+R:  data = collapse::fmerge(data, haven::read_dta("`t1'"), by = c("1:m", "group_code"), all.x = TRUE, all.y = FALSE) # Stata merge type: 1:1, default: keep(match), keep(master), nogenerate 
+
+do:  append using "`t1'" 
+R:  data = collapse::fbind(data, haven::read_dta("`t1'")) 
+
+do:  reshape wide mean_i_overall total_i_sum, i(group_code) j(group_str) 
+R:  data = tidyr::pivot_wider(data, id_cols = dplyr::all_of(c("group_code")), names_from = group_str, values_from = dplyr::all_of(c("mean_i_overall", "total_i_sum"))) 
+
+do:  reshape long mean_i_overall total_i_sum, i(group_code) j(group_str) 
+R:  # reshape long with multiple stubnames not yet fully implemented: long mean_i_overall total_i_sum, i(group_code) j(group_str) 
+
+do:  gen id = _n 
+R:  data = collapse::fmutate(data, id = dplyr::row_number()) 
+
+do:  bysort group_code (mean_i_overall): gen diff_mean = mean_i_overall - mean_i_overall[_n-1] 
+R:  data = dplyr::arrange(data, group_code, mean_i_overall)
+data = collapse::fgroup_by(data, c("group_code"))
+data = collapse::fmutate(data, diff_mean = mean_i_overall - mean_i_overall[dplyr::row_number()-1])
+data = collapse::fungroup(data) 
+
+do:  recode group_code (1=10)(2=20)(3=30) 
+R:  data = collapse::fmutate(data, group_code = dplyr::case_when(
+    group_code %in% c(1) ~ 10,
+    group_code %in% c(2) ~ 20,
+    group_code %in% c(3) ~ 30
+  )) 
+
+do:  drop if missing(mean_i_overall) 
+R:  data = collapse::fsubset(data, !(is.na(mean_i_overall))) 
+
+do:  keep in 1/10 
+R:  data = data[1:10,] 
+
+do:  order id group_code mean_i_overall 
+R:  data = dplyr::select(data, id, group_code, mean_i_overall, dplyr::everything()) 
+
+do:  collapse (sum) sum_mean = mean_i_overall, by(group_code) 
+R:  data = collapse::fgroup_by(data, c("group_code")) %>%
+  collapse::fsummarise(sum_mean = collapse::fsum(mean_i_overall, na.rm = TRUE)) %>%
+  collapse::fungroup() 
+
+do:  egen total_sum = total(sum_mean) 
+R:  data = collapse::fmutate(data, total_sum = sum(sum_mean, na.rm = TRUE)) 
+
+do:  gen proportion = sum_mean/total_sum 
+R:  data = collapse::fmutate(data, proportion = sum_mean/total_sum) 
+
+do:  sort proportion 
+R:  data = collapse::setorder(data, proportion) # Using collapse::setorder for efficiency 
+
+do:  list in 1/5 
+  no data manipulation command
+
+do:  save "result_data.dta" 
+R:  haven::write_dta(data, path = "result_data.dta") 
+
+---
+# Run R commands and check generated data sets
+
+
+ 1 data = haven::read_dta("data.dta") # 'clear' was used
+
+ 2 data = collapse::setorder(data, group, i) # Using collapse::setorder for efficiency
+
+Error: 'setorder' is not an exported object from 'namespace:collapse'

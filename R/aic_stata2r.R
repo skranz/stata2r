@@ -19,16 +19,20 @@ example = function() {
   }
 
   # Run with Gemini
-  library(aicoder)
-  main_dir = "~/aicoder"
-  files = paste0(main_dir, "/stata2r/R/",  c("aic_stata2r.R", "aic_do_test.R","aic_stata_ex.R"))
-  for (file in files)  source(file)
-  rgemini::set_gemini_api_key(file="~/aicoder/gemini_key.txt")
-  aic = aic_new_stata2r(main_dir)
-  aic = aic_test_stata2r(aic)
-  aic = aic_make_prompt_stata2r(aic)
-  aic = aic_run_gemini(aic,model = "gemini-2.5-flash-preview-05-20")
-  aic = aic_changes_stata2r(aic)
+  for (i in 1:10) {
+    library(aicoder)
+    main_dir = "~/aicoder"
+    files = paste0(main_dir, "/stata2r/R/",  c("aic_stata2r.R", "aic_do_test.R","aic_stata_ex.R"))
+    for (file in files)  source(file)
+    rgemini::set_gemini_api_key(file="~/aicoder/gemini_key.txt")
+    aic = aic_new_stata2r(main_dir)
+    aic = aic_test_stata2r(aic)
+    aic = aic_make_prompt_stata2r(aic)
+    aic = aic_run_gemini(aic,model = "gemini-2.5-flash-preview-05-20")
+    aic = aic_changes_stata2r(aic)
+
+  }
+
 
   remotes::install_local("~/aicoder/stata2r",upgrade = "never", force=TRUE)
   do_file = "C:/libraries/aicoder/stata2r/inst/cases/custom_1/do1.do"
