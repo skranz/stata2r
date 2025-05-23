@@ -60,31 +60,45 @@ aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="") {
     #print(str(r_obj))
     if (isTRUE(cmd_df$do_translate[i])) {
       cat("R: ", r_obj$r_code,"\n")
-      r_li[[i]] = r_obj
     } else {
       cat("  no data manipulation command\n")
     }
+    r_li[[i]] = r_obj # Ensure r_li is always populated, even if command is not translated
   }
   r_df = bind_rows(r_li)
 
   env = new.env(parent=globalenv())
 
   cat("\n---\n# Run R commands and check generated data sets\n\n")
-  i = 1
+  i_df_loop = 1
   log_str = NULL
-  for (i in seq_len(NROW(r_df))) {
-    r_code = r_df$r_code[[i]]
+  for (i_df_loop in seq_len(NROW(r_df))) {
+    r_code = r_df$r_code[[i_df_loop]]
+    original_stata_line_num = r_df$line[[i_df_loop]] # Get original line number from r_df
+    do_code_original = r_df$do_code[[i_df_loop]] # Get original do code for logging
+
+    # If r_code is NA_character_ (meaning it was not translated/skipped), use a no-op R code
+    if (is.na(r_code)) {
+      cat("\n", original_stata_line_num, ": Skipping non-data manipulation command: ", do_code_original, "\n")
+      r_code = "# No-op: Data unchanged from previous step by this command."
+    }
 
     res = aicoder::run_with_log(code_str=r_code, env=env)
-    cat("\n",i,res$log)
-    if (res$has_error) return(FALSE)
-      r_data = env[["data"]]
+    cat("\n", original_stata_line_num, "R: ", r_code, "\n") # Print R code being run
+    cat(res$log) # Print execution log
+
+    if (res$has_error) {
+      cat("\nError executing R code for Stata line ", original_stata_line_num, ": ", res$log, "\n")
+      return(FALSE)
+    }
+
+    r_data = env[["data"]]
     if (!is.null(r_data)) {
-      dat_file = file.path(data_dir, paste0(data_prefix,i,".dta"))
+      dat_file = file.path(data_dir, paste0(data_prefix, original_stata_line_num, ".dta")) # Use original line number for comparison
       do_data = haven::read_dta(dat_file)
       comp = compare_df(r_data, do_data)
       if (!comp$identical) {
-        cat("\nError: After the R command abve generates different data set than Stata code\n")
+        cat("\nError: After Stata line ", original_stata_line_num, ", R data set differs from Stata reference.\n")
         cat("\nR data set:\n")
         print(str(r_data))
         cat("\nStata version:\n")
@@ -94,15 +108,11 @@ aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="") {
         return(FALSE)
       }
     } else {
-      cat("\n", i," missing data\n")
+      cat("\nError: Data 'data' is NULL after Stata line ", original_stata_line_num, "\n")
       return(FALSE)
     }
-    if (res$has_error) return(FALSE)
   }
   return(TRUE)
-
-
-
 }
 
 aic_stata2r_eval_next_r_line = function(i, r_df, env) {
