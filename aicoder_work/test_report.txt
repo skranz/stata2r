@@ -50,44 +50,44 @@ do:  display _n
 do:  by group: gen seq = _n 
 R:  data = data %>%
   dplyr::group_by(dplyr::across(c("group"))) %>%
-  dplyr::mutate(seq = as.numeric(dplyr::row_number())) %>%
+  dplyr::mutate(seq = sfun_strip_stata_attributes(as.numeric(dplyr::row_number()))) %>%
   dplyr::ungroup() 
 
 do:  gen logi = log(i) 
 R:  data = data %>%
-  dplyr::mutate(logi = log(i)) 
+  dplyr::mutate(logi = sfun_strip_stata_attributes(log(i))) 
 
 do:  gen sqrt_i = sqrt(i) 
 R:  data = data %>%
-  dplyr::mutate(sqrt_i = sqrt(i)) 
+  dplyr::mutate(sqrt_i = sfun_strip_stata_attributes(sqrt(i))) 
 
 do:  gen group_num = cond(group=="A",1,cond(group=="B",2,3)) 
 R:  data = data %>%
-  dplyr::mutate(group_num = dplyr::if_else(group=="A", 1, dplyr::if_else(group=="B", 2, 3))) 
+  dplyr::mutate(group_num = sfun_strip_stata_attributes(dplyr::if_else(group=="A", 1, dplyr::if_else(group=="B", 2, 3)))) 
 
 do:  egen mean_i_grp = mean(i), by(group) 
 R:  data = data %>%
   dplyr::group_by(dplyr::across(c("group"))) %>%
-  dplyr::mutate(mean_i_grp = mean(i, na.rm = TRUE)) %>%
+  dplyr::mutate(mean_i_grp = sfun_strip_stata_attributes(mean(i, na.rm = TRUE))) %>%
   dplyr::ungroup() 
 
 do:  egen total_i = total(i) 
 R:  data = data %>%
-  dplyr::mutate(total_i = sum(i, na.rm = TRUE)) 
+  dplyr::mutate(total_i = sfun_strip_stata_attributes(sum(i, na.rm = TRUE))) 
 
 do:  bysort group: egen rank_i = rank(i) 
 R:  data = data %>%
   dplyr::group_by(dplyr::across(c("group"))) %>%
-  dplyr::mutate(rank_i = dplyr::min_rank(i)) %>%
+  dplyr::mutate(rank_i = sfun_strip_stata_attributes(dplyr::min_rank(i))) %>%
   dplyr::ungroup() 
 
 do:  gen flag = (i>20) if group=="A" 
 R:  data = data %>%
-  dplyr::mutate(flag = dplyr::if_else(group=="A", (i>20), NA)) 
+  dplyr::mutate(flag = sfun_strip_stata_attributes(dplyr::if_else(group=="A", (i>20), NA))) 
 
 do:  replace flag = 0 if missing(flag) 
 R:  data = data %>%
-  dplyr::mutate(flag = dplyr::if_else(is.na(flag), 0, flag)) 
+  dplyr::mutate(flag = sfun_strip_stata_attributes(dplyr::if_else(is.na(flag), 0, flag))) 
 
 do:  keep if flag==1 | group=="B" 
 R:  data = dplyr::filter(data, flag==1 | group=="B") 
@@ -130,8 +130,8 @@ rm(__encoded_values_L21)
 do:  decode group_code, gen(group_str) 
 R:  data = dplyr::mutate(data, group_str = NA_character_)
 ## Decode values using haven::as_factor
-__decoded_values_L22 = as.character(haven::as_factor(data$group_code, levels = 'labels'))
-data = dplyr::mutate(data, group_str = __decoded_values_L22)
+__decoded_values_L22 = sfun_strip_stata_attributes(as.character(haven::as_factor(data$group_code, levels = 'labels')))
+data = dplyr::mutate(data, group_str = sfun_strip_stata_attributes(__decoded_values_L22))
 rm(__decoded_values_L22) 
 
 do:  sort group_code 
@@ -154,12 +154,12 @@ R:  data = collapse::fbind(data, haven::read_dta(file.path(stata2r_env$data_dir,
 
 do:  gen id = _n 
 R:  data = data %>%
-  dplyr::mutate(id = as.numeric(dplyr::row_number())) 
+  dplyr::mutate(id = sfun_strip_stata_attributes(as.numeric(dplyr::row_number()))) 
 
 do:  bysort group_code (mean_i_overall): gen diff_mean = mean_i_overall - mean_i_overall[_n-1] 
 R:  data = dplyr::arrange(data, group_code, mean_i_overall) %>%
   dplyr::group_by(dplyr::across(c("group_code"))) %>%
-  dplyr::mutate(diff_mean = mean_i_overall - collapse::froll_lag(mean_i_overall, 1)) %>%
+  dplyr::mutate(diff_mean = sfun_strip_stata_attributes(mean_i_overall - collapse::froll_lag(mean_i_overall, 1))) %>%
   dplyr::ungroup() 
 
 do:  recode group_code (1=10)(2=20)(3=30) 
@@ -183,11 +183,11 @@ R:  data = data %>%
 
 do:  egen total_sum = total(sum_mean) 
 R:  data = data %>%
-  dplyr::mutate(total_sum = sum(sum_mean, na.rm = TRUE)) 
+  dplyr::mutate(total_sum = sfun_strip_stata_attributes(sum(sum_mean, na.rm = TRUE))) 
 
 do:  gen proportion = sum_mean/total_sum 
 R:  data = data %>%
-  dplyr::mutate(proportion = sum_mean/total_sum) 
+  dplyr::mutate(proportion = sfun_strip_stata_attributes(sum_mean/total_sum)) 
 
 do:  sort proportion 
 R:  data = dplyr::arrange(data, proportion) 
@@ -220,17 +220,17 @@ data = dplyr::slice(data, 1:39)
 
  6 R:  data = data %>%
   dplyr::group_by(dplyr::across(c("group"))) %>%
-  dplyr::mutate(seq = as.numeric(dplyr::row_number())) %>%
+  dplyr::mutate(seq = sfun_strip_stata_attributes(as.numeric(dplyr::row_number()))) %>%
   dplyr::ungroup() 
 data = data %>%
   dplyr::group_by(dplyr::across(c("group"))) %>%
-  dplyr::mutate(seq = as.numeric(dplyr::row_number())) %>%
+  dplyr::mutate(seq = sfun_strip_stata_attributes(as.numeric(dplyr::row_number()))) %>%
   dplyr::ungroup()
 
  7 R:  data = data %>%
-  dplyr::mutate(logi = log(i)) 
+  dplyr::mutate(logi = sfun_strip_stata_attributes(log(i))) 
 data = data %>%
-  dplyr::mutate(logi = log(i))
+  dplyr::mutate(logi = sfun_strip_stata_attributes(log(i)))
 
 Error: After Stata line  7 , R data set differs from Stata reference.
 
@@ -244,7 +244,6 @@ tibble [39 × 4] (S3: tbl_df/tbl/data.frame)
   ..- attr(*, "format.stata")= chr "%1s"
  $ seq  : num [1:39] 1 2 3 4 5 6 7 8 9 10 ...
  $ logi : num [1:39] 2.3 2.56 2.77 2.94 3 ...
-  ..- attr(*, "label")= chr "i"
   ..- attr(*, "format.stata")= chr "%9.0g"
 NULL
 
