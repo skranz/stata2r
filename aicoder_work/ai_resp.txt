@@ -1,4 +1,8 @@
-The primary issue in the failing test was a syntax error in the generated R code for the `collapse` command, specifically related to the placement of the pipe operator (`%>%`). This has been corrected to ensure proper R syntax. Additionally, for consistency and precision matching with Stata's numeric output, the `sfun_stata_numeric_output_round` function is now applied to all newly generated numeric variables in the `egen` command's translation. Finally, the "Options ignored" comments in `t_collapse` have been refined to accurately reflect which options are truly unhandled.
+The primary issue identified was that `t_collapse` was generating R code that, due to `dplyr::summarise`'s sequential evaluation, was incorrectly calculating subsequent aggregate statistics when a source variable was also being redefined in the same `summarise` call. Specifically, `sum(i)` was effectively becoming `sum(mean(i))` because `i` was redefined as `mean(i)` earlier in the `summarise` call.
+
+The fix involves explicitly referencing the original column values using the `.data$` pronoun within `t_collapse`'s `summarise` expressions. This ensures that aggregations always refer to the data frame's original columns as they were *before* the `summarise` call.
+
+Additionally, minor formatting adjustments were made to `t_collapse`, `t_egen`, `t_generate`, and `t_replace` to align the `%>%` operator on the same line as the object it pipes from, improving code readability.
 
 !CHANGE_FILE R/t_collapse.R
 ```R
@@ -98,8 +102,11 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     new_vars_created[j] = actual_stata_target_var_name # Store new var name
 
     # Translate actual Stata source variable name
-    r_source_var = translate_stata_expression_with_r_values(actual_stata_source_var_name, cmd_obj$line, cmd_df, context) # Use cmd_obj$line
-     if (is.na(r_source_var) || r_source_var == "") {
+    # FIX: Use .data$ to refer to original column for summarise to prevent sequential evaluation issues
+    r_source_var_bare = translate_stata_expression_with_r_values(actual_stata_source_var_name, cmd_obj$line, cmd_df, context) # Use cmd_obj$line
+    r_source_var = paste0(".data$", r_source_var_bare)
+
+    if (is.na(r_source_var_bare) || r_source_var_bare == "") {
          return(paste0("# Failed to translate source variable '", actual_stata_source_var_name, "' for collapse stat '", stat_from_regex, "'"))
      }
 
@@ -143,13 +150,13 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   if (!is.null(by_vars_r_vec_str) && length(by_vars_list_unquoted) > 0) {
     r_code_lines = c(r_code_lines,
-                       paste0(data_source_for_collapse, " %>%\n"), # FIX: Ensure pipe is on same line as object
-                       "  dplyr::group_by(dplyr::across(", by_vars_r_vec_str, ")) %>%\n", # Changed to dplyr
-                       "  dplyr::summarise(", aggregate_exprs_str, ") %>%\n",           # Changed to dplyr
+                       paste0(data_source_for_collapse, " %>%"), # FIX: Ensure pipe is on same line as object
+                       "  dplyr::group_by(dplyr::across(", by_vars_r_vec_str, ")) %>%", # Changed to dplyr
+                       "  dplyr::summarise(", aggregate_exprs_str, ") %>%",           # Changed to dplyr
                        "  dplyr::ungroup()")                                             # Changed to dplyr
   } else {
      r_code_lines = c(r_code_lines,
-                       paste0(data_source_for_collapse, " %>%\n"), # FIX: Ensure pipe is on same line as object
+                       paste0(data_source_for_collapse, " %>%"), # FIX: Ensure pipe is on same line as object
                        "  dplyr::summarise(", aggregate_exprs_str, ")")                   # Changed to dplyr
   }
   r_code_lines = c("data = ", r_code_lines) # Assign result back to 'data'
@@ -419,12 +426,12 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   full_mutate_expr = paste0(new_var, " = ", calc_expr)
 
   # Build the R command string using pipes
-  r_code_lines = c("data = data %>%\n") # Start with data and the first pipe
+  r_code_lines = c("data = data %>%") # Start with data and the first pipe FIX: removed \n
 
   if (!is.null(by_vars_for_group_by) && length(by_vars_list_unquoted) > 0 && !is_row_function) {
     r_code_lines = c(r_code_lines,
-                        "  dplyr::group_by(dplyr::across(", by_vars_for_group_by, ")) %>%\n",
-                        "  dplyr::mutate(", full_mutate_expr, ") %>%\n",
+                        "  dplyr::group_by(dplyr::across(", by_vars_for_group_by, ")) %>%", # FIX: removed \n
+                        "  dplyr::mutate(", full_mutate_expr, ") %>%", # FIX: removed \n
                         "  dplyr::ungroup()")
   } else {
     r_code_lines = c(r_code_lines,
@@ -453,3 +460,201 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 }
 ```
 !END_CHANGE_FILE R/t_egen.R
+
+!CHANGE_FILE R/t_generate.R
+```R
+t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_generate")
+  # Parse `rest_of_cmd` for new variable name, expression, and if condition
+  # Example: "newvar = expression [if condition]"
+
+  # Strip type if present (e.g. gen double newvar = ...)
+  rest_of_cmd_no_type = stringi::stri_replace_first_regex(rest_of_cmd, "^(?:byte|int|long|float|double|str\\d+)\\s+", "")
+
+  match = stringi::stri_match_first_regex(rest_of_cmd_no_type, "^\\s*([^=\\s]+)\\s*=\\s*(.*?)(?:\\s+if\\s+(.*))?$")
+
+  if (is.na(match[1,1])) {
+    return(paste0("# Failed to parse generate command: ", rest_of_cmd))
+  }
+
+  new_var = stringi::stri_trim_both(match[1,2])
+  stata_expr = stringi::stri_trim_both(match[1,3])
+  stata_if_cond = stringi::stri_trim_both(match[1,4]) # Might be NA
+
+  # Context for expression translation (e.g. _n, _N behavior)
+  # is_by_group TRUE if cmd_obj$by_group_vars is not NA
+  current_context = list(is_by_group = cmd_obj$is_by_prefix && !is.na(cmd_obj$by_group_vars))
+  r_expr = translate_stata_expression_with_r_values(stata_expr, line_num, cmd_df, current_context)
+
+  r_if_cond = NA_character_
+  if (!is.na(stata_if_cond) && stata_if_cond != "") {
+    # The 'if' condition for generate/replace is evaluated row-wise on the whole dataset, not per group.
+    r_if_cond = translate_stata_expression_with_r_values(stata_if_cond, line_num, cmd_df, context = list(is_by_group = FALSE))
+  }
+
+  # Determine arrange step if needed
+  arrange_call = ""
+  group_vars_r_vec_str = NULL
+  group_vars_list = character(0) # Initialize for use in all_sort_vars
+
+  if (cmd_obj$is_by_prefix) {
+    if (!is.na(cmd_obj$by_group_vars)) {
+      group_vars_list = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
+      group_vars_list = group_vars_list[group_vars_list != ""]
+      group_vars_r_vec_str = paste0('c("', paste0(group_vars_list, collapse='", "'), '")')
+    }
+
+    sort_vars_list = character(0)
+    if (!is.na(cmd_obj$by_sort_vars)) {
+      sort_vars_list = stringi::stri_split_fixed(cmd_obj$by_sort_vars, ",")[[1]]
+      sort_vars_list = sort_vars_list[sort_vars_list != ""]
+    }
+
+    # If there are sort keys for by-processing, prepare the arrange call
+    if (length(sort_vars_list) > 0) {
+      all_sort_vars = c(if(length(group_vars_list)>0) group_vars_list else character(0), sort_vars_list)
+      all_sort_vars_str = paste(all_sort_vars, collapse = ", ")
+      arrange_call = paste0("dplyr::arrange(data, ", all_sort_vars_str, ")")
+    }
+  }
+
+  # Step 1: Calculate the value for the new variable, potentially conditionally
+  # Ensure logical comparisons are converted to numeric (0/1) to match Stata's default numeric type for logical expressions.
+  # Heuristic: if stata_expr contains common logical/comparison operators, it's likely a logical expression
+  # that Stata would store as 0/1.
+  is_logical_expr = stringi::stri_detect_regex(stata_expr, "==|!=|~=|<=|>=|<|>|&|\\|")
+  
+  calculated_value_expr = r_expr
+  if (is_logical_expr) {
+    calculated_value_expr = paste0("as.numeric(", r_expr, ")")
+  }
+
+  if (!is.na(r_if_cond) && r_if_cond != "") {
+    calc_expr = paste0("dplyr::if_else(", r_if_cond, ", ", calculated_value_expr, ", NA_real_)") # Use NA_real_ to force numeric type
+  } else {
+    calc_expr = calculated_value_expr
+  }
+  
+  # Step 2: Build the R code string using pipes for the mutate operation
+  r_code_lines = c()
+
+  # Start with data or data after arrange, and add the first pipe
+  if (arrange_call != "") {
+      r_code_lines = c(r_code_lines, paste0("data = ", arrange_call, " %>%")) # FIX: removed \n
+  } else {
+      r_code_lines = c(r_code_lines, "data = data %>%") # FIX: removed \n
+  }
+
+  # Add grouping and mutate steps
+  if (!is.null(group_vars_r_vec_str) && length(group_vars_list) > 0) {
+      r_code_lines = c(r_code_lines, paste0("  dplyr::group_by(dplyr::across(", group_vars_r_vec_str, ")) %>%")) # FIX: removed \n
+      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", new_var, " = ", calc_expr, ") %>%")) # FIX: removed \n
+      r_code_lines = c(r_code_lines, "  dplyr::ungroup()")
+  } else {
+      # If not grouped, just add the mutate step directly to the pipe chain
+      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", new_var, " = ", calc_expr, ")"))
+  }
+  
+  # Step 3: Apply Stata-like numeric output rounding for precision matching
+  r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_stata_numeric_output_round(data$", new_var, ")"))
+
+  # Step 4: Strip Stata-specific attributes from the newly created/modified column
+  r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_strip_stata_attributes(data$", new_var, ")"))
+  
+  return(paste(r_code_lines, collapse="\n"))
+}
+```
+!END_CHANGE_FILE R/t_generate.R
+
+!CHANGE_FILE R/t_replace.R
+```R
+t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_replace")
+  # Strip type if present (e.g. replace double oldvar = ...)
+  rest_of_cmd_no_type = stringi::stri_replace_first_regex(rest_of_cmd, "^(?:byte|int|long|float|double|str\\d+)\\s+", "")
+
+  match = stringi::stri_match_first_regex(rest_of_cmd_no_type, "^\\s*([^=\\s]+)\\s*=\\s*(.*?)(?:\\s+if\\s+(.*))?$")
+
+  if (is.na(match[1,1])) {
+    return(paste0("# Failed to parse replace command: ", rest_of_cmd))
+  }
+
+  var_to_replace = stringi::stri_trim_both(match[1,2])
+  stata_expr = stringi::stri_trim_both(match[1,3])
+  stata_if_cond = stringi::stri_trim_both(match[1,4]) # Might be NA
+
+  current_context = list(is_by_group = cmd_obj$is_by_prefix && !is.na(cmd_obj$by_group_vars))
+  r_expr = translate_stata_expression_with_r_values(stata_expr, line_num, cmd_df, current_context)
+
+  r_if_cond = NA_character_
+  if (!is.na(stata_if_cond) && stata_if_cond != "") {
+    r_if_cond = translate_stata_expression_with_r_values(stata_if_cond, line_num, cmd_df, context = list(is_by_group = FALSE))
+  }
+
+  # Determine arrange step if needed
+  arrange_call = ""
+  group_vars_r_vec_str = NULL
+  group_vars_list = character(0) # Initialize for use in all_sort_vars
+
+  if (cmd_obj$is_by_prefix) {
+    if (!is.na(cmd_obj$by_group_vars)) {
+      group_vars_list = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
+      group_vars_list = group_vars_list[group_vars_list != ""]
+      group_vars_r_vec_str = paste0('c("', paste0(group_vars_list, collapse='", "'), '")')
+    }
+
+    sort_vars_list = character(0)
+    if (!is.na(cmd_obj$by_sort_vars)) {
+      sort_vars_list = stringi::stri_split_fixed(cmd_obj$by_sort_vars, ",")[[1]]
+      sort_vars_list = sort_vars_list[sort_vars_list != ""]
+    }
+
+    if (length(sort_vars_list) > 0) {
+      all_sort_vars = c(if(length(group_vars_list)>0) group_vars_list else character(0), sort_vars_list)
+      all_sort_vars_str = paste(all_sort_vars, collapse = ", ")
+      arrange_call = paste0("dplyr::arrange(data, ", all_sort_vars_str, ")")
+    }
+  }
+
+  # Step 1: Calculate the value for replacement, potentially conditionally
+  # Ensure logical comparisons are converted to numeric (0/1) to match Stata's default numeric type for logical expressions.
+  is_logical_expr = stringi::stri_detect_regex(stata_expr, "==|!=|~=|<=|>=|<|>|&|\\|")
+  
+  calculated_value_expr = r_expr
+  if (is_logical_expr) {
+    calculated_value_expr = paste0("as.numeric(", r_expr, ")")
+  }
+
+  if (!is.na(r_if_cond) && r_if_cond != "") {
+    calc_expr = paste0("dplyr::if_else(", r_if_cond, ", ", calculated_value_expr, ", data$", var_to_replace, ")")
+  } else {
+    calc_expr = calculated_value_expr
+  }
+
+  # Step 2: Build the R code string using pipes for the mutate operation
+  r_code_lines = c()
+
+  if (arrange_call != "") {
+      r_code_lines = c(r_code_lines, paste0("data = ", arrange_call, " %>%")) # FIX: removed \n
+  } else {
+      r_code_lines = c(r_code_lines, "data = data %>%") # FIX: removed \n
+  }
+
+  if (!is.null(group_vars_r_vec_str) && length(group_vars_list) > 0) {
+      r_code_lines = c(r_code_lines, paste0("  dplyr::group_by(dplyr::across(", group_vars_r_vec_str, ")) %>%")) # FIX: removed \n
+      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", var_to_replace, " = ", calc_expr, ") %>%")) # FIX: removed \n
+      r_code_lines = c(r_code_lines, "  dplyr::ungroup()")
+  } else {
+      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", var_to_replace, " = ", calc_expr, ")"))
+  }
+
+  # Step 3: Apply Stata-like numeric output rounding for precision matching
+  r_code_lines = c(r_code_lines, paste0("data$", var_to_replace, " = sfun_stata_numeric_output_round(data$", var_to_replace, ")"))
+
+  # Step 4: Strip Stata-specific attributes from the modified column
+  r_code_lines = c(r_code_lines, paste0("data$", var_to_replace, " = sfun_strip_stata_attributes(data$", var_to_replace, ")"))
+
+  return(paste(r_code_lines, collapse="\n"))
+}
+```
+!END_CHANGE_FILE R/t_replace.R

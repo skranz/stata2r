@@ -131,6 +131,7 @@ mean_i_grp = mean(i, na.rm = TRUE)
 ) %>%
 
   dplyr::ungroup()
+data$mean_i_grp = sfun_stata_numeric_output_round(data$mean_i_grp)
 data$mean_i_grp = sfun_strip_stata_attributes(data$mean_i_grp) 
 data = data %>%
 
@@ -144,6 +145,8 @@ mean_i_grp = mean(i, na.rm = TRUE)
 
   dplyr::ungroup()
 
+data$mean_i_grp = sfun_stata_numeric_output_round(data$mean_i_grp)
+
 data$mean_i_grp = sfun_strip_stata_attributes(data$mean_i_grp)
 
  11 do:  egen total_i = total(i)
@@ -152,12 +155,15 @@ data$mean_i_grp = sfun_strip_stata_attributes(data$mean_i_grp)
   dplyr::mutate(
 total_i = sum(i, na.rm = TRUE)
 )
+data$total_i = sfun_stata_numeric_output_round(data$total_i)
 data$total_i = sfun_strip_stata_attributes(data$total_i) 
 data = data %>%
 
   dplyr::mutate(
 total_i = sum(i, na.rm = TRUE)
 )
+
+data$total_i = sfun_stata_numeric_output_round(data$total_i)
 
 data$total_i = sfun_strip_stata_attributes(data$total_i)
 
@@ -173,6 +179,7 @@ rank_i = dplyr::min_rank(i)
 ) %>%
 
   dplyr::ungroup()
+data$rank_i = sfun_stata_numeric_output_round(data$rank_i)
 data$rank_i = sfun_strip_stata_attributes(data$rank_i) 
 data = data %>%
 
@@ -185,6 +192,8 @@ rank_i = dplyr::min_rank(i)
 ) %>%
 
   dplyr::ungroup()
+
+data$rank_i = sfun_stata_numeric_output_round(data$rank_i)
 
 data$rank_i = sfun_strip_stata_attributes(data$rank_i)
 
@@ -227,8 +236,7 @@ data = dplyr::filter(data, !(i>35))
  17 do:  collapse (mean) i (sum) total_i_sum = i, by(group)
  17 r:  data = 
 
-data
- %>%
+data %>%
 
   dplyr::group_by(dplyr::across(
 c("group")
@@ -243,11 +251,10 @@ i = mean(i, na.rm = TRUE),
 data$i = sfun_stata_numeric_output_round(data$i)
 data$i = sfun_strip_stata_attributes(data$i)
 data$total_i_sum = sfun_stata_numeric_output_round(data$total_i_sum)
-data$total_i_sum = sfun_strip_stata_attributes(data$total_i_sum) # Options ignored: by(group) 
+data$total_i_sum = sfun_strip_stata_attributes(data$total_i_sum) 
 data = 
 
-data
- %>%
+data %>%
 
   dplyr::group_by(dplyr::across(
 c("group")
@@ -259,34 +266,41 @@ i = mean(i, na.rm = TRUE),
 ) %>%
 
   dplyr::ungroup()
+
 data$i = sfun_stata_numeric_output_round(data$i)
+
 data$i = sfun_strip_stata_attributes(data$i)
+
 data$total_i_sum = sfun_stata_numeric_output_round(data$total_i_sum)
-data$total_i_sum = sfun_strip_stata_attributes(data$total_i_sum) # Options ignored: by(group)
-Error: <text>:4:2: unexpected SPECIAL
-3: data
-4:  %>%
-    ^
-Error executing R code for Stata line  17 :  data = 
 
-data
- %>%
+data$total_i_sum = sfun_strip_stata_attributes(data$total_i_sum)
 
-  dplyr::group_by(dplyr::across(
-c("group")
-)) %>%
+Error: After Stata line  17 , R data set differs from Stata reference.
 
-  dplyr::summarise(
-i = mean(i, na.rm = TRUE),
-  total_i_sum = sum(i, na.rm = TRUE)
-) %>%
+Data set from Stata (do_df):
+tibble [2 × 3] (S3: tbl_df/tbl/data.frame)
+ $ group      : chr [1:2] "A" "B"
+  ..- attr(*, "label")= chr "group"
+  ..- attr(*, "format.stata")= chr "%1s"
+ $ i          : num [1:2] 27 15.5
+ $ total_i_sum: num [1:2] 135 170
+ - attr(*, "label")= chr "Written by R."
+NULL
 
-  dplyr::ungroup()
-data$i = sfun_stata_numeric_output_round(data$i)
-data$i = sfun_strip_stata_attributes(data$i)
-data$total_i_sum = sfun_stata_numeric_output_round(data$total_i_sum)
-data$total_i_sum = sfun_strip_stata_attributes(data$total_i_sum) # Options ignored: by(group)
-Error: <text>:4:2: unexpected SPECIAL
-3: data
-4:  %>%
-    ^ 
+Data set from R (r_df):
+tibble [2 × 3] (S3: tbl_df/tbl/data.frame)
+ $ group      : chr [1:2] "A" "B"
+  ..- attr(*, "label")= chr "group"
+  ..- attr(*, "format.stata")= chr "%1s"
+ $ i          : num [1:2] 27 15.5
+ $ total_i_sum: num [1:2] 27 15.5
+NULL
+
+Differences:List of 2
+ $ identical     : logi FALSE
+ $ value_mismatch:'data.frame':	2 obs. of  4 variables:
+  ..$ row      : int [1:2] 1 2
+  ..$ column   : chr [1:2] "total_i_sum" "total_i_sum"
+  ..$ df1_value: num [1:2] 135 170
+  ..$ df2_value: num [1:2] 27 15.5
+NULL

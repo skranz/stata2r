@@ -1329,13 +1329,13 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   if (!is.null(by_vars_r_vec_str) && length(by_vars_list_unquoted) > 0) {
     r_code_lines = c(r_code_lines,
-                       data_source_for_collapse, " %>%\n",
+                       paste0(data_source_for_collapse, " %>%\n"), # FIX: Ensure pipe is on same line as object
                        "  dplyr::group_by(dplyr::across(", by_vars_r_vec_str, ")) %>%\n", # Changed to dplyr
                        "  dplyr::summarise(", aggregate_exprs_str, ") %>%\n",           # Changed to dplyr
                        "  dplyr::ungroup()")                                             # Changed to dplyr
   } else {
      r_code_lines = c(r_code_lines,
-                       data_source_for_collapse, " %>%\n",
+                       paste0(data_source_for_collapse, " %>%\n"), # FIX: Ensure pipe is on same line as object
                        "  dplyr::summarise(", aggregate_exprs_str, ")")                   # Changed to dplyr
   }
   r_code_lines = c("data = ", r_code_lines) # Assign result back to 'data'
@@ -1349,9 +1349,16 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   r_code_str = paste(r_code_lines, collapse="\n")
 
-  # Add comment about options if any were present but not handled
-  if (!is.na(options_part) && options_part != "") {
-       r_code_str = paste0(r_code_str, paste0(" # Options ignored: ", options_part))
+  # Add comment about options if any were present but not handled (excluding by)
+  options_str_cleaned = options_part
+  if (!is.na(options_str_cleaned)) {
+      options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "\\bby\\s*\\([^)]+\\)", "")
+      options_str_cleaned = stringi::stri_trim_both(stringi::stri_replace_all_regex(options_str_cleaned, ",+", ",")) # Clean up multiple commas
+      options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "^,+", "") # Remove leading comma
+  }
+
+  if (!is.na(options_str_cleaned) && options_str_cleaned != "") {
+       r_code_str = paste0(r_code_str, paste0(" # Other options ignored: ", options_str_cleaned))
   }
 
 
@@ -2149,6 +2156,8 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
                         "  dplyr::mutate(", full_mutate_expr, ")")
   }
 
+  # Apply Stata-like numeric output rounding after mutate
+  r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_stata_numeric_output_round(data$", new_var, ")"))
   # Apply attribute stripping after mutate
   r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_strip_stata_attributes(data$", new_var, ")"))
 
@@ -3677,6 +3686,7 @@ mean_i_grp = mean(i, na.rm = TRUE)
 ) %>%
 
   dplyr::ungroup()
+data$mean_i_grp = sfun_stata_numeric_output_round(data$mean_i_grp)
 data$mean_i_grp = sfun_strip_stata_attributes(data$mean_i_grp) 
 data = data %>%
 
@@ -3690,6 +3700,8 @@ mean_i_grp = mean(i, na.rm = TRUE)
 
   dplyr::ungroup()
 
+data$mean_i_grp = sfun_stata_numeric_output_round(data$mean_i_grp)
+
 data$mean_i_grp = sfun_strip_stata_attributes(data$mean_i_grp)
 
  11 do:  egen total_i = total(i)
@@ -3698,12 +3710,15 @@ data$mean_i_grp = sfun_strip_stata_attributes(data$mean_i_grp)
   dplyr::mutate(
 total_i = sum(i, na.rm = TRUE)
 )
+data$total_i = sfun_stata_numeric_output_round(data$total_i)
 data$total_i = sfun_strip_stata_attributes(data$total_i) 
 data = data %>%
 
   dplyr::mutate(
 total_i = sum(i, na.rm = TRUE)
 )
+
+data$total_i = sfun_stata_numeric_output_round(data$total_i)
 
 data$total_i = sfun_strip_stata_attributes(data$total_i)
 
@@ -3719,6 +3734,7 @@ rank_i = dplyr::min_rank(i)
 ) %>%
 
   dplyr::ungroup()
+data$rank_i = sfun_stata_numeric_output_round(data$rank_i)
 data$rank_i = sfun_strip_stata_attributes(data$rank_i) 
 data = data %>%
 
@@ -3731,6 +3747,8 @@ rank_i = dplyr::min_rank(i)
 ) %>%
 
   dplyr::ungroup()
+
+data$rank_i = sfun_stata_numeric_output_round(data$rank_i)
 
 data$rank_i = sfun_strip_stata_attributes(data$rank_i)
 
@@ -3773,8 +3791,7 @@ data = dplyr::filter(data, !(i>35))
  17 do:  collapse (mean) i (sum) total_i_sum = i, by(group)
  17 r:  data = 
 
-data
- %>%
+data %>%
 
   dplyr::group_by(dplyr::across(
 c("group")
@@ -3789,11 +3806,10 @@ i = mean(i, na.rm = TRUE),
 data$i = sfun_stata_numeric_output_round(data$i)
 data$i = sfun_strip_stata_attributes(data$i)
 data$total_i_sum = sfun_stata_numeric_output_round(data$total_i_sum)
-data$total_i_sum = sfun_strip_stata_attributes(data$total_i_sum) # Options ignored: by(group) 
+data$total_i_sum = sfun_strip_stata_attributes(data$total_i_sum) 
 data = 
 
-data
- %>%
+data %>%
 
   dplyr::group_by(dplyr::across(
 c("group")
@@ -3805,37 +3821,44 @@ i = mean(i, na.rm = TRUE),
 ) %>%
 
   dplyr::ungroup()
+
 data$i = sfun_stata_numeric_output_round(data$i)
+
 data$i = sfun_strip_stata_attributes(data$i)
+
 data$total_i_sum = sfun_stata_numeric_output_round(data$total_i_sum)
-data$total_i_sum = sfun_strip_stata_attributes(data$total_i_sum) # Options ignored: by(group)
-Error: <text>:4:2: unexpected SPECIAL
-3: data
-4:  %>%
-    ^
-Error executing R code for Stata line  17 :  data = 
 
-data
- %>%
+data$total_i_sum = sfun_strip_stata_attributes(data$total_i_sum)
 
-  dplyr::group_by(dplyr::across(
-c("group")
-)) %>%
+Error: After Stata line  17 , R data set differs from Stata reference.
 
-  dplyr::summarise(
-i = mean(i, na.rm = TRUE),
-  total_i_sum = sum(i, na.rm = TRUE)
-) %>%
+Data set from Stata (do_df):
+tibble [2 × 3] (S3: tbl_df/tbl/data.frame)
+ $ group      : chr [1:2] "A" "B"
+  ..- attr(*, "label")= chr "group"
+  ..- attr(*, "format.stata")= chr "%1s"
+ $ i          : num [1:2] 27 15.5
+ $ total_i_sum: num [1:2] 135 170
+ - attr(*, "label")= chr "Written by R."
+NULL
 
-  dplyr::ungroup()
-data$i = sfun_stata_numeric_output_round(data$i)
-data$i = sfun_strip_stata_attributes(data$i)
-data$total_i_sum = sfun_stata_numeric_output_round(data$total_i_sum)
-data$total_i_sum = sfun_strip_stata_attributes(data$total_i_sum) # Options ignored: by(group)
-Error: <text>:4:2: unexpected SPECIAL
-3: data
-4:  %>%
-    ^ 
+Data set from R (r_df):
+tibble [2 × 3] (S3: tbl_df/tbl/data.frame)
+ $ group      : chr [1:2] "A" "B"
+  ..- attr(*, "label")= chr "group"
+  ..- attr(*, "format.stata")= chr "%1s"
+ $ i          : num [1:2] 27 15.5
+ $ total_i_sum: num [1:2] 27 15.5
+NULL
+
+Differences:List of 2
+ $ identical     : logi FALSE
+ $ value_mismatch:'data.frame':	2 obs. of  4 variables:
+  ..$ row      : int [1:2] 1 2
+  ..$ column   : chr [1:2] "total_i_sum" "total_i_sum"
+  ..$ df1_value: num [1:2] 135 170
+  ..$ df2_value: num [1:2] 27 15.5
+NULL
 
 ##############################
 # YOUR TASK
