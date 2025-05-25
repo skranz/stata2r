@@ -246,6 +246,8 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
                         "  dplyr::mutate(", full_mutate_expr, ")")
   }
 
+  # Apply Stata-like numeric output rounding after mutate
+  r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_stata_numeric_output_round(data$", new_var, ")"))
   # Apply attribute stripping after mutate
   r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_strip_stata_attributes(data$", new_var, ")"))
 

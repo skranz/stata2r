@@ -139,13 +139,13 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   if (!is.null(by_vars_r_vec_str) && length(by_vars_list_unquoted) > 0) {
     r_code_lines = c(r_code_lines,
-                       data_source_for_collapse, " %>%\n",
+                       paste0(data_source_for_collapse, " %>%\n"), # FIX: Ensure pipe is on same line as object
                        "  dplyr::group_by(dplyr::across(", by_vars_r_vec_str, ")) %>%\n", # Changed to dplyr
                        "  dplyr::summarise(", aggregate_exprs_str, ") %>%\n",           # Changed to dplyr
                        "  dplyr::ungroup()")                                             # Changed to dplyr
   } else {
      r_code_lines = c(r_code_lines,
-                       data_source_for_collapse, " %>%\n",
+                       paste0(data_source_for_collapse, " %>%\n"), # FIX: Ensure pipe is on same line as object
                        "  dplyr::summarise(", aggregate_exprs_str, ")")                   # Changed to dplyr
   }
   r_code_lines = c("data = ", r_code_lines) # Assign result back to 'data'
@@ -159,9 +159,16 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   r_code_str = paste(r_code_lines, collapse="\n")
 
-  # Add comment about options if any were present but not handled
-  if (!is.na(options_part) && options_part != "") {
-       r_code_str = paste0(r_code_str, paste0(" # Options ignored: ", options_part))
+  # Add comment about options if any were present but not handled (excluding by)
+  options_str_cleaned = options_part
+  if (!is.na(options_str_cleaned)) {
+      options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "\\bby\\s*\\([^)]+\\)", "")
+      options_str_cleaned = stringi::stri_trim_both(stringi::stri_replace_all_regex(options_str_cleaned, ",+", ",")) # Clean up multiple commas
+      options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "^,+", "") # Remove leading comma
+  }
+
+  if (!is.na(options_str_cleaned) && options_str_cleaned != "") {
+       r_code_str = paste0(r_code_str, paste0(" # Other options ignored: ", options_str_cleaned))
   }
 
 
