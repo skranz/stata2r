@@ -204,9 +204,7 @@ data = dplyr::filter(data, flag==1 | group=="B")
 data = dplyr::filter(data, !(i>35))
 
  17 do:  collapse (mean) i (sum) total_i_sum = i, by(group)
- 17 r:  data = 
-
-data %>%
+ 17 r:  data = data %>%
   dplyr::group_by(dplyr::across(
 c("group")
 )) %>%
@@ -219,9 +217,7 @@ data$i = sfun_stata_numeric_output_round(data$i)
 data$i = sfun_strip_stata_attributes(data$i)
 data$total_i_sum = sfun_stata_numeric_output_round(data$total_i_sum)
 data$total_i_sum = sfun_strip_stata_attributes(data$total_i_sum) 
-data = 
-
-data %>%
+data = data %>%
   dplyr::group_by(dplyr::across(
 c("group")
 )) %>%
