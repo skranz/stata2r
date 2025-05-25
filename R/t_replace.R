@@ -47,11 +47,18 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
 
   # Step 1: Calculate the value for replacement, potentially conditionally
-  # Do not strip attributes here, let mutate propagate them, then strip from the final column
+  # Ensure logical comparisons are converted to numeric (0/1) to match Stata's default numeric type for logical expressions.
+  is_logical_expr = stringi::stri_detect_regex(stata_expr, "==|!=|~=|<=|>=|<|>|&|\\|")
+  
+  calculated_value_expr = r_expr
+  if (is_logical_expr) {
+    calculated_value_expr = paste0("as.numeric(", r_expr, ")")
+  }
+
   if (!is.na(r_if_cond) && r_if_cond != "") {
-    calc_expr = paste0("dplyr::if_else(", r_if_cond, ", ", r_expr, ", ", var_to_replace, ")")
+    calc_expr = paste0("dplyr::if_else(", r_if_cond, ", ", calculated_value_expr, ", data$", var_to_replace, ")")
   } else {
-    calc_expr = r_expr
+    calc_expr = calculated_value_expr
   }
 
   # Step 2: Build the R code string using pipes for the mutate operation

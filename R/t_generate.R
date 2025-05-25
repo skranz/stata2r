@@ -54,11 +54,20 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
 
   # Step 1: Calculate the value for the new variable, potentially conditionally
-  # Do not strip attributes here, let mutate propagate them, then strip from the final column
+  # Ensure logical comparisons are converted to numeric (0/1) to match Stata's default numeric type for logical expressions.
+  # Heuristic: if stata_expr contains common logical/comparison operators, it's likely a logical expression
+  # that Stata would store as 0/1.
+  is_logical_expr = stringi::stri_detect_regex(stata_expr, "==|!=|~=|<=|>=|<|>|&|\\|")
+  
+  calculated_value_expr = r_expr
+  if (is_logical_expr) {
+    calculated_value_expr = paste0("as.numeric(", r_expr, ")")
+  }
+
   if (!is.na(r_if_cond) && r_if_cond != "") {
-    calc_expr = paste0("dplyr::if_else(", r_if_cond, ", ", r_expr, ", NA)")
+    calc_expr = paste0("dplyr::if_else(", r_if_cond, ", ", calculated_value_expr, ", NA_real_)") # Use NA_real_ to force numeric type
   } else {
-    calc_expr = r_expr
+    calc_expr = calculated_value_expr
   }
   
   # Step 2: Build the R code string using pipes for the mutate operation
