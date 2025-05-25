@@ -97,6 +97,11 @@ preverse or restore can generate other data sets. Think of a suitable name.
 
 - Use `=` instead of `<-` as assignment operator.
 
+- Small numerical differences to Stata are ok. Don't round your R results to make R
+  and Stata results equal.
+
+- Never hack your solution in a way that cannot be generalized to other test data sets.
+
 # Format of your response
 
 Your output format shall be like the following example (the example begins and end with *** lines)

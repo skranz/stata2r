@@ -19,7 +19,7 @@ example = function() {
   }
 
   # Run with Gemini
-  for (i in 1:10) {
+  for (i in 1:4) {
     library(aicoder)
     main_dir = "~/aicoder"
     files = paste0(main_dir, "/stata2r/R/",  c("aic_stata2r.R", "aic_do_test.R","aic_stata_ex.R"))
@@ -92,6 +92,11 @@ aic_make_prompt_stata2r = function(aic) {
 As shown further above, the current code base has failed some tests.
 Thus your main task now is to correct the current code base.
 Other modifications can be performed once all tests pass correctly.
+
+But note:
+- Don't program hacks that would only work for this particular test cases. Write general translation functions that also work also for other test data sets and other do scripts.
+- Small rounding errors between R and Stata results are ok, don't try to solve it
+by generally rounding your R results.
 ")
   }
   cfg$task = task

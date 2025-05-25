@@ -1,3 +1,6 @@
+# AI generated this function and calls it now everywhere
+# in the translated R code...
+
 sfun_stata_numeric_output_round = function(x) {
   # Apply to numeric vectors only
   if (!is.numeric(x)) return(x)

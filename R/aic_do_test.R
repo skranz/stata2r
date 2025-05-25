@@ -55,26 +55,33 @@ aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="") {
 
   r_li = vector("list", NROW(cmd_df))
 
-  cat("\n---\n#Translate to R commands\n")
+  cat("\n---\n#Translate Stata to R commands... ")
   i = 1
+  trans_txt = NULL
   for (i in seq_along(r_li)) {
     #cat("\n", i,"of", length(r_li), "translate", cmd_df$do_code[[i]],"\n")
-    cat("\ndo: ", cmd_df$do_code[[i]],"\n")
     cmd_obj = cmd_df[i,]
-    r_obj = do_cmd_to_r(cmd_obj=cmd_obj,line=i, cmd_df=cmd_df)
-    #print(str(r_obj))
-    if (isTRUE(cmd_df$do_translate[i])) {
+    r_obj = try(do_cmd_to_r(cmd_obj=cmd_obj,line=i, cmd_df=cmd_df), silent=TRUE)
+    if (is(r_obj,"try-error")) {
+      cat(paste0("\nError when creating translated code in for line ", i,"\n"))
+      cat("\ndo: ", cmd_df$do_code[[i]],"\n")
       cat("R: ", r_obj$r_code,"\n")
-    } else {
-      cat("  no data manipulation command\n")
+      cat(as.character(r_obj))
     }
+    #print(str(r_obj))
+    # if (isTRUE(cmd_df$do_translate[i])) {
+    #   cat("R: ", r_obj$r_code,"\n")
+    # } else {
+    #   cat("  no data manipulation command\n")
+    # }
     r_li[[i]] = r_obj # Ensure r_li is always populated, even if command is not translated
   }
   r_df = bind_rows(r_li)
+  cat("... translation done.")
 
   env = new.env(parent=globalenv())
 
-  cat("\n---\n# Run R commands and check generated data sets\n\n")
+  cat("\n---\n# Run translated R commands and compare results\n\n")
   i_df_loop = 1
   log_str = NULL
   for (i_df_loop in seq_len(NROW(r_df))) {
@@ -84,12 +91,15 @@ aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="") {
 
     # If r_code is NA_character_ (meaning it was not translated/skipped), use a no-op R code
     if (is.na(r_code)) {
-      cat("\n", original_stata_line_num, ": Skipping non-data manipulation command: ", do_code_original, "\n")
-      r_code = "# No-op: Data unchanged from previous step by this command."
+      cat("\n", original_stata_line_num, "do: ", do_code_original, "\n")
+      cat("\n", original_stata_line_num, "r:  not translated since not flagged as data manipulation\n")
+      r_code = "# not translated since not flagged as data manipulation"
+      next
     }
 
     res = aicoder::run_with_log(code_str=r_code, env=env)
-    cat("\n", original_stata_line_num, "R: ", r_code, "\n") # Print R code being run
+    cat("\n", original_stata_line_num,"do: ", do_code_original)
+    cat("\n", original_stata_line_num, "r: ", r_code, "\n") # Print R code being run
     cat(res$log) # Print execution log
 
     if (res$has_error) {
@@ -101,7 +111,7 @@ aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="") {
     if (!is.null(r_data)) {
       dat_file = file.path(data_dir, paste0(data_prefix, original_stata_line_num, ".dta")) # Use original line number for comparison
       do_data = haven::read_dta(dat_file)
-      
+
       # Apply Stata-like rounding to numeric columns of do_data for comparison
       # This mimics the output precision of Stata's default 'float' type and display.
       for (col_name in names(do_data)) {
@@ -110,13 +120,13 @@ aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="") {
         }
       }
 
-      comp = compare_df(r_data, do_data)
+      comp = compare_df(do_data, r_data)
       if (!comp$identical) {
         cat("\nError: After Stata line ", original_stata_line_num, ", R data set differs from Stata reference.\n")
-        cat("\nR data set:\n")
-        print(str(r_data))
-        cat("\nStata version:\n")
+        cat("\nData set from Stata (do_df):\n")
         print(str(do_data))
+        cat("\nData set from R (r_df):\n")
+        print(str(r_data))
         cat("\nDifferences:")
         print(str(comp))
         return(FALSE)
@@ -153,11 +163,11 @@ out_and_err_txt = function(out, err=NULL) {
 }
 
 compare_df = function(df1, df2,
-                      tol = .Machine$double.eps^0.5,  # numeric tolerance
+                      tol = 1e-5,  # numeric tolerance
                       ignore_col_order = FALSE,
                       ignore_row_order = FALSE,
                       sample_n_diff = 5) {            # max rows to show per column
-
+  restore.point("compare_df")
   # ---- basic structure checks ----
   if (!is.data.frame(df1) || !is.data.frame(df2))
     stop("Both inputs must be data frames.")
@@ -179,20 +189,25 @@ compare_df = function(df1, df2,
   if (nrow(df1) != nrow(df2))
     out$row_count = c(df1 = nrow(df1), df2 = nrow(df2))
 
-  missing_in_df1 = setdiff(names(df2), names(df1))
-  missing_in_df2 = setdiff(names(df1), names(df2))
-  if (length(missing_in_df1) + length(missing_in_df2) > 0)
-    out$column_mismatch = list(missing_in_df1 = missing_in_df1,
-                               missing_in_df2 = missing_in_df2)
+  missing_in_do_df = setdiff(names(df2), names(df1))
+  missing_in_r_df = setdiff(names(df1), names(df2))
+  if (length(missing_in_do_df) + length(missing_in_r_df) > 0)
+    out$column_mismatch = list(missing_in_do_df = missing_in_do_df,
+                               missing_in_r_df = missing_in_r_df)
 
   common_cols = intersect(names(df1), names(df2))
 
   # ---- class / type mismatches ----
   type_df = data.frame(col = common_cols,
-                       class_df1 = vapply(df1[common_cols], class, character(1)),
-                       class_df2 = vapply(df2[common_cols], class, character(1)),
+                       class_do_df = vapply(df1[common_cols], class, character(1)),
+                       class_r_df = vapply(df2[common_cols], class, character(1)),
                        stringsAsFactors = FALSE)
-  type_diff = type_df[type_df$class_df1 != type_df$class_df2, ]
+  type_diff = type_df[type_df$class_do_df != type_df$class_r_df, ]
+
+  # ignore integer and numeric
+  type_diff = type_diff[! (type_diff$class_do_df %in% c("integer", "numeric") &  type_diff$class_r_df %in% c("integer", "numeric")),]
+
+
   if (nrow(type_diff) > 0)
     out$type_mismatch = type_diff
 
