@@ -57,20 +57,14 @@ data = dplyr::slice(data, 1:39)
 
  6 do:  by group: gen seq = _n
  6 r:  data = data %>%
-
   dplyr::group_by(dplyr::across(c("group"))) %>%
-
   dplyr::mutate(seq = as.numeric(dplyr::row_number())) %>%
-
   dplyr::ungroup()
 data$seq = sfun_stata_numeric_output_round(data$seq)
 data$seq = sfun_strip_stata_attributes(data$seq) 
 data = data %>%
-
   dplyr::group_by(dplyr::across(c("group"))) %>%
-
   dplyr::mutate(seq = as.numeric(dplyr::row_number())) %>%
-
   dplyr::ungroup()
 
 data$seq = sfun_stata_numeric_output_round(data$seq)
@@ -79,12 +73,10 @@ data$seq = sfun_strip_stata_attributes(data$seq)
 
  7 do:  gen logi = log(i)
  7 r:  data = data %>%
-
   dplyr::mutate(logi = log(i))
 data$logi = sfun_stata_numeric_output_round(data$logi)
 data$logi = sfun_strip_stata_attributes(data$logi) 
 data = data %>%
-
   dplyr::mutate(logi = log(i))
 
 data$logi = sfun_stata_numeric_output_round(data$logi)
@@ -93,12 +85,10 @@ data$logi = sfun_strip_stata_attributes(data$logi)
 
  8 do:  gen sqrt_i = sqrt(i)
  8 r:  data = data %>%
-
   dplyr::mutate(sqrt_i = sqrt(i))
 data$sqrt_i = sfun_stata_numeric_output_round(data$sqrt_i)
 data$sqrt_i = sfun_strip_stata_attributes(data$sqrt_i) 
 data = data %>%
-
   dplyr::mutate(sqrt_i = sqrt(i))
 
 data$sqrt_i = sfun_stata_numeric_output_round(data$sqrt_i)
@@ -107,12 +97,10 @@ data$sqrt_i = sfun_strip_stata_attributes(data$sqrt_i)
 
  9 do:  gen group_num = cond(group=="A",1,cond(group=="B",2,3))
  9 r:  data = data %>%
-
   dplyr::mutate(group_num = as.numeric(dplyr::if_else(group=="A", 1, dplyr::if_else(group=="B", 2, 3))))
 data$group_num = sfun_stata_numeric_output_round(data$group_num)
 data$group_num = sfun_strip_stata_attributes(data$group_num) 
 data = data %>%
-
   dplyr::mutate(group_num = as.numeric(dplyr::if_else(group=="A", 1, dplyr::if_else(group=="B", 2, 3))))
 
 data$group_num = sfun_stata_numeric_output_round(data$group_num)
@@ -121,28 +109,22 @@ data$group_num = sfun_strip_stata_attributes(data$group_num)
 
  10 do:  egen mean_i_grp = mean(i), by(group)
  10 r:  data = data %>%
-
   dplyr::group_by(dplyr::across(
 c("group")
 )) %>%
-
   dplyr::mutate(
 mean_i_grp = mean(i, na.rm = TRUE)
 ) %>%
-
   dplyr::ungroup()
 data$mean_i_grp = sfun_stata_numeric_output_round(data$mean_i_grp)
 data$mean_i_grp = sfun_strip_stata_attributes(data$mean_i_grp) 
 data = data %>%
-
   dplyr::group_by(dplyr::across(
 c("group")
 )) %>%
-
   dplyr::mutate(
 mean_i_grp = mean(i, na.rm = TRUE)
 ) %>%
-
   dplyr::ungroup()
 
 data$mean_i_grp = sfun_stata_numeric_output_round(data$mean_i_grp)
@@ -151,14 +133,12 @@ data$mean_i_grp = sfun_strip_stata_attributes(data$mean_i_grp)
 
  11 do:  egen total_i = total(i)
  11 r:  data = data %>%
-
   dplyr::mutate(
 total_i = sum(i, na.rm = TRUE)
 )
 data$total_i = sfun_stata_numeric_output_round(data$total_i)
 data$total_i = sfun_strip_stata_attributes(data$total_i) 
 data = data %>%
-
   dplyr::mutate(
 total_i = sum(i, na.rm = TRUE)
 )
@@ -169,28 +149,22 @@ data$total_i = sfun_strip_stata_attributes(data$total_i)
 
  12 do:  bysort group: egen rank_i = rank(i)
  12 r:  data = data %>%
-
   dplyr::group_by(dplyr::across(
 c("group")
 )) %>%
-
   dplyr::mutate(
 rank_i = dplyr::min_rank(i)
 ) %>%
-
   dplyr::ungroup()
 data$rank_i = sfun_stata_numeric_output_round(data$rank_i)
 data$rank_i = sfun_strip_stata_attributes(data$rank_i) 
 data = data %>%
-
   dplyr::group_by(dplyr::across(
 c("group")
 )) %>%
-
   dplyr::mutate(
 rank_i = dplyr::min_rank(i)
 ) %>%
-
   dplyr::ungroup()
 
 data$rank_i = sfun_stata_numeric_output_round(data$rank_i)
@@ -199,12 +173,10 @@ data$rank_i = sfun_strip_stata_attributes(data$rank_i)
 
  13 do:  gen flag = (i>20) if group=="A"
  13 r:  data = data %>%
-
   dplyr::mutate(flag = dplyr::if_else(group=="A", as.numeric((i>20)), NA_real_))
 data$flag = sfun_stata_numeric_output_round(data$flag)
 data$flag = sfun_strip_stata_attributes(data$flag) 
 data = data %>%
-
   dplyr::mutate(flag = dplyr::if_else(group=="A", as.numeric((i>20)), NA_real_))
 
 data$flag = sfun_stata_numeric_output_round(data$flag)
@@ -213,12 +185,10 @@ data$flag = sfun_strip_stata_attributes(data$flag)
 
  14 do:  replace flag = 0 if missing(flag)
  14 r:  data = data %>%
-
   dplyr::mutate(flag = dplyr::if_else(is.na(flag), 0, data$flag))
 data$flag = sfun_stata_numeric_output_round(data$flag)
 data$flag = sfun_strip_stata_attributes(data$flag) 
 data = data %>%
-
   dplyr::mutate(flag = dplyr::if_else(is.na(flag), 0, data$flag))
 
 data$flag = sfun_stata_numeric_output_round(data$flag)
@@ -237,16 +207,13 @@ data = dplyr::filter(data, !(i>35))
  17 r:  data = 
 
 data %>%
-
   dplyr::group_by(dplyr::across(
 c("group")
 )) %>%
-
   dplyr::summarise(
-i = mean(i, na.rm = TRUE),
-  total_i_sum = sum(i, na.rm = TRUE)
+i = mean(.data$i, na.rm = TRUE),
+  total_i_sum = sum(.data$i, na.rm = TRUE)
 ) %>%
-
   dplyr::ungroup()
 data$i = sfun_stata_numeric_output_round(data$i)
 data$i = sfun_strip_stata_attributes(data$i)
@@ -255,16 +222,13 @@ data$total_i_sum = sfun_strip_stata_attributes(data$total_i_sum)
 data = 
 
 data %>%
-
   dplyr::group_by(dplyr::across(
 c("group")
 )) %>%
-
   dplyr::summarise(
-i = mean(i, na.rm = TRUE),
-  total_i_sum = sum(i, na.rm = TRUE)
+i = mean(.data$i, na.rm = TRUE),
+  total_i_sum = sum(.data$i, na.rm = TRUE)
 ) %>%
-
   dplyr::ungroup()
 
 data$i = sfun_stata_numeric_output_round(data$i)
