@@ -94,8 +94,11 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     new_vars_created[j] = actual_stata_target_var_name # Store new var name
 
     # Translate actual Stata source variable name
-    r_source_var = translate_stata_expression_with_r_values(actual_stata_source_var_name, cmd_obj$line, cmd_df, context) # Use cmd_obj$line
-     if (is.na(r_source_var) || r_source_var == "") {
+    # FIX: Use .data$ to refer to original column for summarise to prevent sequential evaluation issues
+    r_source_var_bare = translate_stata_expression_with_r_values(actual_stata_source_var_name, cmd_obj$line, cmd_df, context) # Use cmd_obj$line
+    r_source_var = paste0(".data$", r_source_var_bare)
+
+    if (is.na(r_source_var_bare) || r_source_var_bare == "") {
          return(paste0("# Failed to translate source variable '", actual_stata_source_var_name, "' for collapse stat '", stat_from_regex, "'"))
      }
 
@@ -139,13 +142,13 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   if (!is.null(by_vars_r_vec_str) && length(by_vars_list_unquoted) > 0) {
     r_code_lines = c(r_code_lines,
-                       paste0(data_source_for_collapse, " %>%\n"), # FIX: Ensure pipe is on same line as object
-                       "  dplyr::group_by(dplyr::across(", by_vars_r_vec_str, ")) %>%\n", # Changed to dplyr
-                       "  dplyr::summarise(", aggregate_exprs_str, ") %>%\n",           # Changed to dplyr
+                       paste0(data_source_for_collapse, " %>%"), # FIX: Ensure pipe is on same line as object
+                       "  dplyr::group_by(dplyr::across(", by_vars_r_vec_str, ")) %>%", # Changed to dplyr
+                       "  dplyr::summarise(", aggregate_exprs_str, ") %>%",           # Changed to dplyr
                        "  dplyr::ungroup()")                                             # Changed to dplyr
   } else {
      r_code_lines = c(r_code_lines,
-                       paste0(data_source_for_collapse, " %>%\n"), # FIX: Ensure pipe is on same line as object
+                       paste0(data_source_for_collapse, " %>%"), # FIX: Ensure pipe is on same line as object
                        "  dplyr::summarise(", aggregate_exprs_str, ")")                   # Changed to dplyr
   }
   r_code_lines = c("data = ", r_code_lines) # Assign result back to 'data'

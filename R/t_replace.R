@@ -65,14 +65,14 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   r_code_lines = c()
 
   if (arrange_call != "") {
-      r_code_lines = c(r_code_lines, paste0("data = ", arrange_call, " %>%\n"))
+      r_code_lines = c(r_code_lines, paste0("data = ", arrange_call, " %>%")) # FIX: removed \n
   } else {
-      r_code_lines = c(r_code_lines, "data = data %>%\n")
+      r_code_lines = c(r_code_lines, "data = data %>%") # FIX: removed \n
   }
 
   if (!is.null(group_vars_r_vec_str) && length(group_vars_list) > 0) {
-      r_code_lines = c(r_code_lines, paste0("  dplyr::group_by(dplyr::across(", group_vars_r_vec_str, ")) %>%\n"))
-      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", var_to_replace, " = ", calc_expr, ") %>%\n"))
+      r_code_lines = c(r_code_lines, paste0("  dplyr::group_by(dplyr::across(", group_vars_r_vec_str, ")) %>%")) # FIX: removed \n
+      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", var_to_replace, " = ", calc_expr, ") %>%")) # FIX: removed \n
       r_code_lines = c(r_code_lines, "  dplyr::ungroup()")
   } else {
       r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", var_to_replace, " = ", calc_expr, ")"))

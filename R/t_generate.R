@@ -75,15 +75,15 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Start with data or data after arrange, and add the first pipe
   if (arrange_call != "") {
-      r_code_lines = c(r_code_lines, paste0("data = ", arrange_call, " %>%\n"))
+      r_code_lines = c(r_code_lines, paste0("data = ", arrange_call, " %>%")) # FIX: removed \n
   } else {
-      r_code_lines = c(r_code_lines, "data = data %>%\n")
+      r_code_lines = c(r_code_lines, "data = data %>%") # FIX: removed \n
   }
 
   # Add grouping and mutate steps
   if (!is.null(group_vars_r_vec_str) && length(group_vars_list) > 0) {
-      r_code_lines = c(r_code_lines, paste0("  dplyr::group_by(dplyr::across(", group_vars_r_vec_str, ")) %>%\n"))
-      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", new_var, " = ", calc_expr, ") %>%\n"))
+      r_code_lines = c(r_code_lines, paste0("  dplyr::group_by(dplyr::across(", group_vars_r_vec_str, ")) %>%")) # FIX: removed \n
+      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", new_var, " = ", calc_expr, ") %>%")) # FIX: removed \n
       r_code_lines = c(r_code_lines, "  dplyr::ungroup()")
   } else {
       # If not grouped, just add the mutate step directly to the pipe chain
