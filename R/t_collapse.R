@@ -60,7 +60,7 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Translate the if/in condition for subsetting *before* collapse
   r_subset_cond = NA_character_
   data_source_for_collapse = "data"
-  r_code_prefix = "" # Code to create subset if needed
+  r_code_lines = c() # Store all lines for final R code
 
   if (!is.na(stata_if_in_cond) && stata_if_in_cond != "") {
       r_subset_cond = translate_stata_expression_with_r_values(stata_if_in_cond, cmd_obj$line, cmd_df, context = list(is_by_group = FALSE)) # Use cmd_obj$line
@@ -68,7 +68,7 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
            return(paste0("# Failed to translate if/in condition for collapse: ", stata_if_in_cond))
       }
       data_subset_varname = paste0("data_subset_L", cmd_obj$line)
-      r_code_prefix = paste0(data_subset_varname, " = dplyr::filter(data, ", r_subset_cond, ")\n") # Changed to dplyr::filter
+      r_code_lines = c(r_code_lines, paste0(data_subset_varname, " = dplyr::filter(data, ", r_subset_cond, ")")) # Changed to dplyr::filter
       data_source_for_collapse = data_subset_varname
   }
 
@@ -137,21 +137,20 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Combine aggregate expressions
   aggregate_exprs_str = paste(aggregate_exprs, collapse = ",\n  ")
 
-  # Build the final R code
-  r_code_lines = c(r_code_prefix) # Add subsetting code if any
-
+  # Build the main data manipulation pipe
+  main_pipe_lines = c(paste0(data_source_for_collapse, " %>%"))
   if (!is.null(by_vars_r_vec_str) && length(by_vars_list_unquoted) > 0) {
-    r_code_lines = c(r_code_lines,
-                       paste0(data_source_for_collapse, " %>%"), # FIX: Ensure pipe is on same line as object
-                       "  dplyr::group_by(dplyr::across(", by_vars_r_vec_str, ")) %>%", # Changed to dplyr
-                       "  dplyr::summarise(", aggregate_exprs_str, ") %>%",           # Changed to dplyr
-                       "  dplyr::ungroup()")                                             # Changed to dplyr
+    main_pipe_lines = c(main_pipe_lines,
+                       "  dplyr::group_by(dplyr::across(", by_vars_r_vec_str, ")) %>%",
+                       "  dplyr::summarise(", aggregate_exprs_str, ") %>%",
+                       "  dplyr::ungroup()")
   } else {
-     r_code_lines = c(r_code_lines,
-                       paste0(data_source_for_collapse, " %>%"), # FIX: Ensure pipe is on same line as object
-                       "  dplyr::summarise(", aggregate_exprs_str, ")")                   # Changed to dplyr
+     main_pipe_lines = c(main_pipe_lines,
+                       "  dplyr::summarise(", aggregate_exprs_str, ")")
   }
-  r_code_lines = c("data = ", r_code_lines) # Assign result back to 'data'
+  # Assign the result of the pipe to 'data'
+  r_code_lines = c(r_code_lines, paste0("data = ", paste(main_pipe_lines, collapse = "\n")))
+
 
   # Apply Stata-like numeric output rounding and attribute stripping for newly created variables
   for (new_var in new_vars_created) {
@@ -177,4 +176,5 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
+
 
