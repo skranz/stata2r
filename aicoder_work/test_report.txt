@@ -493,10 +493,10 @@ data$random_uniform_draw = sfun_strip_stata_attributes(data$random_uniform_draw)
 
  7 do:  generate id_plus_value2 = id + value2 if value2 < 7 & !missing(value2)
  7 r:  data = data %>%
-  dplyr::mutate(id_plus_value2 = dplyr::if_else(value2 < 7 & !is.na(value2), id + value2, NA_real_))
+  dplyr::mutate(id_plus_value2 = dplyr::if_else(value2 < 7 & !is.na(value2), sfun_stata_add(id, value2), NA_real_))
 data$id_plus_value2 = sfun_strip_stata_attributes(data$id_plus_value2) 
 data = data %>%
-  dplyr::mutate(id_plus_value2 = dplyr::if_else(value2 < 7 & !is.na(value2), id + value2, NA_real_))
+  dplyr::mutate(id_plus_value2 = dplyr::if_else(value2 < 7 & !is.na(value2), sfun_stata_add(id, value2), NA_real_))
 
 data$id_plus_value2 = sfun_strip_stata_attributes(data$id_plus_value2)
 
@@ -547,27 +547,27 @@ data$group_abbr = sfun_strip_stata_attributes(data$group_abbr)
 
  13 do:  gen contact_info = group_clean + ":" + num_str
  13 r:  data = data %>%
-  dplyr::mutate(contact_info = group_clean + ":" + num_str)
+  dplyr::mutate(contact_info = sfun_stata_add(group_clean, sfun_stata_add(":"), num_str))
 data$contact_info = sfun_strip_stata_attributes(data$contact_info) 
 data = data %>%
-  dplyr::mutate(contact_info = group_clean + ":" + num_str)
+  dplyr::mutate(contact_info = sfun_stata_add(group_clean, sfun_stata_add(":"), num_str))
 
 Error: Problem with `mutate()` column `contact_info`.
-ℹ `contact_info = group_clean + ":" + num_str`.
-✖ non-numeric argument to binary operator
-Caused by error in `group_clean + ":"`:
-! non-numeric argument to binary operator
+ℹ `contact_info = sfun_stata_add(group_clean, sfun_stata_add(":"), num_str)`.
+✖ unused argument (num_str)
+Caused by error in `sfun_stata_add()`:
+! unused argument (num_str)
 data$contact_info = sfun_strip_stata_attributes(data$contact_info)
 
 Warning: Unknown or uninitialised column: `contact_info`.
 Error executing R code for Stata line  13 :  data = data %>%
-  dplyr::mutate(contact_info = group_clean + ":" + num_str)
+  dplyr::mutate(contact_info = sfun_stata_add(group_clean, sfun_stata_add(":"), num_str))
 
 Error: Problem with `mutate()` column `contact_info`.
-ℹ `contact_info = group_clean + ":" + num_str`.
-✖ non-numeric argument to binary operator
-Caused by error in `group_clean + ":"`:
-! non-numeric argument to binary operator
+ℹ `contact_info = sfun_stata_add(group_clean, sfun_stata_add(":"), num_str)`.
+✖ unused argument (num_str)
+Caused by error in `sfun_stata_add()`:
+! unused argument (num_str)
 data$contact_info = sfun_strip_stata_attributes(data$contact_info)
 
 Warning: Unknown or uninitialised column: `contact_info`. 

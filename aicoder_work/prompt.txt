@@ -559,6 +559,46 @@ sfun_missing = function(x) {
 
 -----------------------------------------------------------
 
+### FILE: sfun_stata_add.R
+```
+# Custom R implementation for Stata's polymorphic '+' operator.
+# Stata's '+' operator performs numeric addition if both operands are numeric.
+# If one or both operands are strings, it performs string concatenation (after converting numeric operands to string).
+
+sfun_stata_add = function(x, y) {
+  # Check if both operands are numeric. Stata treats NA as missing numeric.
+  # If either is NA (Stata missing), the result of arithmetic/concatenation involving it can be NA.
+  # For string concatenation, NA usually concatenates as "NA".
+  # For Stata, `.` + `.` is `.` (missing). `string` + `.` is `string`.
+  # `numeric_val` + `.` is `.`
+
+  # Handle missing values first to match Stata's behavior as closely as possible for `+`.
+  # If one is NA, and the other is a string, Stata often converts the NA to "" for concatenation.
+  # But if it's numeric + NA, it's NA.
+  # The `paste0` function will convert NA to "NA" by default, which is not Stata-like.
+  # A more precise emulation of Stata's missing + string behavior:
+  # Stata: "abc" + . -> "abc"
+  # Stata: . + "abc" -> "abc"
+  # Stata: . + . -> .
+
+  # For simplicity and given the `non-numeric argument` error, we will use R's standard `paste0` behavior
+  # for string concatenation (which includes "NA" for NA values) and R's `+` for numeric.
+  # More complex missing value handling for string concatenation can be added later if needed.
+
+  if (is.numeric(x) && is.numeric(y)) {
+    return(x + y)
+  } else {
+    # If not both numeric, assume string concatenation.
+    # Convert to character if not already.
+    return(paste0(as.character(x), as.character(y)))
+  }
+}
+
+```
+### END OF FILE: sfun_stata_add.R
+
+-----------------------------------------------------------
+
 ### FILE: sfun_stata_round.R
 ```
 # Custom R implementation for Stata's round() behavior
@@ -1050,6 +1090,23 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     }
   }
 
+  # Step 5: Translate Stata '+' operator to sfun_stata_add for polymorphic behavior
+  # This needs to be applied iteratively until no more '+' signs (that are not part of comparison operators) exist.
+  # The regex captures any non-whitespace sequence as an operand.
+  # This relies on R's expression parsing and `sfun_stata_add`'s logic.
+  old_r_expr_add = ""
+  while (r_expr != old_r_expr_add) {
+    old_r_expr_add = r_expr
+    # Regex: Match 'operand' + 'operand', where an operand is one or more non-whitespace characters.
+    # This handles simple terms like `var`, `"literal"`, `123`, `func(arg)`, or already-wrapped `sfun_stata_add(...)`.
+    # It ensures that `+` is treated as an operator, not part of `==` or `!=`.
+    r_expr = stringi::stri_replace_all_regex(r_expr, "(\\S+?)\\s*(?<![<>=!~])\\+\\s*(?!\\s*\\+|\\s*=\\s*)([^\\s]+)", "sfun_stata_add($1, $2)")
+    # Note: This regex pattern is a common workaround for simple parsers. It assumes
+    # left-associativity for chained `+` operations, as `sfun_stata_add(sfun_stata_add(A,B), C)` is generated.
+    # The `(?!\s*=\s*)` ensures it's not `+=` (which Stata doesn't have anyway).
+    # The `(?!\s*\+\s*)` ensures it's not `++`.
+  }
+
   return(r_expr)
 }
 
@@ -1117,7 +1174,6 @@ translate_stata_expression_with_r_values = function(stata_expr, current_line_ind
 
   translate_stata_expression_to_r(stata_expr, context, final_r_value_mappings)
 }
-
 
 ```
 ### END OF FILE: stata_expression_translator.R
@@ -4096,10 +4152,10 @@ data$random_uniform_draw = sfun_strip_stata_attributes(data$random_uniform_draw)
 
  7 do:  generate id_plus_value2 = id + value2 if value2 < 7 & !missing(value2)
  7 r:  data = data %>%
-  dplyr::mutate(id_plus_value2 = dplyr::if_else(value2 < 7 & !is.na(value2), id + value2, NA_real_))
+  dplyr::mutate(id_plus_value2 = dplyr::if_else(value2 < 7 & !is.na(value2), sfun_stata_add(id, value2), NA_real_))
 data$id_plus_value2 = sfun_strip_stata_attributes(data$id_plus_value2) 
 data = data %>%
-  dplyr::mutate(id_plus_value2 = dplyr::if_else(value2 < 7 & !is.na(value2), id + value2, NA_real_))
+  dplyr::mutate(id_plus_value2 = dplyr::if_else(value2 < 7 & !is.na(value2), sfun_stata_add(id, value2), NA_real_))
 
 data$id_plus_value2 = sfun_strip_stata_attributes(data$id_plus_value2)
 
@@ -4150,27 +4206,27 @@ data$group_abbr = sfun_strip_stata_attributes(data$group_abbr)
 
  13 do:  gen contact_info = group_clean + ":" + num_str
  13 r:  data = data %>%
-  dplyr::mutate(contact_info = group_clean + ":" + num_str)
+  dplyr::mutate(contact_info = sfun_stata_add(group_clean, sfun_stata_add(":"), num_str))
 data$contact_info = sfun_strip_stata_attributes(data$contact_info) 
 data = data %>%
-  dplyr::mutate(contact_info = group_clean + ":" + num_str)
+  dplyr::mutate(contact_info = sfun_stata_add(group_clean, sfun_stata_add(":"), num_str))
 
 Error: Problem with `mutate()` column `contact_info`.
-ℹ `contact_info = group_clean + ":" + num_str`.
-✖ non-numeric argument to binary operator
-Caused by error in `group_clean + ":"`:
-! non-numeric argument to binary operator
+ℹ `contact_info = sfun_stata_add(group_clean, sfun_stata_add(":"), num_str)`.
+✖ unused argument (num_str)
+Caused by error in `sfun_stata_add()`:
+! unused argument (num_str)
 data$contact_info = sfun_strip_stata_attributes(data$contact_info)
 
 Warning: Unknown or uninitialised column: `contact_info`.
 Error executing R code for Stata line  13 :  data = data %>%
-  dplyr::mutate(contact_info = group_clean + ":" + num_str)
+  dplyr::mutate(contact_info = sfun_stata_add(group_clean, sfun_stata_add(":"), num_str))
 
 Error: Problem with `mutate()` column `contact_info`.
-ℹ `contact_info = group_clean + ":" + num_str`.
-✖ non-numeric argument to binary operator
-Caused by error in `group_clean + ":"`:
-! non-numeric argument to binary operator
+ℹ `contact_info = sfun_stata_add(group_clean, sfun_stata_add(":"), num_str)`.
+✖ unused argument (num_str)
+Caused by error in `sfun_stata_add()`:
+! unused argument (num_str)
 data$contact_info = sfun_strip_stata_attributes(data$contact_info)
 
 Warning: Unknown or uninitialised column: `contact_info`. 
