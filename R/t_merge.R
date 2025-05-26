@@ -51,10 +51,11 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
 
   # Determine join type based on Stata's `keep()` option or default behavior
-  join_type_r_func = "dplyr::inner_join" # Stata's default is inner join
-  keep_spec_for_comment = "match" # Default keep() option for comment
+  # Stata's default merge behavior is to keep matching observations and unmatched master observations (left_join).
+  # If no keep() option is specified, default to left_join.
+  join_type_r_func = "dplyr::left_join"
+  keep_spec_for_comment = "match master" # Default if no keep() specified
 
-  # Handle keep() options if present, overriding defaults
   if (!is.na(options_str)) {
       keep_opt_match = stringi::stri_match_first_regex(options_str, "\\bkeep\\s*\\(([^)]+)\\)")
       if (!is.na(keep_opt_match[1,1])) {
@@ -79,13 +80,43 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Handle nogenerate option
   has_nogenerate = !is.na(options_str) && stringi::stri_detect_fixed(options_str, "nogenerate")
   merge_comment = paste0("# Stata merge type: ", merge_type, ", keep(", keep_spec_for_comment, ")",
-                         if(has_nogenerate) ", nogenerate" else " # _merge variable was not generated.")
-
+                         if(has_nogenerate) ", nogenerate" else " # _merge variable was not generated.") # Adjusted comment
 
   # Build the R command string using dplyr::*_join
   # dplyr::join(x, y, by)
-  r_code_str = paste0("data = ", join_type_r_func, "(data, haven::read_dta(", using_source_r_expr, "), by = ", vars_to_merge_on_r_vec_str, ") ", merge_comment)
 
-  return(r_code_str)
+  # Logic to handle common columns not in 'by' argument:
+  # Stata merge behavior: if a non-key variable exists in both, it takes the master's value.
+  # To replicate this, we need to drop such columns from the 'using' dataset before the join.
+  # This applies to left_join and inner_join (i.e., keep(master), keep(match)).
+  # For full_join/right_join, we typically want all columns, so no special dropping needed.
+
+  # Load the using dataset into a temporary variable first
+  r_code_lines = c()
+  temp_using_data_var = paste0("stata_tmp_using_data_L", line_num)
+  r_code_lines = c(r_code_lines, paste0(temp_using_data_var, " = haven::read_dta(", using_source_r_expr, ")"))
+
+  # Identify common columns that are NOT merge keys
+  r_code_lines = c(r_code_lines,
+    paste0("common_cols = intersect(names(data), names(", temp_using_data_var, "))"),
+    paste0("common_cols_not_by = setdiff(common_cols, ", vars_to_merge_on_r_vec_str, ")")
+  )
+
+  # Conditional dropping of columns from the using dataset
+  # Only drop if the join type implies master's values are preferred for common non-key columns
+  # (i.e., left_join or inner_join, which correspond to Stata's keep(master) or keep(match))
+  if (grepl("left_join|inner_join", join_type_r_func)) {
+      r_code_lines = c(r_code_lines,
+        paste0("if (length(common_cols_not_by) > 0) { ", temp_using_data_var, " = dplyr::select(", temp_using_data_var, ", -dplyr::all_of(common_cols_not_by)) }")
+      )
+  }
+
+  # Perform the join
+  r_code_lines = c(r_code_lines, paste0("data = ", join_type_r_func, "(data, ", temp_using_data_var, ", by = ", vars_to_merge_on_r_vec_str, ") ", merge_comment))
+
+  # Clean up temporary variables
+  r_code_lines = c(r_code_lines, paste0("rm(", temp_using_data_var, ", common_cols, common_cols_not_by)"))
+
+  return(paste(r_code_lines, collapse="\n"))
 }
 
