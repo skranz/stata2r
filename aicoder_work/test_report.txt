@@ -322,10 +322,49 @@ data = dplyr::left_join(data, stata_tmp_using_data_L27, by = c("group_code")) # 
 rm(stata_tmp_using_data_L27, common_cols, common_cols_not_by)
 
  28 do:  append using "`t1'"
- 28 r:  data = collapse::fbind(data, haven::read_dta(R_tempfile_L24_t1_path)) 
-data = collapse::fbind(data, haven::read_dta(R_tempfile_L24_t1_path))
+ 28 r:  data = dplyr::bind_rows(data, haven::read_dta(R_tempfile_L24_t1_path)) 
+data = dplyr::bind_rows(data, haven::read_dta(R_tempfile_L24_t1_path))
 
-Error: 'fbind' is not an exported object from 'namespace:collapse'
-Error executing R code for Stata line  28 :  data = collapse::fbind(data, haven::read_dta(R_tempfile_L24_t1_path))
+ 29 do:  gen id = _n
+ 29 r:  data = data %>%
+  dplyr::mutate(id = as.numeric(dplyr::row_number()))
+data$id = sfun_strip_stata_attributes(data$id) 
+data = data %>%
+  dplyr::mutate(id = as.numeric(dplyr::row_number()))
 
-Error: 'fbind' is not an exported object from 'namespace:collapse' 
+data$id = sfun_strip_stata_attributes(data$id)
+
+ 30 do:  bysort group_code (mean_i_overall): gen diff_mean = mean_i_overall - mean_i_overall[_n-1]
+ 30 r:  data = dplyr::arrange(data, group_code, mean_i_overall) %>%
+  dplyr::group_by(dplyr::across(c("group_code"))) %>%
+  dplyr::mutate(diff_mean = mean_i_overall - collapse::froll_lag(mean_i_overall, 1)) %>%
+  dplyr::ungroup()
+data$diff_mean = sfun_strip_stata_attributes(data$diff_mean) 
+data = dplyr::arrange(data, group_code, mean_i_overall) %>%
+  dplyr::group_by(dplyr::across(c("group_code"))) %>%
+  dplyr::mutate(diff_mean = mean_i_overall - collapse::froll_lag(mean_i_overall, 1)) %>%
+  dplyr::ungroup()
+
+Error: Problem with `mutate()` column `diff_mean`.
+ℹ `diff_mean = mean_i_overall - collapse::froll_lag(mean_i_overall, 1)`.
+✖ 'froll_lag' is not an exported object from 'namespace:collapse'
+ℹ The error occurred in group 1: group_code = 1.
+Caused by error:
+! 'froll_lag' is not an exported object from 'namespace:collapse'
+data$diff_mean = sfun_strip_stata_attributes(data$diff_mean)
+
+Warning: Unknown or uninitialised column: `diff_mean`.
+Error executing R code for Stata line  30 :  data = dplyr::arrange(data, group_code, mean_i_overall) %>%
+  dplyr::group_by(dplyr::across(c("group_code"))) %>%
+  dplyr::mutate(diff_mean = mean_i_overall - collapse::froll_lag(mean_i_overall, 1)) %>%
+  dplyr::ungroup()
+
+Error: Problem with `mutate()` column `diff_mean`.
+ℹ `diff_mean = mean_i_overall - collapse::froll_lag(mean_i_overall, 1)`.
+✖ 'froll_lag' is not an exported object from 'namespace:collapse'
+ℹ The error occurred in group 1: group_code = 1.
+Caused by error:
+! 'froll_lag' is not an exported object from 'namespace:collapse'
+data$diff_mean = sfun_strip_stata_attributes(data$diff_mean)
+
+Warning: Unknown or uninitialised column: `diff_mean`. 
