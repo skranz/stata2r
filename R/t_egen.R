@@ -19,7 +19,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Split right_part at the first comma (if any) to separate function/args/if from options
   parts_comma_list = stringi::stri_split_fixed(right_part, ",", n=2)
-  parts_comma = parts_comma_list[[1]] 
+  parts_comma = parts_comma_list[[1]]
 
   if(length(parts_comma) != 2) {
     func_args_if_part = stringi::stri_trim_both(parts_comma[1])
@@ -247,7 +247,6 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
 
   # Apply Stata-like numeric output rounding after mutate
-  r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_stata_numeric_output_round(data$", new_var, ")"))
   # Apply attribute stripping after mutate
   r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_strip_stata_attributes(data$", new_var, ")"))
 

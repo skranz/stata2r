@@ -122,7 +122,6 @@ t_destring = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Apply Stata-like numeric output rounding and attribute stripping to the newly created/modified variables
   for (new_var in new_vars) {
-      r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_stata_numeric_output_round(data$", new_var, ")"))
       r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_strip_stata_attributes(data$", new_var, ")"))
   }
 

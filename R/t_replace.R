@@ -49,7 +49,7 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Step 1: Calculate the value for replacement, potentially conditionally
   # Ensure logical comparisons are converted to numeric (0/1) to match Stata's default numeric type for logical expressions.
   is_logical_expr = stringi::stri_detect_regex(stata_expr, "==|!=|~=|<=|>=|<|>|&|\\|")
-  
+
   calculated_value_expr = r_expr
   if (is_logical_expr) {
     calculated_value_expr = paste0("as.numeric(", r_expr, ")")
@@ -77,9 +77,6 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   } else {
       r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", var_to_replace, " = ", calc_expr, ")"))
   }
-
-  # Step 3: Apply Stata-like numeric output rounding for precision matching
-  r_code_lines = c(r_code_lines, paste0("data$", var_to_replace, " = sfun_stata_numeric_output_round(data$", var_to_replace, ")"))
 
   # Step 4: Strip Stata-specific attributes from the modified column
   r_code_lines = c(r_code_lines, paste0("data$", var_to_replace, " = sfun_strip_stata_attributes(data$", var_to_replace, ")"))

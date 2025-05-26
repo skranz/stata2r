@@ -139,13 +139,6 @@ aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="") {
       dat_file = file.path(data_dir, paste0(data_prefix, original_stata_line_num, ".dta")) # Use original line number for comparison
       do_data = haven::read_dta(dat_file)
 
-      # Apply Stata-like rounding to numeric columns of do_data for comparison
-      # This mimics the output precision of Stata's default 'float' type and display.
-      for (col_name in names(do_data)) {
-        if (is.numeric(do_data[[col_name]])) {
-          do_data[[col_name]] = sfun_stata_numeric_output_round(do_data[[col_name]])
-        }
-      }
 
       comp = compare_df(do_data, r_data)
       if (!comp$identical) {
@@ -542,27 +535,6 @@ sfun_missing = function(x) {
 
 ```
 ### END OF FILE: sfun_missing.R
-
------------------------------------------------------------
-
-### FILE: sfun_stata_numeric_output_round.R
-```
-# AI generated this function and calls it now everywhere
-# in the translated R code...
-
-sfun_stata_numeric_output_round = function(x) {
-  # Apply to numeric vectors only
-  if (!is.numeric(x)) return(x)
-
-  # Stata's 'float' type has about 7 decimal digits of precision.
-  # To accurately compare R's double-precision results with Stata's float-precision results,
-  # we round to a consistent number of decimal places using Stata's rounding rule.
-  # Using 1e-8 as the unit for sfun_stata_round to ensure consistent rounding to 8 decimal places.
-  return(sfun_stata_round(x, 1e-8))
-}
-
-```
-### END OF FILE: sfun_stata_numeric_output_round.R
 
 -----------------------------------------------------------
 
@@ -1193,7 +1165,7 @@ t_append = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 # Often: collapse (stat) varlist, by(groupvars)
 
 t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
-  restore.point("t_collapse") # Added restore.point
+  restore.point("t_collapse")
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
   # Split into aggregate definitions part and options part
@@ -1203,7 +1175,7 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Separate potential if/in from aggregate definitions
   stata_if_in_cond = NA_character_
-  # Look for `if` or `in` immediately followed by a space
+  # Look for `if` or `in` immediately followed by a space in the part before the first comma
   if_in_match = stringi::stri_match_first_regex(aggregate_part, "\\s+(?:if\\s+|in\\s+)(.*)$")
   if(!is.na(if_in_match[1,1])) {
       stata_if_in_cond = if_in_match[1,2]
@@ -1214,58 +1186,41 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
 
   # Parse aggregate definitions: "(stat) var [name=expr ...] (stat) var [name=expr ...] ..."
-  # Regex: \\(([a-zA-Z_]+)\\)\\s+([a-zA-Z0-9_]+)(?:\\s*=\\s*([a-zA-Z0-9_]+))?
-  # G1: stat (stat_from_regex)
-  # G2: varname1 (g2_val_from_regex)
-  # G3: varname2 (g3_val_from_regex) - optional
-  # If G3 is NA: Stata form is (stat) G2. Here, G2 is source and target.
-  # If G3 is not NA: Stata form is (stat) G2 = G3. Here, G2 is target, G3 is source.
-
-  aggregate_matches = stringi::stri_match_all_regex(aggregate_part, "\\(([a-zA-Z_]+)\\)\\s+([a-zA-Z0-9_]+)(?:\\s*=\\s*([a-zA-Z0-9_]+))?")[[1]]
-  # aggregate_matches will be a matrix: [match, stat, g2_val, g3_val]
+  aggregate_matches = stringi::stri_match_all_regex(aggregate_part, "\\(([a-zA-Z_][a-zA-Z0-9_]*)\\)\\s+([a-zA-Z0-9_]+)(?:\\s*=\\s*([a-zA-Z0-9_]+))?")[[1]]
 
   if (NROW(aggregate_matches) == 0) {
     return(paste0("# Failed to parse collapse aggregate definitions: ", aggregate_part))
   }
 
   # Parse options part for `by()`
-  by_vars_collapse = NA_character_
+  by_vars_list_unquoted = character(0)
   if (!is.na(options_part)) {
     by_opt_match = stringi::stri_match_first_regex(options_part, "\\bby\\s*\\(([^)]+)\\)")
     if (!is.na(by_opt_match[1,1])) {
-      by_vars_collapse = stringi::stri_trim_both(by_opt_match[1,2])
-    }
-  }
-
-  by_vars_r_vec_str = NULL # For dplyr group_by: character vector c("var1", "var2")
-  by_vars_list_unquoted = character(0) # For checking length
-  if (!is.na(by_vars_collapse)) {
-    by_vars_list_unquoted = stringi::stri_split_regex(by_vars_collapse, "\\s+")[[1]]
-    by_vars_list_unquoted = by_vars_list_unquoted[by_vars_list_unquoted != ""]
-    if (length(by_vars_list_unquoted) > 0) {
-        by_vars_r_vec_str = paste0('c("', paste0(by_vars_list_unquoted, collapse='", "'), '")')
+      by_vars_collapse_str = stringi::stri_trim_both(by_opt_match[1,2])
+      by_vars_list_unquoted = stringi::stri_split_regex(by_vars_collapse_str, "\\s+")[[1]]
+      by_vars_list_unquoted = by_vars_list_unquoted[by_vars_list_unquoted != ""]
     }
   }
 
   # Translate the if/in condition for subsetting *before* collapse
-  r_subset_cond = NA_character_
+  r_code_lines = c()
   data_source_for_collapse = "data"
-  r_code_lines = c() # Store all lines for final R code
 
   if (!is.na(stata_if_in_cond) && stata_if_in_cond != "") {
-      r_subset_cond = translate_stata_expression_with_r_values(stata_if_in_cond, cmd_obj$line, cmd_df, context = list(is_by_group = FALSE)) # Use cmd_obj$line
+      r_subset_cond = translate_stata_expression_with_r_values(stata_if_in_cond, cmd_obj$line, cmd_df, context = list(is_by_group = FALSE))
       if (is.na(r_subset_cond) || r_subset_cond == "") {
            return(paste0("# Failed to translate if/in condition for collapse: ", stata_if_in_cond))
       }
-      data_subset_varname = paste0("data_subset_L", cmd_obj$line)
-      r_code_lines = c(r_code_lines, paste0(data_subset_varname, " = dplyr::filter(data, ", r_subset_cond, ")")) # Changed to dplyr::filter
-      data_source_for_collapse = data_subset_varname
+      # Using collapse::fsubset. r_subset_cond is a string representing the logical condition.
+      r_code_lines = c(r_code_lines, paste0("data = collapse::fsubset(data, ", r_subset_cond, ")"))
+      # data_source_for_collapse remains "data" as it's modified in place by fsubset
   }
 
 
-  # Build the summarise/aggregate expressions for dplyr::summarise
+  # Build the fsummarise expressions
   aggregate_exprs = character(NROW(aggregate_matches))
-  new_vars_created = character(NROW(aggregate_matches)) # Keep track of new variable names
+  new_vars_created = character(NROW(aggregate_matches))
   for (j in 1:NROW(aggregate_matches)) {
     stat_from_regex = aggregate_matches[j, 2]
     g2_val_from_regex = aggregate_matches[j, 3]
@@ -1278,74 +1233,78 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
         actual_stata_source_var_name = g2_val_from_regex
         actual_stata_target_var_name = g2_val_from_regex
     } else { # Matched (stat) g2_val_from_regex = g3_val_from_regex
-        actual_stata_source_var_name = g3_val_from_regex    # G3 is source
-        actual_stata_target_var_name = g2_val_from_regex    # G2 is target
+        actual_stata_source_var_name = g3_val_from_regex
+        actual_stata_target_var_name = g2_val_from_regex
     }
-    new_vars_created[j] = actual_stata_target_var_name # Store new var name
+    new_vars_created[j] = actual_stata_target_var_name
 
-    # Translate actual Stata source variable name
-    # FIX: Use .data$ to refer to original column for summarise to prevent sequential evaluation issues
-    r_source_var_bare = translate_stata_expression_with_r_values(actual_stata_source_var_name, cmd_obj$line, cmd_df, context) # Use cmd_obj$line
-    r_source_var = paste0(".data$", r_source_var_bare)
-
-    if (is.na(r_source_var_bare) || r_source_var_bare == "") {
+    r_source_var_bare = translate_stata_expression_with_r_values(actual_stata_source_var_name, cmd_obj$line, cmd_df, context)
+     if (is.na(r_source_var_bare) || r_source_var_bare == "") {
          return(paste0("# Failed to translate source variable '", actual_stata_source_var_name, "' for collapse stat '", stat_from_regex, "'"))
      }
 
-    # Map Stata stats to dplyr functions (or base R)
-    dplyr_func = switch(stat_from_regex,
-      "mean" = paste0("mean(", r_source_var, ", na.rm = TRUE)"),
-      "sum" = paste0("sum(", r_source_var, ", na.rm = TRUE)"),
-      "count" = paste0("sum(!is.na(", r_source_var, "))"), # Stata count for non-missing values
-      "N" = paste0("dplyr::n()"), # N is number of observations in group
-      "first" = paste0("dplyr::first(", r_source_var, ")"),
-      "last" = paste0("dplyr::last(", r_source_var, ")"),
-      "min" = paste0("min(", r_source_var, ", na.rm = TRUE)"),
-      "max" = paste0("max(", r_source_var, ", na.rm = TRUE)"),
-      "median" = paste0("median(", r_source_var, ", na.rm = TRUE)"),
-      "sd" = paste0("sd(", r_source_var, ", na.rm = TRUE)"),
-      "p1" = paste0("quantile(", r_source_var, ", probs = 0.01, na.rm = TRUE)"),
-      "p5" = paste0("quantile(", r_source_var, ", probs = 0.05, na.rm = TRUE)"),
-      "p10" = paste0("quantile(", r_source_var, ", probs = 0.10, na.rm = TRUE)"),
-      "p25" = paste0("quantile(", r_source_var, ", probs = 0.25, na.rm = TRUE)"),
-      "p75" = paste0("quantile(", r_source_var, ", probs = 0.75, na.rm = TRUE)"),
-      "p90" = paste0("quantile(", r_source_var, ", probs = 0.90, na.rm = TRUE)"),
-      "p95" = paste0("quantile(", r_source_var, ", probs = 0.95, na.rm = TRUE)"),
-      "p99" = paste0("quantile(", r_source_var, ", probs = 0.99, na.rm = TRUE)"),
+    # Map Stata stats to collapse functions
+    collapse_func_expr = switch(stat_from_regex,
+      "mean" = paste0("collapse::fmean(", r_source_var_bare, ", na.rm = TRUE)"),
+      "sum" = paste0("collapse::fsum(", r_source_var_bare, ", na.rm = TRUE)"),
+      "count" = paste0("collapse::fN(", r_source_var_bare, ", non.na = TRUE)"), # Counts non-missing values of var
+      "N" = "NROW(.)", # N is number of observations in group. NROW(.) in fsummarise.
+      "first" = paste0("collapse::ffirst(", r_source_var_bare, ")"), # na.rm = TRUE by default
+      "last" = paste0("collapse::flast(", r_source_var_bare, ")"),   # na.rm = TRUE by default
+      "min" = paste0("collapse::fmin(", r_source_var_bare, ", na.rm = TRUE)"),
+      "max" = paste0("collapse::fmax(", r_source_var_bare, ", na.rm = TRUE)"),
+      "median" = paste0("collapse::fmedian(", r_source_var_bare, ", na.rm = TRUE)"),
+      "sd" = paste0("collapse::fsd(", r_source_var_bare, ", na.rm = TRUE)"),
+      "p1" = paste0("collapse::fquantile(", r_source_var_bare, ", probs = 0.01, na.rm = TRUE)"),
+      "p5" = paste0("collapse::fquantile(", r_source_var_bare, ", probs = 0.05, na.rm = TRUE)"),
+      "p10" = paste0("collapse::fquantile(", r_source_var_bare, ", probs = 0.10, na.rm = TRUE)"),
+      "p25" = paste0("collapse::fquantile(", r_source_var_bare, ", probs = 0.25, na.rm = TRUE)"),
+      "p75" = paste0("collapse::fquantile(", r_source_var_bare, ", probs = 0.75, na.rm = TRUE)"),
+      "p90" = paste0("collapse::fquantile(", r_source_var_bare, ", probs = 0.90, na.rm = TRUE)"),
+      "p95" = paste0("collapse::fquantile(", r_source_var_bare, ", probs = 0.95, na.rm = TRUE)"),
+      "p99" = paste0("collapse::fquantile(", r_source_var_bare, ", probs = 0.99, na.rm = TRUE)"),
       NULL
     )
 
-    if (is.null(dplyr_func)) {
-        return(paste0("# Collapse stat '", stat_from_regex, "' not yet implemented."))
+    if (is.null(collapse_func_expr)) {
+        return(paste0("# Collapse stat '", stat_from_regex, "' not yet implemented for collapse package translation."))
     }
 
-    # The new variable name for R code is the actual_stata_target_var_name
     r_new_var_name = actual_stata_target_var_name
-    aggregate_exprs[j] = paste0(r_new_var_name, " = ", dplyr_func)
+    aggregate_exprs[j] = paste0("`",r_new_var_name, "` = ", collapse_func_expr) # Backticks for safety
   }
 
-  # Combine aggregate expressions
   aggregate_exprs_str = paste(aggregate_exprs, collapse = ",\n  ")
 
-  # Build the main data manipulation pipe
-  main_pipe_lines = c(paste0(data_source_for_collapse, " %>%"))
-  if (!is.null(by_vars_r_vec_str) && length(by_vars_list_unquoted) > 0) {
-    main_pipe_lines = c(main_pipe_lines,
-                       "  dplyr::group_by(dplyr::across(", by_vars_r_vec_str, ")) %>%",
-                       "  dplyr::summarise(", aggregate_exprs_str, ") %>%",
-                       "  dplyr::ungroup()")
-  } else {
-     main_pipe_lines = c(main_pipe_lines,
-                       "  dplyr::summarise(", aggregate_exprs_str, ")")
+  # Build the main data manipulation pipe using collapse
+  main_pipe_parts = c("data")
+  if (length(by_vars_list_unquoted) > 0) {
+    by_vars_fgroup_by_str = paste(by_vars_list_unquoted, collapse = ", ")
+    main_pipe_parts = c(main_pipe_parts,
+                       paste0("collapse::fgroup_by(", by_vars_fgroup_by_str, ")"))
   }
-  # Assign the result of the pipe to 'data'
-  r_code_lines = c(r_code_lines, paste0("data = ", paste(main_pipe_lines, collapse = "\n")))
+
+  main_pipe_parts = c(main_pipe_parts,
+                     paste0("collapse::fsummarise(", aggregate_exprs_str, ")"))
+
+  if (length(by_vars_list_unquoted) > 0) {
+    main_pipe_parts = c(main_pipe_parts, "collapse::fungroup()")
+  }
+
+  # Construct the R code line for data assignment
+  # Need to handle if data was already subsetted using `r_code_lines`
+  if (length(r_code_lines) > 0) { # This means data = collapse::fsubset(...) was already added
+     # The pipe starts from the result of fsubset, which is already assigned to 'data'
+     r_code_lines = c(r_code_lines, paste0("data = ", paste(main_pipe_parts, collapse = " %>% \n  ")))
+  } else {
+     # Pipe starts from original 'data'
+     r_code_lines = c(r_code_lines, paste0("data = ", paste(main_pipe_parts, collapse = " %>% \n  ")))
+  }
 
 
   # Apply Stata-like numeric output rounding and attribute stripping for newly created variables
   for (new_var in new_vars_created) {
-    r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_stata_numeric_output_round(data$", new_var, ")"))
-    r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_strip_stata_attributes(data$", new_var, ")"))
+    r_code_lines = c(r_code_lines, paste0("data$`", new_var, "` = sfun_strip_stata_attributes(data$`", new_var, "`)"))
   }
 
 
@@ -1355,18 +1314,17 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   options_str_cleaned = options_part
   if (!is.na(options_str_cleaned)) {
       options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "\\bby\\s*\\([^)]+\\)", "")
-      options_str_cleaned = stringi::stri_trim_both(stringi::stri_replace_all_regex(options_str_cleaned, ",+", ",")) # Clean up multiple commas
-      options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "^,+", "") # Remove leading comma
+      options_str_cleaned = stringi::stri_trim_both(stringi::stri_replace_all_regex(options_str_cleaned, ",+", ","))
+      options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "^,+", "")
+      options_str_cleaned = stringi::stri_trim_both(options_str_cleaned)
   }
 
   if (!is.na(options_str_cleaned) && options_str_cleaned != "") {
-       r_code_str = paste0(r_code_str, paste0(" # Other options ignored: ", options_str_cleaned))
+       r_code_str = paste0(r_code_str, paste0("\n# Other options ignored: ", options_str_cleaned))
   }
-
 
   return(r_code_str)
 }
-
 
 ```
 ### END OF FILE: t_collapse.R
@@ -1631,7 +1589,6 @@ t_destring = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Apply Stata-like numeric output rounding and attribute stripping to the newly created/modified variables
   for (new_var in new_vars) {
-      r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_stata_numeric_output_round(data$", new_var, ")"))
       r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_strip_stata_attributes(data$", new_var, ")"))
   }
 
@@ -1932,7 +1889,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Split right_part at the first comma (if any) to separate function/args/if from options
   parts_comma_list = stringi::stri_split_fixed(right_part, ",", n=2)
-  parts_comma = parts_comma_list[[1]] 
+  parts_comma = parts_comma_list[[1]]
 
   if(length(parts_comma) != 2) {
     func_args_if_part = stringi::stri_trim_both(parts_comma[1])
@@ -2160,7 +2117,6 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
 
   # Apply Stata-like numeric output rounding after mutate
-  r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_stata_numeric_output_round(data$", new_var, ")"))
   # Apply attribute stripping after mutate
   r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_strip_stata_attributes(data$", new_var, ")"))
 
@@ -2483,7 +2439,7 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Heuristic: if stata_expr contains common logical/comparison operators, it's likely a logical expression
   # that Stata would store as 0/1.
   is_logical_expr = stringi::stri_detect_regex(stata_expr, "==|!=|~=|<=|>=|<|>|&|\\|")
-  
+
   calculated_value_expr = r_expr
   if (is_logical_expr) {
     calculated_value_expr = paste0("as.numeric(", r_expr, ")")
@@ -2494,7 +2450,7 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   } else {
     calc_expr = calculated_value_expr
   }
-  
+
   # Step 2: Build the R code string using pipes for the mutate operation
   r_code_lines = c()
 
@@ -2514,13 +2470,11 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       # If not grouped, just add the mutate step directly to the pipe chain
       r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", new_var, " = ", calc_expr, ")"))
   }
-  
-  # Step 3: Apply Stata-like numeric output rounding for precision matching
-  r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_stata_numeric_output_round(data$", new_var, ")"))
+
 
   # Step 4: Strip Stata-specific attributes from the newly created/modified column
   r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_strip_stata_attributes(data$", new_var, ")"))
-  
+
   return(paste(r_code_lines, collapse="\n"))
 }
 
@@ -2995,7 +2949,6 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Apply Stata-like numeric output rounding and attribute stripping for newly created/modified variables
   for (new_var in new_vars) {
-    r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_stata_numeric_output_round(data$", new_var, ")"))
     r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_strip_stata_attributes(data$", new_var, ")"))
   }
 
@@ -3101,7 +3054,7 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Step 1: Calculate the value for replacement, potentially conditionally
   # Ensure logical comparisons are converted to numeric (0/1) to match Stata's default numeric type for logical expressions.
   is_logical_expr = stringi::stri_detect_regex(stata_expr, "==|!=|~=|<=|>=|<|>|&|\\|")
-  
+
   calculated_value_expr = r_expr
   if (is_logical_expr) {
     calculated_value_expr = paste0("as.numeric(", r_expr, ")")
@@ -3129,9 +3082,6 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   } else {
       r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", var_to_replace, " = ", calc_expr, ")"))
   }
-
-  # Step 3: Apply Stata-like numeric output rounding for precision matching
-  r_code_lines = c(r_code_lines, paste0("data$", var_to_replace, " = sfun_stata_numeric_output_round(data$", var_to_replace, ")"))
 
   # Step 4: Strip Stata-specific attributes from the modified column
   r_code_lines = c(r_code_lines, paste0("data$", var_to_replace, " = sfun_strip_stata_attributes(data$", var_to_replace, ")"))
@@ -3618,50 +3568,38 @@ data = dplyr::slice(data, 1:39)
   dplyr::group_by(dplyr::across(c("group"))) %>%
   dplyr::mutate(seq = as.numeric(dplyr::row_number())) %>%
   dplyr::ungroup()
-data$seq = sfun_stata_numeric_output_round(data$seq)
 data$seq = sfun_strip_stata_attributes(data$seq) 
 data = data %>%
   dplyr::group_by(dplyr::across(c("group"))) %>%
   dplyr::mutate(seq = as.numeric(dplyr::row_number())) %>%
   dplyr::ungroup()
 
-data$seq = sfun_stata_numeric_output_round(data$seq)
-
 data$seq = sfun_strip_stata_attributes(data$seq)
 
  7 do:  gen logi = log(i)
  7 r:  data = data %>%
   dplyr::mutate(logi = log(i))
-data$logi = sfun_stata_numeric_output_round(data$logi)
 data$logi = sfun_strip_stata_attributes(data$logi) 
 data = data %>%
   dplyr::mutate(logi = log(i))
-
-data$logi = sfun_stata_numeric_output_round(data$logi)
 
 data$logi = sfun_strip_stata_attributes(data$logi)
 
  8 do:  gen sqrt_i = sqrt(i)
  8 r:  data = data %>%
   dplyr::mutate(sqrt_i = sqrt(i))
-data$sqrt_i = sfun_stata_numeric_output_round(data$sqrt_i)
 data$sqrt_i = sfun_strip_stata_attributes(data$sqrt_i) 
 data = data %>%
   dplyr::mutate(sqrt_i = sqrt(i))
-
-data$sqrt_i = sfun_stata_numeric_output_round(data$sqrt_i)
 
 data$sqrt_i = sfun_strip_stata_attributes(data$sqrt_i)
 
  9 do:  gen group_num = cond(group=="A",1,cond(group=="B",2,3))
  9 r:  data = data %>%
   dplyr::mutate(group_num = as.numeric(dplyr::if_else(group=="A", 1, dplyr::if_else(group=="B", 2, 3))))
-data$group_num = sfun_stata_numeric_output_round(data$group_num)
 data$group_num = sfun_strip_stata_attributes(data$group_num) 
 data = data %>%
   dplyr::mutate(group_num = as.numeric(dplyr::if_else(group=="A", 1, dplyr::if_else(group=="B", 2, 3))))
-
-data$group_num = sfun_stata_numeric_output_round(data$group_num)
 
 data$group_num = sfun_strip_stata_attributes(data$group_num)
 
@@ -3674,7 +3612,6 @@ c("group")
 mean_i_grp = mean(i, na.rm = TRUE)
 ) %>%
   dplyr::ungroup()
-data$mean_i_grp = sfun_stata_numeric_output_round(data$mean_i_grp)
 data$mean_i_grp = sfun_strip_stata_attributes(data$mean_i_grp) 
 data = data %>%
   dplyr::group_by(dplyr::across(
@@ -3685,8 +3622,6 @@ mean_i_grp = mean(i, na.rm = TRUE)
 ) %>%
   dplyr::ungroup()
 
-data$mean_i_grp = sfun_stata_numeric_output_round(data$mean_i_grp)
-
 data$mean_i_grp = sfun_strip_stata_attributes(data$mean_i_grp)
 
  11 do:  egen total_i = total(i)
@@ -3694,14 +3629,11 @@ data$mean_i_grp = sfun_strip_stata_attributes(data$mean_i_grp)
   dplyr::mutate(
 total_i = sum(i, na.rm = TRUE)
 )
-data$total_i = sfun_stata_numeric_output_round(data$total_i)
 data$total_i = sfun_strip_stata_attributes(data$total_i) 
 data = data %>%
   dplyr::mutate(
 total_i = sum(i, na.rm = TRUE)
 )
-
-data$total_i = sfun_stata_numeric_output_round(data$total_i)
 
 data$total_i = sfun_strip_stata_attributes(data$total_i)
 
@@ -3714,7 +3646,6 @@ c("group")
 rank_i = dplyr::min_rank(i)
 ) %>%
   dplyr::ungroup()
-data$rank_i = sfun_stata_numeric_output_round(data$rank_i)
 data$rank_i = sfun_strip_stata_attributes(data$rank_i) 
 data = data %>%
   dplyr::group_by(dplyr::across(
@@ -3725,31 +3656,23 @@ rank_i = dplyr::min_rank(i)
 ) %>%
   dplyr::ungroup()
 
-data$rank_i = sfun_stata_numeric_output_round(data$rank_i)
-
 data$rank_i = sfun_strip_stata_attributes(data$rank_i)
 
  13 do:  gen flag = (i>20) if group=="A"
  13 r:  data = data %>%
   dplyr::mutate(flag = dplyr::if_else(group=="A", as.numeric((i>20)), NA_real_))
-data$flag = sfun_stata_numeric_output_round(data$flag)
 data$flag = sfun_strip_stata_attributes(data$flag) 
 data = data %>%
   dplyr::mutate(flag = dplyr::if_else(group=="A", as.numeric((i>20)), NA_real_))
-
-data$flag = sfun_stata_numeric_output_round(data$flag)
 
 data$flag = sfun_strip_stata_attributes(data$flag)
 
  14 do:  replace flag = 0 if missing(flag)
  14 r:  data = data %>%
   dplyr::mutate(flag = dplyr::if_else(is.na(flag), 0, data$flag))
-data$flag = sfun_stata_numeric_output_round(data$flag)
 data$flag = sfun_strip_stata_attributes(data$flag) 
 data = data %>%
   dplyr::mutate(flag = dplyr::if_else(is.na(flag), 0, data$flag))
-
-data$flag = sfun_stata_numeric_output_round(data$flag)
 
 data$flag = sfun_strip_stata_attributes(data$flag)
 
@@ -3762,66 +3685,52 @@ data = dplyr::filter(data, flag==1 | group=="B")
 data = dplyr::filter(data, !(i>35))
 
  17 do:  collapse (mean) i (sum) total_i_sum = i, by(group)
- 17 r:  data = data %>%
-  dplyr::group_by(dplyr::across(
-c("group")
-)) %>%
-  dplyr::summarise(
-i = mean(.data$i, na.rm = TRUE),
-  total_i_sum = sum(.data$i, na.rm = TRUE)
-) %>%
-  dplyr::ungroup()
-data$i = sfun_stata_numeric_output_round(data$i)
-data$i = sfun_strip_stata_attributes(data$i)
-data$total_i_sum = sfun_stata_numeric_output_round(data$total_i_sum)
-data$total_i_sum = sfun_strip_stata_attributes(data$total_i_sum) 
-data = data %>%
-  dplyr::group_by(dplyr::across(
-c("group")
-)) %>%
-  dplyr::summarise(
-i = mean(.data$i, na.rm = TRUE),
-  total_i_sum = sum(.data$i, na.rm = TRUE)
-) %>%
-  dplyr::ungroup()
+ 17 r:  data = data %>% 
+  collapse::fgroup_by(group) %>% 
+  collapse::fsummarise(`i` = collapse::fmean(i, na.rm = TRUE),
+  `total_i_sum` = collapse::fsum(i, na.rm = TRUE)) %>% 
+  collapse::fungroup()
+data$`i` = sfun_strip_stata_attributes(data$`i`)
+data$`total_i_sum` = sfun_strip_stata_attributes(data$`total_i_sum`) 
+data = data %>% 
+  collapse::fgroup_by(group) %>% 
+  collapse::fsummarise(`i` = collapse::fmean(i, na.rm = TRUE),
+  `total_i_sum` = collapse::fsum(i, na.rm = TRUE)) %>% 
+  collapse::fungroup()
 
-data$i = sfun_stata_numeric_output_round(data$i)
+data$`i` = sfun_strip_stata_attributes(data$`i`)
 
-data$i = sfun_strip_stata_attributes(data$i)
+data$`total_i_sum` = sfun_strip_stata_attributes(data$`total_i_sum`)
 
-data$total_i_sum = sfun_stata_numeric_output_round(data$total_i_sum)
+ 18 do:  rename i mean_i_overall
+ 18 r:  data = collapse::frename(data, `i` = `mean_i_overall`) 
+data = collapse::frename(data, `i` = `mean_i_overall`)
 
-data$total_i_sum = sfun_strip_stata_attributes(data$total_i_sum)
-
-Error: After Stata line  17 , R data set differs from Stata reference.
-
-Data set from Stata (do_df):
-tibble [2 × 3] (S3: tbl_df/tbl/data.frame)
- $ group      : chr [1:2] "A" "B"
-  ..- attr(*, "label")= chr "group"
-  ..- attr(*, "format.stata")= chr "%1s"
- $ i          : num [1:2] 27 15.5
- $ total_i_sum: num [1:2] 135 170
- - attr(*, "label")= chr "Written by R."
-NULL
-
-Data set from R (r_df):
-tibble [2 × 3] (S3: tbl_df/tbl/data.frame)
- $ group      : chr [1:2] "A" "B"
-  ..- attr(*, "label")= chr "group"
-  ..- attr(*, "format.stata")= chr "%1s"
- $ i          : num [1:2] 27 15.5
- $ total_i_sum: num [1:2] 27 15.5
-NULL
-
-Differences:List of 2
- $ identical     : logi FALSE
- $ value_mismatch:'data.frame':	2 obs. of  4 variables:
-  ..$ row      : int [1:2] 1 2
-  ..$ column   : chr [1:2] "total_i_sum" "total_i_sum"
-  ..$ df1_value: num [1:2] 135 170
-  ..$ df2_value: num [1:2] 27 15.5
-NULL
+ 19 do:  expand 2 if group=="C"
+ 19 r:  __expand_n_values_L19 = 2
+__expand_cond_values_L19 = group=="C"
+__final_expand_times_L19 = ifelse(!is.na(__expand_cond_values_L19) & __expand_cond_values_L19, ifelse(is.na(__expand_n_values_L19), 1, pmax(0, as.integer(__expand_n_values_L19))), 1)
+__final_expand_times_L19 = ifelse(is.na(__final_expand_times_L19), 1, __final_expand_times_L19)
+data = data[base::rep(1:NROW(data), times = __final_expand_times_L19), ]
+if (exists('__expand_n_values_L19')) rm(__expand_n_values_L19, __expand_cond_values_L19, __final_expand_times_L19) 
+__expand_n_values_L19 = 2
+__expand_cond_values_L19 = group=="C"
+__final_expand_times_L19 = ifelse(!is.na(__expand_cond_values_L19) & __expand_cond_values_L19, ifelse(is.na(__expand_n_values_L19), 1, pmax(0, as.integer(__expand_n_values_L19))), 1)
+__final_expand_times_L19 = ifelse(is.na(__final_expand_times_L19), 1, __final_expand_times_L19)
+data = data[base::rep(1:NROW(data), times = __final_expand_times_L19), ]
+if (exists('__expand_n_values_L19')) rm(__expand_n_values_L19, __expand_cond_values_L19, __final_expand_times_L19)
+Error: <text>:1:1: unexpected input
+1: _
+    ^
+Error executing R code for Stata line  19 :  __expand_n_values_L19 = 2
+__expand_cond_values_L19 = group=="C"
+__final_expand_times_L19 = ifelse(!is.na(__expand_cond_values_L19) & __expand_cond_values_L19, ifelse(is.na(__expand_n_values_L19), 1, pmax(0, as.integer(__expand_n_values_L19))), 1)
+__final_expand_times_L19 = ifelse(is.na(__final_expand_times_L19), 1, __final_expand_times_L19)
+data = data[base::rep(1:NROW(data), times = __final_expand_times_L19), ]
+if (exists('__expand_n_values_L19')) rm(__expand_n_values_L19, __expand_cond_values_L19, __final_expand_times_L19)
+Error: <text>:1:1: unexpected input
+1: _
+    ^ 
 
 ##############################
 # YOUR TASK

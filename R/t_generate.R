@@ -58,7 +58,7 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Heuristic: if stata_expr contains common logical/comparison operators, it's likely a logical expression
   # that Stata would store as 0/1.
   is_logical_expr = stringi::stri_detect_regex(stata_expr, "==|!=|~=|<=|>=|<|>|&|\\|")
-  
+
   calculated_value_expr = r_expr
   if (is_logical_expr) {
     calculated_value_expr = paste0("as.numeric(", r_expr, ")")
@@ -69,7 +69,7 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   } else {
     calc_expr = calculated_value_expr
   }
-  
+
   # Step 2: Build the R code string using pipes for the mutate operation
   r_code_lines = c()
 
@@ -89,13 +89,11 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       # If not grouped, just add the mutate step directly to the pipe chain
       r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", new_var, " = ", calc_expr, ")"))
   }
-  
-  # Step 3: Apply Stata-like numeric output rounding for precision matching
-  r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_stata_numeric_output_round(data$", new_var, ")"))
+
 
   # Step 4: Strip Stata-specific attributes from the newly created/modified column
   r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_strip_stata_attributes(data$", new_var, ")"))
-  
+
   return(paste(r_code_lines, collapse="\n"))
 }
 

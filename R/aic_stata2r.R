@@ -5,7 +5,7 @@ example = function() {
   for (file in files)  source(file)
   aic = aic_new_stata2r(main_dir)
   aic = aic_test_stata2r(aic)
-  undebug(aic_make_prompt)
+  #undebug(aic_make_prompt)
   aic = aic_make_prompt_stata2r(aic)
   cat(aic$prompt)
   aic_view_prompt(aic)

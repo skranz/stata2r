@@ -60,50 +60,38 @@ data = dplyr::slice(data, 1:39)
   dplyr::group_by(dplyr::across(c("group"))) %>%
   dplyr::mutate(seq = as.numeric(dplyr::row_number())) %>%
   dplyr::ungroup()
-data$seq = sfun_stata_numeric_output_round(data$seq)
 data$seq = sfun_strip_stata_attributes(data$seq) 
 data = data %>%
   dplyr::group_by(dplyr::across(c("group"))) %>%
   dplyr::mutate(seq = as.numeric(dplyr::row_number())) %>%
   dplyr::ungroup()
 
-data$seq = sfun_stata_numeric_output_round(data$seq)
-
 data$seq = sfun_strip_stata_attributes(data$seq)
 
  7 do:  gen logi = log(i)
  7 r:  data = data %>%
   dplyr::mutate(logi = log(i))
-data$logi = sfun_stata_numeric_output_round(data$logi)
 data$logi = sfun_strip_stata_attributes(data$logi) 
 data = data %>%
   dplyr::mutate(logi = log(i))
-
-data$logi = sfun_stata_numeric_output_round(data$logi)
 
 data$logi = sfun_strip_stata_attributes(data$logi)
 
  8 do:  gen sqrt_i = sqrt(i)
  8 r:  data = data %>%
   dplyr::mutate(sqrt_i = sqrt(i))
-data$sqrt_i = sfun_stata_numeric_output_round(data$sqrt_i)
 data$sqrt_i = sfun_strip_stata_attributes(data$sqrt_i) 
 data = data %>%
   dplyr::mutate(sqrt_i = sqrt(i))
-
-data$sqrt_i = sfun_stata_numeric_output_round(data$sqrt_i)
 
 data$sqrt_i = sfun_strip_stata_attributes(data$sqrt_i)
 
  9 do:  gen group_num = cond(group=="A",1,cond(group=="B",2,3))
  9 r:  data = data %>%
   dplyr::mutate(group_num = as.numeric(dplyr::if_else(group=="A", 1, dplyr::if_else(group=="B", 2, 3))))
-data$group_num = sfun_stata_numeric_output_round(data$group_num)
 data$group_num = sfun_strip_stata_attributes(data$group_num) 
 data = data %>%
   dplyr::mutate(group_num = as.numeric(dplyr::if_else(group=="A", 1, dplyr::if_else(group=="B", 2, 3))))
-
-data$group_num = sfun_stata_numeric_output_round(data$group_num)
 
 data$group_num = sfun_strip_stata_attributes(data$group_num)
 
@@ -116,7 +104,6 @@ c("group")
 mean_i_grp = mean(i, na.rm = TRUE)
 ) %>%
   dplyr::ungroup()
-data$mean_i_grp = sfun_stata_numeric_output_round(data$mean_i_grp)
 data$mean_i_grp = sfun_strip_stata_attributes(data$mean_i_grp) 
 data = data %>%
   dplyr::group_by(dplyr::across(
@@ -127,8 +114,6 @@ mean_i_grp = mean(i, na.rm = TRUE)
 ) %>%
   dplyr::ungroup()
 
-data$mean_i_grp = sfun_stata_numeric_output_round(data$mean_i_grp)
-
 data$mean_i_grp = sfun_strip_stata_attributes(data$mean_i_grp)
 
  11 do:  egen total_i = total(i)
@@ -136,14 +121,11 @@ data$mean_i_grp = sfun_strip_stata_attributes(data$mean_i_grp)
   dplyr::mutate(
 total_i = sum(i, na.rm = TRUE)
 )
-data$total_i = sfun_stata_numeric_output_round(data$total_i)
 data$total_i = sfun_strip_stata_attributes(data$total_i) 
 data = data %>%
   dplyr::mutate(
 total_i = sum(i, na.rm = TRUE)
 )
-
-data$total_i = sfun_stata_numeric_output_round(data$total_i)
 
 data$total_i = sfun_strip_stata_attributes(data$total_i)
 
@@ -156,7 +138,6 @@ c("group")
 rank_i = dplyr::min_rank(i)
 ) %>%
   dplyr::ungroup()
-data$rank_i = sfun_stata_numeric_output_round(data$rank_i)
 data$rank_i = sfun_strip_stata_attributes(data$rank_i) 
 data = data %>%
   dplyr::group_by(dplyr::across(
@@ -167,31 +148,23 @@ rank_i = dplyr::min_rank(i)
 ) %>%
   dplyr::ungroup()
 
-data$rank_i = sfun_stata_numeric_output_round(data$rank_i)
-
 data$rank_i = sfun_strip_stata_attributes(data$rank_i)
 
  13 do:  gen flag = (i>20) if group=="A"
  13 r:  data = data %>%
   dplyr::mutate(flag = dplyr::if_else(group=="A", as.numeric((i>20)), NA_real_))
-data$flag = sfun_stata_numeric_output_round(data$flag)
 data$flag = sfun_strip_stata_attributes(data$flag) 
 data = data %>%
   dplyr::mutate(flag = dplyr::if_else(group=="A", as.numeric((i>20)), NA_real_))
-
-data$flag = sfun_stata_numeric_output_round(data$flag)
 
 data$flag = sfun_strip_stata_attributes(data$flag)
 
  14 do:  replace flag = 0 if missing(flag)
  14 r:  data = data %>%
   dplyr::mutate(flag = dplyr::if_else(is.na(flag), 0, data$flag))
-data$flag = sfun_stata_numeric_output_round(data$flag)
 data$flag = sfun_strip_stata_attributes(data$flag) 
 data = data %>%
   dplyr::mutate(flag = dplyr::if_else(is.na(flag), 0, data$flag))
-
-data$flag = sfun_stata_numeric_output_round(data$flag)
 
 data$flag = sfun_strip_stata_attributes(data$flag)
 
@@ -204,63 +177,49 @@ data = dplyr::filter(data, flag==1 | group=="B")
 data = dplyr::filter(data, !(i>35))
 
  17 do:  collapse (mean) i (sum) total_i_sum = i, by(group)
- 17 r:  data = data %>%
-  dplyr::group_by(dplyr::across(
-c("group")
-)) %>%
-  dplyr::summarise(
-i = mean(.data$i, na.rm = TRUE),
-  total_i_sum = sum(.data$i, na.rm = TRUE)
-) %>%
-  dplyr::ungroup()
-data$i = sfun_stata_numeric_output_round(data$i)
-data$i = sfun_strip_stata_attributes(data$i)
-data$total_i_sum = sfun_stata_numeric_output_round(data$total_i_sum)
-data$total_i_sum = sfun_strip_stata_attributes(data$total_i_sum) 
-data = data %>%
-  dplyr::group_by(dplyr::across(
-c("group")
-)) %>%
-  dplyr::summarise(
-i = mean(.data$i, na.rm = TRUE),
-  total_i_sum = sum(.data$i, na.rm = TRUE)
-) %>%
-  dplyr::ungroup()
+ 17 r:  data = data %>% 
+  collapse::fgroup_by(group) %>% 
+  collapse::fsummarise(`i` = collapse::fmean(i, na.rm = TRUE),
+  `total_i_sum` = collapse::fsum(i, na.rm = TRUE)) %>% 
+  collapse::fungroup()
+data$`i` = sfun_strip_stata_attributes(data$`i`)
+data$`total_i_sum` = sfun_strip_stata_attributes(data$`total_i_sum`) 
+data = data %>% 
+  collapse::fgroup_by(group) %>% 
+  collapse::fsummarise(`i` = collapse::fmean(i, na.rm = TRUE),
+  `total_i_sum` = collapse::fsum(i, na.rm = TRUE)) %>% 
+  collapse::fungroup()
 
-data$i = sfun_stata_numeric_output_round(data$i)
+data$`i` = sfun_strip_stata_attributes(data$`i`)
 
-data$i = sfun_strip_stata_attributes(data$i)
+data$`total_i_sum` = sfun_strip_stata_attributes(data$`total_i_sum`)
 
-data$total_i_sum = sfun_stata_numeric_output_round(data$total_i_sum)
+ 18 do:  rename i mean_i_overall
+ 18 r:  data = collapse::frename(data, `i` = `mean_i_overall`) 
+data = collapse::frename(data, `i` = `mean_i_overall`)
 
-data$total_i_sum = sfun_strip_stata_attributes(data$total_i_sum)
-
-Error: After Stata line  17 , R data set differs from Stata reference.
-
-Data set from Stata (do_df):
-tibble [2 × 3] (S3: tbl_df/tbl/data.frame)
- $ group      : chr [1:2] "A" "B"
-  ..- attr(*, "label")= chr "group"
-  ..- attr(*, "format.stata")= chr "%1s"
- $ i          : num [1:2] 27 15.5
- $ total_i_sum: num [1:2] 135 170
- - attr(*, "label")= chr "Written by R."
-NULL
-
-Data set from R (r_df):
-tibble [2 × 3] (S3: tbl_df/tbl/data.frame)
- $ group      : chr [1:2] "A" "B"
-  ..- attr(*, "label")= chr "group"
-  ..- attr(*, "format.stata")= chr "%1s"
- $ i          : num [1:2] 27 15.5
- $ total_i_sum: num [1:2] 27 15.5
-NULL
-
-Differences:List of 2
- $ identical     : logi FALSE
- $ value_mismatch:'data.frame':	2 obs. of  4 variables:
-  ..$ row      : int [1:2] 1 2
-  ..$ column   : chr [1:2] "total_i_sum" "total_i_sum"
-  ..$ df1_value: num [1:2] 135 170
-  ..$ df2_value: num [1:2] 27 15.5
-NULL
+ 19 do:  expand 2 if group=="C"
+ 19 r:  __expand_n_values_L19 = 2
+__expand_cond_values_L19 = group=="C"
+__final_expand_times_L19 = ifelse(!is.na(__expand_cond_values_L19) & __expand_cond_values_L19, ifelse(is.na(__expand_n_values_L19), 1, pmax(0, as.integer(__expand_n_values_L19))), 1)
+__final_expand_times_L19 = ifelse(is.na(__final_expand_times_L19), 1, __final_expand_times_L19)
+data = data[base::rep(1:NROW(data), times = __final_expand_times_L19), ]
+if (exists('__expand_n_values_L19')) rm(__expand_n_values_L19, __expand_cond_values_L19, __final_expand_times_L19) 
+__expand_n_values_L19 = 2
+__expand_cond_values_L19 = group=="C"
+__final_expand_times_L19 = ifelse(!is.na(__expand_cond_values_L19) & __expand_cond_values_L19, ifelse(is.na(__expand_n_values_L19), 1, pmax(0, as.integer(__expand_n_values_L19))), 1)
+__final_expand_times_L19 = ifelse(is.na(__final_expand_times_L19), 1, __final_expand_times_L19)
+data = data[base::rep(1:NROW(data), times = __final_expand_times_L19), ]
+if (exists('__expand_n_values_L19')) rm(__expand_n_values_L19, __expand_cond_values_L19, __final_expand_times_L19)
+Error: <text>:1:1: unexpected input
+1: _
+    ^
+Error executing R code for Stata line  19 :  __expand_n_values_L19 = 2
+__expand_cond_values_L19 = group=="C"
+__final_expand_times_L19 = ifelse(!is.na(__expand_cond_values_L19) & __expand_cond_values_L19, ifelse(is.na(__expand_n_values_L19), 1, pmax(0, as.integer(__expand_n_values_L19))), 1)
+__final_expand_times_L19 = ifelse(is.na(__final_expand_times_L19), 1, __final_expand_times_L19)
+data = data[base::rep(1:NROW(data), times = __final_expand_times_L19), ]
+if (exists('__expand_n_values_L19')) rm(__expand_n_values_L19, __expand_cond_values_L19, __final_expand_times_L19)
+Error: <text>:1:1: unexpected input
+1: _
+    ^ 
