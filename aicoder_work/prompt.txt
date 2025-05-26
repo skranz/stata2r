@@ -2584,16 +2584,14 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   if (length(vars_to_merge_on) == 0) {
        return(paste0("# merge command requires varlist: ", rest_of_cmd))
   }
+  # For dplyr::join, by argument can be a character vector of column names
   vars_to_merge_on_r_vec_str = paste0('c("', paste(vars_to_merge_on, collapse = '", "'), '")')
 
   using_source_r_expr = resolve_stata_filename(raw_filename_token, cmd_df, line_num, default_base_dir_var = "data_dir")
 
 
-  # Determine merge type for collapse::fmerge
-  # Stata default for all merge types is to drop observations that do not match in both.
-  # So R inner_join (all.x=F, all.y=F) is the closest default.
-  all_x = FALSE # Default to inner join behavior (Stata's default)
-  all_y = FALSE # Default to inner join behavior (Stata's default)
+  # Determine join type based on Stata's `keep()` option or default behavior
+  join_type_r_func = "dplyr::inner_join" # Stata's default is inner join
   keep_spec_for_comment = "match" # Default keep() option for comment
 
   # Handle keep() options if present, overriding defaults
@@ -2602,16 +2600,16 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       if (!is.na(keep_opt_match[1,1])) {
           keep_spec = stringi::stri_trim_both(keep_opt_match[1,2])
           if (grepl("\\ball\\b", keep_spec)) {
-              all_x = TRUE; all_y = TRUE
+              join_type_r_func = "dplyr::full_join"
               keep_spec_for_comment = "all"
           } else if (grepl("\\bmaster\\b", keep_spec)) {
-              all_x = TRUE; all_y = FALSE # Keep matched and master unmatched (left join)
+              join_type_r_func = "dplyr::left_join" # Keep matched and master unmatched (left join)
               keep_spec_for_comment = "master"
           } else if (grepl("\\busing\\b", keep_spec)) {
-              all_x = FALSE; all_y = TRUE # Keep matched and using unmatched (right join)
+              join_type_r_func = "dplyr::right_join" # Keep matched and using unmatched (right join)
                keep_spec_for_comment = "using"
           } else if (grepl("\\bmatch\\b", keep_spec)) {
-              all_x = FALSE; all_y = FALSE # Keep matched only (inner join)
+              join_type_r_func = "dplyr::inner_join" # Keep matched only (inner join)
               keep_spec_for_comment = "match"
           }
           # Other complex keep() specs like `keep(_merge==3)` are not handled here.
@@ -2620,22 +2618,16 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Handle nogenerate option
   has_nogenerate = !is.na(options_str) && stringi::stri_detect_fixed(options_str, "nogenerate")
-  # Stata merge creates _merge variable (1 master, 2 using, 3 both).
-  # R merge/join doesn't create a merge indicator. `collapse::fmerge` also doesn't.
-  # If nogenerate is NOT present, we would need to create a merge indicator variable.
-  # This is complex. For now, assume nogenerate or don't generate the indicator.
-  # Add a comment if _merge variable is expected but not generated.
   merge_comment = paste0("# Stata merge type: ", merge_type, ", keep(", keep_spec_for_comment, ")",
                          if(has_nogenerate) ", nogenerate" else " # _merge variable was not generated.")
 
 
-  # Build the R command string using collapse::fmerge
-  # fmerge(x, y, by, all.x, all.y)
-  r_code_str = paste0("data = collapse::fmerge(data, haven::read_dta(", using_source_r_expr, "), by = ", vars_to_merge_on_r_vec_str, ", all.x = ", toupper(all_x), ", all.y = ", toupper(all_y), ") ", merge_comment)
+  # Build the R command string using dplyr::*_join
+  # dplyr::join(x, y, by)
+  r_code_str = paste0("data = ", join_type_r_func, "(data, haven::read_dta(", using_source_r_expr, "), by = ", vars_to_merge_on_r_vec_str, ") ", merge_comment)
 
   return(r_code_str)
 }
-
 
 ```
 ### END OF FILE: t_merge.R
@@ -3809,13 +3801,67 @@ haven::write_dta(data, path = R_tempfile_L24_t1_path)
 data = dplyr::filter(data, group_code==1)
 
  27 do:  merge 1:m group_code using "`t1'", keep(match master) nogenerate
- 27 r:  data = collapse::fmerge(data, haven::read_dta(R_tempfile_L24_t1_path), by = c("group_code"), all.x = TRUE, all.y = FALSE) # Stata merge type: 1:m, keep(master), nogenerate 
-data = collapse::fmerge(data, haven::read_dta(R_tempfile_L24_t1_path), by = c("group_code"), all.x = TRUE, all.y = FALSE) # Stata merge type: 1:m, keep(master), nogenerate
+ 27 r:  data = dplyr::left_join(data, haven::read_dta(R_tempfile_L24_t1_path), by = c("group_code")) # Stata merge type: 1:m, keep(master), nogenerate 
+data = dplyr::left_join(data, haven::read_dta(R_tempfile_L24_t1_path), by = c("group_code")) # Stata merge type: 1:m, keep(master), nogenerate
 
-Error: 'fmerge' is not an exported object from 'namespace:collapse'
-Error executing R code for Stata line  27 :  data = collapse::fmerge(data, haven::read_dta(R_tempfile_L24_t1_path), by = c("group_code"), all.x = TRUE, all.y = FALSE) # Stata merge type: 1:m, keep(master), nogenerate
+Error: After Stata line  27 , R data set differs from Stata reference.
 
-Error: 'fmerge' is not an exported object from 'namespace:collapse' 
+Data set from Stata (do_df):
+tibble [1 × 5] (S3: tbl_df/tbl/data.frame)
+ $ group         : chr "A"
+  ..- attr(*, "label")= chr "group"
+  ..- attr(*, "format.stata")= chr "%1s"
+ $ mean_i_overall: num 27
+  ..- attr(*, "label")= chr "(mean) i"
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ total_i_sum   : num 135
+  ..- attr(*, "label")= chr "(sum) i"
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ group_code    : dbl+lbl [1:1] 1
+   ..@ label       : chr "group"
+   ..@ format.stata: chr "%8.0g"
+   ..@ labels      : Named num [1:2] 1 2
+   .. ..- attr(*, "names")= chr [1:2] "A" "B"
+ $ group_str     : chr "A"
+  ..- attr(*, "label")= chr "group"
+  ..- attr(*, "format.stata")= chr "%9s"
+ - attr(*, "label")= chr "Written by R."
+NULL
+
+Data set from R (r_df):
+tibble [1 × 9] (S3: tbl_df/tbl/data.frame)
+ $ group.x         : chr "A"
+  ..- attr(*, "label")= chr "group"
+  ..- attr(*, "format.stata")= chr "%1s"
+ $ mean_i_overall.x: num 27
+  ..- attr(*, "label")= chr "i"
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ total_i_sum.x   : num 135
+  ..- attr(*, "label")= chr "i"
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ group_code      : dbl+lbl [1:1] 1
+   ..@ labels: Named num [1:2] 1 2
+   .. ..- attr(*, "names")= chr [1:2] "A" "B"
+ $ group_str.x     : chr "A"
+ $ group.y         : chr "A"
+  ..- attr(*, "label")= chr "group"
+  ..- attr(*, "format.stata")= chr "%1s"
+ $ mean_i_overall.y: num 27
+  ..- attr(*, "label")= chr "i"
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ total_i_sum.y   : num 135
+  ..- attr(*, "label")= chr "i"
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ group_str.y     : chr "A"
+  ..- attr(*, "format.stata")= chr "%-9s"
+NULL
+
+Differences:List of 2
+ $ identical      : logi FALSE
+ $ column_mismatch:List of 2
+  ..$ missing_in_do_df: chr [1:8] "group.x" "mean_i_overall.x" "total_i_sum.x" "group_str.x" ...
+  ..$ missing_in_r_df : chr [1:4] "group" "mean_i_overall" "total_i_sum" "group_str"
+NULL
 
 ##############################
 # YOUR TASK
