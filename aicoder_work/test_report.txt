@@ -337,34 +337,34 @@ data$id = sfun_strip_stata_attributes(data$id)
  30 do:  bysort group_code (mean_i_overall): gen diff_mean = mean_i_overall - mean_i_overall[_n-1]
  30 r:  data = dplyr::arrange(data, group_code, mean_i_overall) %>%
   dplyr::group_by(dplyr::across(c("group_code"))) %>%
-  dplyr::mutate(diff_mean = mean_i_overall - collapse::froll_lag(mean_i_overall, 1)) %>%
+  dplyr::mutate(diff_mean = mean_i_overall - dplyr::lag(mean_i_overall, n == 1)) %>%
   dplyr::ungroup()
 data$diff_mean = sfun_strip_stata_attributes(data$diff_mean) 
 data = dplyr::arrange(data, group_code, mean_i_overall) %>%
   dplyr::group_by(dplyr::across(c("group_code"))) %>%
-  dplyr::mutate(diff_mean = mean_i_overall - collapse::froll_lag(mean_i_overall, 1)) %>%
+  dplyr::mutate(diff_mean = mean_i_overall - dplyr::lag(mean_i_overall, n == 1)) %>%
   dplyr::ungroup()
 
 Error: Problem with `mutate()` column `diff_mean`.
-ℹ `diff_mean = mean_i_overall - collapse::froll_lag(mean_i_overall, 1)`.
-✖ 'froll_lag' is not an exported object from 'namespace:collapse'
+ℹ `diff_mean = mean_i_overall - dplyr::lag(mean_i_overall, n == 1)`.
+✖ comparison (1) is possible only for atomic and list types
 ℹ The error occurred in group 1: group_code = 1.
-Caused by error:
-! 'froll_lag' is not an exported object from 'namespace:collapse'
+Caused by error in `n == 1`:
+! comparison (1) is possible only for atomic and list types
 data$diff_mean = sfun_strip_stata_attributes(data$diff_mean)
 
 Warning: Unknown or uninitialised column: `diff_mean`.
 Error executing R code for Stata line  30 :  data = dplyr::arrange(data, group_code, mean_i_overall) %>%
   dplyr::group_by(dplyr::across(c("group_code"))) %>%
-  dplyr::mutate(diff_mean = mean_i_overall - collapse::froll_lag(mean_i_overall, 1)) %>%
+  dplyr::mutate(diff_mean = mean_i_overall - dplyr::lag(mean_i_overall, n == 1)) %>%
   dplyr::ungroup()
 
 Error: Problem with `mutate()` column `diff_mean`.
-ℹ `diff_mean = mean_i_overall - collapse::froll_lag(mean_i_overall, 1)`.
-✖ 'froll_lag' is not an exported object from 'namespace:collapse'
+ℹ `diff_mean = mean_i_overall - dplyr::lag(mean_i_overall, n == 1)`.
+✖ comparison (1) is possible only for atomic and list types
 ℹ The error occurred in group 1: group_code = 1.
-Caused by error:
-! 'froll_lag' is not an exported object from 'namespace:collapse'
+Caused by error in `n == 1`:
+! comparison (1) is possible only for atomic and list types
 data$diff_mean = sfun_strip_stata_attributes(data$diff_mean)
 
 Warning: Unknown or uninitialised column: `diff_mean`. 
