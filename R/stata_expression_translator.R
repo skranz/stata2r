@@ -144,4 +144,3 @@ translate_stata_expression_with_r_values = function(stata_expr, current_line_ind
   translate_stata_expression_to_r(stata_expr, context, final_r_value_mappings)
 }
 
-
