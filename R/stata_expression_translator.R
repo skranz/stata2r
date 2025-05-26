@@ -20,9 +20,9 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   # These are generally fixed references, not nested functions.
   # Use dplyr::lag/lead which are context-aware in grouped operations.
 
-  # Use a unique placeholder for 'n =' to avoid it being affected by '=' to '==' translation
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*-\\s*(\\d+)\\]", "dplyr::lag($1, __LAG_OFFSET_PLACEHOLDER__ = $2)")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*\\+\\s*(\\d+)\\]", "dplyr::lead($1, __LAG_OFFSET_PLACEHOLDER__ = $2)")
+  # Directly replace with `n = $2`
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*-\\s*(\\d+)\\]", "dplyr::lag($1, n = $2)")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*\\+\\s*(\\d+)\\]", "dplyr::lead($1, n = $2)")
   r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\]", "$1")
 
   # Handle _n and _N.
@@ -62,9 +62,6 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   # Step 3: Translate Stata logical operators
   r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![<>!=~])\\s*=\\s*(?![=])", " == ") # Replace single = with == if not part of other ops
-
-  # After all other transformations, restore the 'n =' for dplyr::lag/lead
-  r_expr = stringi::stri_replace_all_fixed(r_expr, "__LAG_OFFSET_PLACEHOLDER__ = ", "n = ")
 
   r_expr = stringi::stri_replace_all_regex(r_expr, "\\s+~=\\s+", " != ") # Stata `~=` to R `!=`
 
