@@ -49,10 +49,16 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Step 1: Calculate the value for replacement, potentially conditionally
   # Ensure logical comparisons are converted to numeric (0/1) to match Stata's default numeric type for logical expressions.
   is_logical_expr = stringi::stri_detect_regex(stata_expr, "==|!=|~=|<=|>=|<|>|&|\\|")
+  is_string_result_type = is_stata_expr_string_type(stata_expr)
 
   calculated_value_expr = r_expr
+  na_for_if_else = "NA_real_" # Default to numeric NA
+
   if (is_logical_expr) {
     calculated_value_expr = paste0("as.numeric(", r_expr, ")")
+    na_for_if_else = "NA_real_"
+  } else if (is_string_result_type) {
+    na_for_if_else = "NA_character_"
   }
 
   if (!is.na(r_if_cond) && r_if_cond != "") {
@@ -65,14 +71,14 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   r_code_lines = c()
 
   if (arrange_call != "") {
-      r_code_lines = c(r_code_lines, paste0("data = ", arrange_call, " %>%")) # FIX: removed \n
+      r_code_lines = c(r_code_lines, paste0("data = ", arrange_call, " %>%"))
   } else {
-      r_code_lines = c(r_code_lines, "data = data %>%") # FIX: removed \n
+      r_code_lines = c(r_code_lines, "data = data %>%")
   }
 
   if (!is.null(group_vars_r_vec_str) && length(group_vars_list) > 0) {
-      r_code_lines = c(r_code_lines, paste0("  dplyr::group_by(dplyr::across(", group_vars_r_vec_str, ")) %>%")) # FIX: removed \n
-      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", var_to_replace, " = ", calc_expr, ") %>%")) # FIX: removed \n
+      r_code_lines = c(r_code_lines, paste0("  dplyr::group_by(dplyr::across(", group_vars_r_vec_str, ")) %>%"))
+      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", var_to_replace, " = ", calc_expr, ") %>%"))
       r_code_lines = c(r_code_lines, "  dplyr::ungroup()")
   } else {
       r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", var_to_replace, " = ", calc_expr, ")"))
@@ -83,4 +89,5 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 

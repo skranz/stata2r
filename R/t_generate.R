@@ -55,17 +55,26 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Step 1: Calculate the value for the new variable, potentially conditionally
   # Ensure logical comparisons are converted to numeric (0/1) to match Stata's default numeric type for logical expressions.
-  # Heuristic: if stata_expr contains common logical/comparison operators, it's likely a logical expression
-  # that Stata would store as 0/1.
   is_logical_expr = stringi::stri_detect_regex(stata_expr, "==|!=|~=|<=|>=|<|>|&|\\|")
+  is_string_result_type = is_stata_expr_string_type(stata_expr)
 
   calculated_value_expr = r_expr
+  na_for_if_else = "NA_real_" # Default to numeric NA
+
   if (is_logical_expr) {
     calculated_value_expr = paste0("as.numeric(", r_expr, ")")
+    # If the expression itself is logical, Stata converts it to 0/1. So the result is numeric.
+    # Hence, NA_real_ is appropriate.
+    na_for_if_else = "NA_real_"
+  } else if (is_string_result_type) {
+    # If not a logical expression, but identified as producing a string result, use NA_character_.
+    na_for_if_else = "NA_character_"
   }
+  # Otherwise (non-logical, non-string, i.e., numeric expression), NA_real_ is already the default.
+
 
   if (!is.na(r_if_cond) && r_if_cond != "") {
-    calc_expr = paste0("dplyr::if_else(", r_if_cond, ", ", calculated_value_expr, ", NA_real_)") # Use NA_real_ to force numeric type
+    calc_expr = paste0("dplyr::if_else(", r_if_cond, ", ", calculated_value_expr, ", ", na_for_if_else, ")")
   } else {
     calc_expr = calculated_value_expr
   }
@@ -75,15 +84,15 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Start with data or data after arrange, and add the first pipe
   if (arrange_call != "") {
-      r_code_lines = c(r_code_lines, paste0("data = ", arrange_call, " %>%")) # FIX: removed \n
+      r_code_lines = c(r_code_lines, paste0("data = ", arrange_call, " %>%"))
   } else {
-      r_code_lines = c(r_code_lines, "data = data %>%") # FIX: removed \n
+      r_code_lines = c(r_code_lines, "data = data %>%")
   }
 
   # Add grouping and mutate steps
   if (!is.null(group_vars_r_vec_str) && length(group_vars_list) > 0) {
-      r_code_lines = c(r_code_lines, paste0("  dplyr::group_by(dplyr::across(", group_vars_r_vec_str, ")) %>%")) # FIX: removed \n
-      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", new_var, " = ", calc_expr, ") %>%")) # FIX: removed \n
+      r_code_lines = c(r_code_lines, paste0("  dplyr::group_by(dplyr::across(", group_vars_r_vec_str, ")) %>%"))
+      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", new_var, " = ", calc_expr, ") %>%"))
       r_code_lines = c(r_code_lines, "  dplyr::ungroup()")
   } else {
       # If not grouped, just add the mutate step directly to the pipe chain
@@ -96,4 +105,5 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 
