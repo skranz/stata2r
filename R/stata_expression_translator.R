@@ -18,12 +18,11 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   # Step 1: Translate Stata special variables and indexing (e.g., _n, _N, var[_n-1])
   # These are generally fixed references, not nested functions.
-  # Use collapse::froll_lag/lead for performance, but dplyr is fine.
-  # For _n and _N, if by_group context is true, they should be group-wise.
-  # collapse::fseq() and collapse::fnobs() are also context-aware in grouped operations.
+  # Use dplyr::lag/lead which are context-aware in grouped operations.
 
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*-\\s*(\\d+)\\]", "collapse::froll_lag($1, $2)")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*\\+\\s*(\\d+)\\]", "collapse::froll_lead($1, $2)")
+  # Changed from collapse::froll_lag/lead to dplyr::lag/lead
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*-\\s*(\\d+)\\]", "dplyr::lag($1, n = $2)")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*\\+\\s*(\\d+)\\]", "dplyr::lead($1, n = $2)")
   r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\]", "$1")
 
   # Handle _n and _N.
