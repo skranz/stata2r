@@ -44,16 +44,14 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   if (length(vars_to_merge_on) == 0) {
        return(paste0("# merge command requires varlist: ", rest_of_cmd))
   }
+  # For dplyr::join, by argument can be a character vector of column names
   vars_to_merge_on_r_vec_str = paste0('c("', paste(vars_to_merge_on, collapse = '", "'), '")')
 
   using_source_r_expr = resolve_stata_filename(raw_filename_token, cmd_df, line_num, default_base_dir_var = "data_dir")
 
 
-  # Determine merge type for collapse::fmerge
-  # Stata default for all merge types is to drop observations that do not match in both.
-  # So R inner_join (all.x=F, all.y=F) is the closest default.
-  all_x = FALSE # Default to inner join behavior (Stata's default)
-  all_y = FALSE # Default to inner join behavior (Stata's default)
+  # Determine join type based on Stata's `keep()` option or default behavior
+  join_type_r_func = "dplyr::inner_join" # Stata's default is inner join
   keep_spec_for_comment = "match" # Default keep() option for comment
 
   # Handle keep() options if present, overriding defaults
@@ -62,16 +60,16 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       if (!is.na(keep_opt_match[1,1])) {
           keep_spec = stringi::stri_trim_both(keep_opt_match[1,2])
           if (grepl("\\ball\\b", keep_spec)) {
-              all_x = TRUE; all_y = TRUE
+              join_type_r_func = "dplyr::full_join"
               keep_spec_for_comment = "all"
           } else if (grepl("\\bmaster\\b", keep_spec)) {
-              all_x = TRUE; all_y = FALSE # Keep matched and master unmatched (left join)
+              join_type_r_func = "dplyr::left_join" # Keep matched and master unmatched (left join)
               keep_spec_for_comment = "master"
           } else if (grepl("\\busing\\b", keep_spec)) {
-              all_x = FALSE; all_y = TRUE # Keep matched and using unmatched (right join)
+              join_type_r_func = "dplyr::right_join" # Keep matched and using unmatched (right join)
                keep_spec_for_comment = "using"
           } else if (grepl("\\bmatch\\b", keep_spec)) {
-              all_x = FALSE; all_y = FALSE # Keep matched only (inner join)
+              join_type_r_func = "dplyr::inner_join" # Keep matched only (inner join)
               keep_spec_for_comment = "match"
           }
           # Other complex keep() specs like `keep(_merge==3)` are not handled here.
@@ -80,20 +78,14 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Handle nogenerate option
   has_nogenerate = !is.na(options_str) && stringi::stri_detect_fixed(options_str, "nogenerate")
-  # Stata merge creates _merge variable (1 master, 2 using, 3 both).
-  # R merge/join doesn't create a merge indicator. `collapse::fmerge` also doesn't.
-  # If nogenerate is NOT present, we would need to create a merge indicator variable.
-  # This is complex. For now, assume nogenerate or don't generate the indicator.
-  # Add a comment if _merge variable is expected but not generated.
   merge_comment = paste0("# Stata merge type: ", merge_type, ", keep(", keep_spec_for_comment, ")",
                          if(has_nogenerate) ", nogenerate" else " # _merge variable was not generated.")
 
 
-  # Build the R command string using collapse::fmerge
-  # fmerge(x, y, by, all.x, all.y)
-  r_code_str = paste0("data = collapse::fmerge(data, haven::read_dta(", using_source_r_expr, "), by = ", vars_to_merge_on_r_vec_str, ", all.x = ", toupper(all_x), ", all.y = ", toupper(all_y), ") ", merge_comment)
+  # Build the R command string using dplyr::*_join
+  # dplyr::join(x, y, by)
+  r_code_str = paste0("data = ", join_type_r_func, "(data, haven::read_dta(", using_source_r_expr, "), by = ", vars_to_merge_on_r_vec_str, ") ", merge_comment)
 
   return(r_code_str)
 }
-
 
