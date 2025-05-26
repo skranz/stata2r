@@ -994,6 +994,8 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\blength\\(([^)]+)\\)", "stringi::stri_length($1)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrlen\\(([^)]+)\\)", "stringi::stri_length($1)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstring\\(([^)]+)\\)", "as.character($1)")
+    # Random number generator functions
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bruniform\\(\\)", "stats::runif(as.numeric(dplyr::n()))") # Stata runiform()
     # Date functions (placeholder, as actual implementation is complex)
   }
 
@@ -1072,7 +1074,6 @@ translate_stata_expression_with_r_values = function(stata_expr, current_line_ind
 
   translate_stata_expression_to_r(stata_expr, context, final_r_value_mappings)
 }
-
 
 ```
 ### END OF FILE: stata_expression_translator.R
@@ -3999,30 +4000,94 @@ data$rounded_value1 = sfun_strip_stata_attributes(data$rounded_value1)
 
  6 do:  generate random_uniform_draw = runiform()
  6 r:  data = data %>%
-  dplyr::mutate(random_uniform_draw = runiform())
+  dplyr::mutate(random_uniform_draw = stats::runif(as.numeric(dplyr::n())))
 data$random_uniform_draw = sfun_strip_stata_attributes(data$random_uniform_draw) 
 data = data %>%
-  dplyr::mutate(random_uniform_draw = runiform())
+  dplyr::mutate(random_uniform_draw = stats::runif(as.numeric(dplyr::n())))
 
-Error: Problem with `mutate()` column `random_uniform_draw`.
-ℹ `random_uniform_draw = runiform()`.
-✖ could not find function "runiform"
-Caused by error in `runiform()`:
-! could not find function "runiform"
 data$random_uniform_draw = sfun_strip_stata_attributes(data$random_uniform_draw)
 
-Warning: Unknown or uninitialised column: `random_uniform_draw`.
-Error executing R code for Stata line  6 :  data = data %>%
-  dplyr::mutate(random_uniform_draw = runiform())
+Error: After Stata line  6 , R data set differs from Stata reference.
 
-Error: Problem with `mutate()` column `random_uniform_draw`.
-ℹ `random_uniform_draw = runiform()`.
-✖ could not find function "runiform"
-Caused by error in `runiform()`:
-! could not find function "runiform"
-data$random_uniform_draw = sfun_strip_stata_attributes(data$random_uniform_draw)
+Data set from Stata (do_df):
+tibble [50 × 12] (S3: tbl_df/tbl/data.frame)
+ $ id                 : num [1:50] 1 2 3 4 5 6 7 8 9 10 ...
+  ..- attr(*, "label")= chr "id"
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ group_orig         : chr [1:50] " Gamma" " Gamma" "Beta" "Beta" ...
+  ..- attr(*, "label")= chr "group_orig"
+  ..- attr(*, "format.stata")= chr "%6s"
+ $ value1             : num [1:50] 73.9 NA 52.8 29.8 44.2 ...
+  ..- attr(*, "label")= chr "value1"
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ value2             : num [1:50] 4 3 NA 10 3 2 3 6 6 8 ...
+  ..- attr(*, "label")= chr "value2"
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ date_str           : chr [1:50] "2020-09-21" "2022-08-26" "2022-02-09" "2021-05-20" ...
+  ..- attr(*, "label")= chr "date_str"
+  ..- attr(*, "format.stata")= chr "%10s"
+ $ num_str            : chr [1:50] "166" "181" "101" "136" ...
+  ..- attr(*, "label")= chr "num_str"
+  ..- attr(*, "format.stata")= chr "%3s"
+ $ mixed_var          : chr [1:50] "apple" "42" "10" "20" ...
+  ..- attr(*, "label")= chr "mixed_var"
+  ..- attr(*, "format.stata")= chr "%6s"
+ $ value1_log         : num [1:50] 4.3 NA 3.97 3.39 3.79 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ value2_squared     : num [1:50] 16 9 NA 100 9 4 9 36 36 64 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ int_value1         : num [1:50] 73 NA 52 29 44 NA 41 20 31 70 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ rounded_value1     : num [1:50] 73.9 NA 52.8 29.8 44.2 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ random_uniform_draw: num [1:50] 0.3489 0.2669 0.1366 0.0286 0.8689 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ - attr(*, "label")= chr "Written by R."
+NULL
 
-Warning: Unknown or uninitialised column: `random_uniform_draw`. 
+Data set from R (r_df):
+tibble [50 × 12] (S3: tbl_df/tbl/data.frame)
+ $ id                 : num [1:50] 1 2 3 4 5 6 7 8 9 10 ...
+  ..- attr(*, "label")= chr "id"
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ group_orig         : chr [1:50] " Gamma" " Gamma" "Beta" "Beta" ...
+  ..- attr(*, "label")= chr "group_orig"
+  ..- attr(*, "format.stata")= chr "%6s"
+ $ value1             : num [1:50] 73.9 NA 52.8 29.8 44.2 ...
+  ..- attr(*, "label")= chr "value1"
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ value2             : num [1:50] 4 3 NA 10 3 2 3 6 6 8 ...
+  ..- attr(*, "label")= chr "value2"
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ date_str           : chr [1:50] "2020-09-21" "2022-08-26" "2022-02-09" "2021-05-20" ...
+  ..- attr(*, "label")= chr "date_str"
+  ..- attr(*, "format.stata")= chr "%10s"
+ $ num_str            : chr [1:50] "166" "181" "101" "136" ...
+  ..- attr(*, "label")= chr "num_str"
+  ..- attr(*, "format.stata")= chr "%3s"
+ $ mixed_var          : chr [1:50] "apple" "42" "10" "20" ...
+  ..- attr(*, "label")= chr "mixed_var"
+  ..- attr(*, "format.stata")= chr "%6s"
+ $ value1_log         : num [1:50] 4.3 NA 3.97 3.39 3.79 ...
+  ..- attr(*, "label")= chr "value1"
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ value2_squared     : num [1:50] 16 9 NA 100 9 4 9 36 36 64 ...
+  ..- attr(*, "label")= chr "value2"
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ int_value1         : num [1:50] 73 NA 52 29 44 NA 41 20 31 70 ...
+ $ rounded_value1     : num [1:50] 73.9 NA 52.8 29.8 44.2 NA 41.7 20 31.9 70.1 ...
+ $ random_uniform_draw: num [1:50] 0.62 0.0337 0.8564 0.9899 0.3288 ...
+ - attr(*, "label")= chr "Written by R."
+NULL
+
+Differences:List of 2
+ $ identical     : logi FALSE
+ $ value_mismatch:'data.frame':	5 obs. of  4 variables:
+  ..$ row      : int [1:5] 1 2 3 4 5
+  ..$ column   : chr [1:5] "random_uniform_draw" "random_uniform_draw" "random_uniform_draw" "random_uniform_draw" ...
+  ..$ df1_value: num [1:5] 0.3489 0.2669 0.1366 0.0286 0.8689
+  ..$ df2_value: num [1:5] 0.62 0.0337 0.8564 0.9899 0.3288
+NULL
 
 ##############################
 # YOUR TASK
