@@ -54,7 +54,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
     # String functions (using stringi or custom helpers)
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrtrim\\(([^)]+)\\)", "stringi::stri_trim_both($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstritrim\\(([^)]+)\\)", "stringi::stri_squish($1)") # Stata stritrim squishes and trims
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstritrim\\(([^)]+)\\)", "stringi::stri_replace_all_regex(stringi::stri_trim_both($1), '\\\\s+', ' ')") # Stata stritrim squishes and trims
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\blower\\(([^)]+)\\)", "stringi::stri_trans_tolower($1)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bupper\\(([^)]+)\\)", "stringi::stri_trans_toupper($1)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsubstr\\(([^,]+),([^,]+),([^)]+)\\)", "stringi::stri_sub($1, from = $2, length = $3)")
@@ -143,4 +143,5 @@ translate_stata_expression_with_r_values = function(stata_expr, current_line_ind
 
   translate_stata_expression_to_r(stata_expr, context, final_r_value_mappings)
 }
+
 
