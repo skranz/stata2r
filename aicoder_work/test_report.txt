@@ -199,27 +199,107 @@ data$`total_i_sum` = sfun_strip_stata_attributes(data$`total_i_sum`)
 data = collapse::frename(data, `i` = `mean_i_overall`)
 
  19 do:  expand 2 if group=="C"
- 19 r:  __expand_n_values_L19 = 2
-__expand_cond_values_L19 = group=="C"
-__final_expand_times_L19 = ifelse(!is.na(__expand_cond_values_L19) & __expand_cond_values_L19, ifelse(is.na(__expand_n_values_L19), 1, pmax(0, as.integer(__expand_n_values_L19))), 1)
-__final_expand_times_L19 = ifelse(is.na(__final_expand_times_L19), 1, __final_expand_times_L19)
-data = data[base::rep(1:NROW(data), times = __final_expand_times_L19), ]
-if (exists('__expand_n_values_L19')) rm(__expand_n_values_L19, __expand_cond_values_L19, __final_expand_times_L19) 
-__expand_n_values_L19 = 2
-__expand_cond_values_L19 = group=="C"
-__final_expand_times_L19 = ifelse(!is.na(__expand_cond_values_L19) & __expand_cond_values_L19, ifelse(is.na(__expand_n_values_L19), 1, pmax(0, as.integer(__expand_n_values_L19))), 1)
-__final_expand_times_L19 = ifelse(is.na(__final_expand_times_L19), 1, __final_expand_times_L19)
-data = data[base::rep(1:NROW(data), times = __final_expand_times_L19), ]
-if (exists('__expand_n_values_L19')) rm(__expand_n_values_L19, __expand_cond_values_L19, __final_expand_times_L19)
-Error: <text>:1:1: unexpected input
-1: _
-    ^
-Error executing R code for Stata line  19 :  __expand_n_values_L19 = 2
-__expand_cond_values_L19 = group=="C"
-__final_expand_times_L19 = ifelse(!is.na(__expand_cond_values_L19) & __expand_cond_values_L19, ifelse(is.na(__expand_n_values_L19), 1, pmax(0, as.integer(__expand_n_values_L19))), 1)
-__final_expand_times_L19 = ifelse(is.na(__final_expand_times_L19), 1, __final_expand_times_L19)
-data = data[base::rep(1:NROW(data), times = __final_expand_times_L19), ]
-if (exists('__expand_n_values_L19')) rm(__expand_n_values_L19, __expand_cond_values_L19, __final_expand_times_L19)
-Error: <text>:1:1: unexpected input
-1: _
-    ^ 
+ 19 r:  stata_tmp_expand_n_values_L19 = 2
+stata_tmp_expand_cond_values_L19 = with(data, group=="C")
+stata_tmp_final_expand_times_L19 = ifelse(!is.na(stata_tmp_expand_cond_values_L19) & stata_tmp_expand_cond_values_L19, ifelse(is.na(stata_tmp_expand_n_values_L19), 1, pmax(0, as.integer(stata_tmp_expand_n_values_L19))), 1)
+stata_tmp_final_expand_times_L19 = ifelse(is.na(stata_tmp_final_expand_times_L19), 1, stata_tmp_final_expand_times_L19)
+data = data[base::rep(1:NROW(data), times = stata_tmp_final_expand_times_L19), ]
+if (exists('stata_tmp_expand_n_values_L19')) rm(stata_tmp_expand_n_values_L19, stata_tmp_expand_cond_values_L19, stata_tmp_final_expand_times_L19) 
+stata_tmp_expand_n_values_L19 = 2
+
+stata_tmp_expand_cond_values_L19 = with(data, group=="C")
+
+stata_tmp_final_expand_times_L19 = ifelse(!is.na(stata_tmp_expand_cond_values_L19) & stata_tmp_expand_cond_values_L19, ifelse(is.na(stata_tmp_expand_n_values_L19), 1, pmax(0, as.integer(stata_tmp_expand_n_values_L19))), 1)
+
+stata_tmp_final_expand_times_L19 = ifelse(is.na(stata_tmp_final_expand_times_L19), 1, stata_tmp_final_expand_times_L19)
+
+data = data[base::rep(1:NROW(data), times = stata_tmp_final_expand_times_L19), ]
+
+if (exists('stata_tmp_expand_n_values_L19')) rm(stata_tmp_expand_n_values_L19, stata_tmp_expand_cond_values_L19, stata_tmp_final_expand_times_L19)
+
+ 20 do:  duplicates drop
+ 20 r:  ## Calculate duplicate flag based on all variables
+stata_tmp_is_duplicate_L20 = base::duplicated(data, fromLast = FALSE)
+## Calculate condition flag
+stata_tmp_satisfies_cond_L20 = TRUE
+data = dplyr::filter(data, !(stata_tmp_is_duplicate_L20 & stata_tmp_satisfies_cond_L20))
+rm(stata_tmp_is_duplicate_L20, stata_tmp_satisfies_cond_L20) 
+## Calculate duplicate flag based on all variables
+
+stata_tmp_is_duplicate_L20 = base::duplicated(data, fromLast = FALSE)
+
+## Calculate condition flag
+
+stata_tmp_satisfies_cond_L20 = TRUE
+
+data = dplyr::filter(data, !(stata_tmp_is_duplicate_L20 & stata_tmp_satisfies_cond_L20))
+
+rm(stata_tmp_is_duplicate_L20, stata_tmp_satisfies_cond_L20)
+
+ 21 do:  encode group, gen(group_code)
+ 21 r:  data = dplyr::mutate(data, group_code = NA_integer_)
+stata_tmp_encoded_values_L21 = with(data, as.integer(base::factor(group, levels = base::unique(group[base::order(group)]))))
+data = dplyr::mutate(data, group_code = stata_tmp_encoded_values_L21)
+rm(stata_tmp_encoded_values_L21)
+data$group_code = sfun_strip_stata_attributes(data$group_code) 
+data = dplyr::mutate(data, group_code = NA_integer_)
+
+stata_tmp_encoded_values_L21 = with(data, as.integer(base::factor(group, levels = base::unique(group[base::order(group)]))))
+
+data = dplyr::mutate(data, group_code = stata_tmp_encoded_values_L21)
+
+rm(stata_tmp_encoded_values_L21)
+
+data$group_code = sfun_strip_stata_attributes(data$group_code)
+
+ 22 do:  decode group_code, gen(group_str)
+ 22 r:  data = dplyr::mutate(data, group_str = NA_character_)
+## Decode values using haven::as_factor
+stata_tmp_decoded_values_L22 = with(data, as.character(haven::as_factor(group_code, levels = 'labels')))
+data = dplyr::mutate(data, group_str = stata_tmp_decoded_values_L22)
+rm(stata_tmp_decoded_values_L22)
+data$group_str = sfun_strip_stata_attributes(data$group_str) 
+data = dplyr::mutate(data, group_str = NA_character_)
+
+## Decode values using haven::as_factor
+
+stata_tmp_decoded_values_L22 = with(data, as.character(haven::as_factor(group_code, levels = 'labels')))
+
+Error: Arguments in `...` must be used.
+✖ Problematic argument:
+• levels = "labels"
+ℹ Did you misspell an argument name?
+data = dplyr::mutate(data, group_str = stata_tmp_decoded_values_L22)
+
+Error: Problem with `mutate()` column `group_str`.
+ℹ `group_str = stata_tmp_decoded_values_L22`.
+✖ object 'stata_tmp_decoded_values_L22' not found
+Caused by error in `mask$eval_all_mutate()`:
+! object 'stata_tmp_decoded_values_L22' not found
+rm(stata_tmp_decoded_values_L22)
+
+Warning: object 'stata_tmp_decoded_values_L22' not found
+data$group_str = sfun_strip_stata_attributes(data$group_str)
+
+Error executing R code for Stata line  22 :  data = dplyr::mutate(data, group_str = NA_character_)
+
+## Decode values using haven::as_factor
+
+stata_tmp_decoded_values_L22 = with(data, as.character(haven::as_factor(group_code, levels = 'labels')))
+
+Error: Arguments in `...` must be used.
+✖ Problematic argument:
+• levels = "labels"
+ℹ Did you misspell an argument name?
+data = dplyr::mutate(data, group_str = stata_tmp_decoded_values_L22)
+
+Error: Problem with `mutate()` column `group_str`.
+ℹ `group_str = stata_tmp_decoded_values_L22`.
+✖ object 'stata_tmp_decoded_values_L22' not found
+Caused by error in `mask$eval_all_mutate()`:
+! object 'stata_tmp_decoded_values_L22' not found
+rm(stata_tmp_decoded_values_L22)
+
+Warning: object 'stata_tmp_decoded_values_L22' not found
+data$group_str = sfun_strip_stata_attributes(data$group_str)
+ 

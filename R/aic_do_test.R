@@ -191,9 +191,22 @@ compare_df = function(df1, df2,
   common_cols = intersect(names(df1), names(df2))
 
   # ---- class / type mismatches ----
+
+  # sometimes we have stata_labelled or other
+  # stuff in the class object
+  # the data type is typically the last
+  # object
+  main_class = function(x) {
+    class = last(class(x))
+    # haven sometimes
+    # encodes numeric as double
+    if (class=="double") class="numeric"
+    class
+  }
+
   type_df = data.frame(col = common_cols,
-                       class_do_df = vapply(df1[common_cols], class, character(1)),
-                       class_r_df = vapply(df2[common_cols], class, character(1)),
+                       class_do_df = vapply(df1[common_cols], main_class, character(1)),
+                       class_r_df = vapply(df2[common_cols], main_class, character(1)),
                        stringsAsFactors = FALSE)
   type_diff = type_df[type_df$class_do_df != type_df$class_r_df, ]
 

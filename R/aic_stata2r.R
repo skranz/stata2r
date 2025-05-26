@@ -6,17 +6,17 @@ example = function() {
   aic = aic_new_stata2r(main_dir)
   aic = aic_test_stata2r(aic)
   #undebug(aic_make_prompt)
+
+
   aic = aic_make_prompt_stata2r(aic)
   cat(aic$prompt)
   aic_view_prompt(aic)
+  rstudioapi::navigateToFile("~/aicoder/stata2r/aicoder_work/test_report.txt")
 
-  # Manually run prompt and copy to aicoder_work ai_resp.txt
 
-  if (FALSE) {
-    aic$response_file
-    aic = aic_changes_stata2r(aic)
-    remotes::install_local(aic$repo_dir,upgrade = "never")
-  }
+  aic$response_file
+  aic = aic_changes_stata2r(aic)
+
 
   # Run with Gemini
   for (i in 1:4) {
