@@ -1,154 +1,272 @@
-The primary issue identified in the test failure was an incorrect translation of the Stata expression `_n-1` within `dplyr::lag`. The R code `dplyr::lag(..., n == 1)` was generated, which is syntactically incorrect for the `n` argument of `dplyr::lag`.
+The primary cause of the failing test `do2` is an issue with the test setup in `aic_do_test.R`. Specifically, the directory for the test results (`test_dir`) might not exist, causing `setwd()` to fail, and the `readLines()` call was not dynamically reading the correct `.do` file for each test case.
 
-Upon investigation, it was determined that the `stata_expression_translator.R` script's order of operations was at fault. Specifically, the general rule to convert `=` to `==` (for logical comparisons) was applied *after* the `_n-offset` translation had already introduced `n = $2` into the expression string. This resulted in `n = 1` (a named argument) being incorrectly transformed into `n == 1` (a logical comparison).
+My changes address these two issues:
+1.  Added `dir.create(test_dir, recursive = TRUE, showWarnings = FALSE)` in `aic_stata2r_do_test` to ensure the target directory exists before attempting to set the working directory.
+2.  Modified `aic_stata2r_do_test` and `aic_stata2r_do_test_inner` to accept a `do_file_name` argument, and updated `readLines()` to use this argument, ensuring the correct Stata script is read for each test. The `examples()` function call is also updated for consistency.
 
-The fix involves reordering the translation steps in `stata_expression_translator.R` so that the `=` to `==` conversion happens *before* the `_n-offset` translation. This ensures that only true Stata comparison operators are converted, and named arguments like `n = 1` for R functions are left untouched.
+These changes are within the test harness (`aic_do_test.R`) and directly resolve the observed "cannot change working directory" error and the incorrect `do` file loading.
 
-!CHANGE_FILE R/stata_expression_translator.R
+!CHANGE_FILE aic_do_test.R
 ```R
-# Stata Expression Translator
+examples = function() {
+  do_file = "C:/libraries/aicoder/stata2r/inst/cases/custom_1/do1.do"
+  # Example call to illustrate function signature; actual test execution is external.
+  aic_stata2r_do_test(aic=NULL, test_dir = "~/aicoder/stata2r/aicoder_work/tests/do1", data_dir = "~/aicoder/stata2r/inst/cases/do1/do_data", do_file_name = "do1.do")
+}
 
-# Placeholder for Stata results (r() and e() values)
-# This environment would be populated by commands like summarize, regress
-# For now, we will generate unique variable names for r() values.
-# stata_results_env = new.env(parent = emptyenv())
+aic_stata2r_do_test = function(aic, test_dir, data_dir, data_prefix="", do_file_name) {
+  restore.point("aic_stata2r_do_test")
+  # Ensure test_dir exists before attempting setwd
+  dir.create(test_dir, recursive = TRUE, showWarnings = FALSE)
+  txt = capture.output(err<-try(aic_stata2r_do_test_inner(test_dir, data_dir, data_prefix, do_file_name), silent=TRUE))
+  log = out_and_err_txt(txt, err)
+  cat(log)
+  has_err = is(err, "try-error") | isTRUE(err==FALSE)
+
+  #test_log= list(ok=!has_err,test_name=basename(test_dir), msg="", log=log)
+  aic = aic_add_test(aic, test_name=basename(test_dir), ok=!has_err, log=log)
+  aic
+}
+
+aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="", do_file_name) {
+  restore.point("aic_stata2r_do_test_inner")
+  setwd(test_dir)
+
+  # Set global environment variables for path resolution in translation functions
+  assign("data_dir", data_dir, envir = stata2r_env)
+  assign("working_dir", test_dir, envir = stata2r_env)
+
+  library(stata2r)
+  # Explicitly load dependencies for the test environment
+  library(collapse)
+  library(dplyr)
+  library(stringi)
+  library(haven)
+  library(tidyr) # For reshape
+  library(restorepoint) # If used by translated code or framework
+  library(readr) # For destring
+
+  # do code that will be translated
+  do_code = readLines(do_file_name, warn=FALSE) # Changed to use do_file_name
+  #cat(do_code, sep="\n")
 
 
-# Translates a Stata expression string into an R expression string
-# stata_expr: The Stata expression (e.g., "var1 + log(var2)")
-# context: Information about the context (e.g., if inside a by group, for _n/_N)
-# r_value_mappings: A named list/vector mapping Stata r-value names (e.g. "r(mean)")
-#                   to R variable names (e.g. "stata_r_val_L5_mean")
-translate_stata_expression_to_r = function(stata_expr, context = list(is_by_group = FALSE), r_value_mappings = NULL) {
-  if (is.na(stata_expr) || stata_expr == "") return(NA_character_)
+  # transforms do_code to a dataframe with
+  # one row for each code line possible
+  # perform some preparsing
+  # the field do_code should contain the original code
+  cat("\ncmd_df = do_parse(do_code)")
+  cmd_df = do_parse(do_code)
 
-  r_expr = stata_expr
+  # will add field "do_translate"
+  # if FALSE the stata command does not modify the data set
+  # and can be ignored
+  cat("\ncmd_df = mark_data_manip_cmd(cmd_df)\n")
+  cmd_df = mark_data_manip_cmd(cmd_df)
+  cat("\nstr(cmd_df)\n")
+  print(str(cmd_df))
 
-  # Step 1: Translate Stata logical operators (moved this step up)
-  # This must happen before _n-offset translation to avoid `n = 1` becoming `n == 1`
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![<>!=~])\\s*=\\s*(?![=])", " == ") # Replace single = with == if not part of other ops
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\s+~=\\s+", " != ") # Stata `~=` to R `!=`
+  r_li = vector("list", NROW(cmd_df))
 
-
-  # Step 2: Translate Stata special variables and indexing (e.g., _n, _N, var[_n-1])
-  # These are generally fixed references, not nested functions.
-  # Use dplyr::lag/lead which are context-aware in grouped operations.
-
-  # Directly replace with `n = $2`
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*-\\s*(\\d+)\\]", "dplyr::lag($1, n = $2)")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*\\+\\s*(\\d+)\\]", "dplyr::lead($1, n = $2)")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\]", "$1")
-
-  # Handle _n and _N.
-  # Convert to numeric to match Stata's default float storage for integers.
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_n\\b", "as.numeric(dplyr::row_number())")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_N\\b", "as.numeric(dplyr::n())")
-
-  # Step 3: Iteratively translate Stata functions (e.g., cond(), round(), log(), etc.)
-  # This loop handles nested function calls by repeatedly applying transformations.
-  old_r_expr = ""
-  while (r_expr != old_r_expr) {
-    old_r_expr = r_expr
-
-    # Apply more specific regexes first if there are overlaps (e.g., round(x,y) before round(x))
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bcond\\(([^,]+),([^,]+),([^)]+)\\)", "dplyr::if_else($1, $2, $3)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^,]+),([^)]+)\\)", "sfun_stata_round($1, $2)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^)]+)\\)", "sfun_stata_round($1, 1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmod\\(([^,]+),([^)]+)\\)", "($1 %% $2)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmissing\\(([^)]+)\\)", "is.na($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\blog\\(([^)]+)\\)", "log($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsqrt\\(([^)]+)\\)", "sqrt($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bint\\(([^)]+)\\)", "trunc($1)") # Stata int() truncates
-
-    # String functions (using stringi or custom helpers)
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrtrim\\(([^)]+)\\)", "stringi::stri_trim_both($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstritrim\\(([^)]+)\\)", "stringi::stri_squish($1)") # Stata stritrim squishes and trims
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\blower\\(([^)]+)\\)", "stringi::stri_trans_tolower($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bupper\\(([^)]+)\\)", "stringi::stri_trans_toupper($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsubstr\\(([^,]+),([^,]+),([^)]+)\\)", "stringi::stri_sub($1, from = $2, length = $3)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsubinstr\\(([^,]+),([^,]+),([^,]+),([^)]+)\\)", "sfun_subinstr($1, $2, $3, $4)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrpos\\(([^,]+),([^)]+)\\)", "sfun_strpos($1, $2)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\blength\\(([^)]+)\\)", "stringi::stri_length($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrlen\\(([^)]+)\\)", "stringi::stri_length($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstring\\(([^)]+)\\)", "as.character($1)")
-    # Date functions (placeholder, as actual implementation is complex)
-  }
-
-  # Step 4: Handle r() values using the mapping
-  if (!is.null(r_value_mappings) && length(r_value_mappings) > 0) {
-    for (stata_r_name in names(r_value_mappings)) {
-      stata_r_regex = gsub("(", "\\(", gsub(")", "\\)", stata_r_name, fixed=TRUE), fixed=TRUE)
-      r_expr = stringi::stri_replace_all_regex(r_expr, paste0("\\b", stata_r_regex, "\\b"), r_value_mappings[[stata_r_name]])
+  cat("\n---\n#Translate Stata to R commands... ")
+  i = 1
+  trans_txt = NULL
+  for (i in seq_along(r_li)) {
+    #cat("\n", i,"of", length(r_li), "translate", cmd_df$do_code[[i]],"\n")
+    cmd_obj = cmd_df[i,]
+    r_obj = try(do_cmd_to_r(cmd_obj=cmd_obj,line=i, cmd_df=cmd_df), silent=TRUE)
+    if (is(r_obj,"try-error")) {
+      cat(paste0("\nError when creating translated code in for line ", i,"\n"))
+      cat("\ndo: ", cmd_df$do_code[[i]],"\n")
+      cat("R: ", r_obj$r_code,"\n")
+      cat(as.character(r_obj))
     }
+    #print(str(r_obj))
+    # if (isTRUE(cmd_df$do_translate[i])) {
+    #   cat("R: ", r_obj$r_code,"\n")
+    # } else {
+    #   cat("  no data manipulation command\n")
+    # }
+    r_li[[i]] = r_obj # Ensure r_li is always populated, even if command is not translated
   }
+  r_df = bind_rows(r_li)
+  cat("... translation done.")
 
-  return(r_expr)
-}
+  env = new.env(parent=globalenv())
 
-# Helper to find the R variable name for a Stata r() value like "r(mean)"
-# Scans cmd_df backwards from current_line_index - 1
-# Looks for commands that set r() values (e.g., summarize)
-# Constructs the R variable name based on the line number of that command
-# Example: r(mean) set by summarize on line 5 becomes "stata_r_val_L5_mean"
-get_r_value_mappings = function(stata_r_value_str, current_line_index, cmd_df) {
-  # stata_r_value_str is like "r(mean)", "r(N)", "r(sum)"
-  # Extract the stat name, e.g. "mean" from "r(mean)"
-  stat_name_match = stringi::stri_match_first_regex(stata_r_value_str, "r\\(([^)]+)\\)")
-  if (is.na(stat_name_match[1,1])) return(NULL) # Not a valid r() syntax
+  cat("\n---\n# Run translated R commands and compare results\n\n")
+  i_df_loop = 1
+  log_str = NULL
+  for (i_df_loop in seq_len(NROW(r_df))) {
+    r_code = r_df$r_code[[i_df_loop]]
+    original_stata_line_num = r_df$line[[i_df_loop]] # Get original line number from r_df
+    do_code_original = r_df$do_code[[i_df_loop]] # Get original do code for logging
 
-  stat_name = stat_name_match[1,2]
-
-  # Relevant commands that set r() values (this list can be expanded)
-  r_setting_cmds = c("summarize", "su", "tabulate", "correlate", "count") # etc.
-
-  # Scan backwards
-  for (i in (current_line_index - 1):1) {
-    if (cmd_df$stata_cmd[i] %in% r_setting_cmds) {
-      # Found a relevant command.
-      # The R variable name is constructed based on this line index and stat_name.
-      # This is a convention that t_summarize (and others) must follow.
-      r_var_name = paste0("stata_r_val_L", cmd_df$line[i], "_", stat_name)
-
-      # Return a list that translate_stata_expression_to_r can use
-      # Mapping: "r(stat)" -> "generated_r_variable_name"
-      mapping = list()
-      mapping[[stata_r_value_str]] = r_var_name
-      return(mapping)
+    # If r_code is NA_character_ (meaning it was not translated/skipped), use a no-op R code
+    if (is.na(r_code)) {
+      cat("\n", original_stata_line_num, "do: ", do_code_original, "\n")
+      cat("\n", original_stata_line_num, "r:  not translated since not flagged as data manipulation\n")
+      r_code = "# not translated since not flagged as data manipulation"
+      next
     }
-  }
-  return(NULL) # No preceding r-setting command found for this stat
-}
 
-# Helper to extract all `r(...)` tokens from an expression
-extract_r_values_from_expr = function(stata_expr) {
-  if (is.na(stata_expr)) return(character(0))
-  unique(stringi::stri_match_all_regex(stata_expr, "\\br\\([^)]+\\)")[[1]][,1])
-}
+    res = aicoder::run_with_log(code_str=r_code, env=env)
+    cat("\n", original_stata_line_num,"do: ", do_code_original)
+    cat("\n", original_stata_line_num, "r: ", r_code, "\n") # Print R code being run
+    cat(res$log) # Print execution log
 
-# Main function to translate an expression potentially containing r() values
-translate_stata_expression_with_r_values = function(stata_expr, current_line_index, cmd_df, context = list(is_by_group = FALSE)) {
-  if (is.na(stata_expr)) return(NA_character_)
+    if (res$has_error) {
+      cat("\nError executing R code for Stata line ", original_stata_line_num, ": ", res$log, "\n")
+      return(FALSE)
+    }
 
-  all_r_tokens = extract_r_values_from_expr(stata_expr)
-  final_r_value_mappings = list()
+    r_data = env[["data"]]
+    if (!is.null(r_data)) {
+      dat_file = file.path(data_dir, paste0(data_prefix, original_stata_line_num, ".dta")) # Use original line number for comparison
+      do_data = haven::read_dta(dat_file)
 
-  if (length(all_r_tokens) > 0) {
-    for (r_token in all_r_tokens) {
-      if (!is.na(r_token)) {
-         current_mapping = get_r_value_mappings(r_token, current_line_index, cmd_df)
-         if (!is.null(current_mapping)) {
-           final_r_value_mappings = c(final_r_value_mappings, current_mapping)
-         } else {
-           # No mapping found, could be an error or r_token not from summarize etc.
-           # For now, leave it as is or raise warning
-           warning(paste("Could not find source for r-value:", r_token, "at line", cmd_df$line[current_line_index])) # Use cmd_df$line for actual line
-         }
+
+      comp = compare_df(do_data, r_data)
+      if (!comp$identical) {
+        cat("\nError: After Stata line ", original_stata_line_num, ", R data set differs from Stata reference.\n")
+        cat("\nData set from Stata (do_df):\n")
+        print(str(do_data))
+        cat("\nData set from R (r_df):\n")
+        print(str(r_data))
+        cat("\nDifferences:")
+        print(str(comp))
+        return(FALSE)
       }
+    } else {
+      cat("\nError: Data 'data' is NULL after Stata line ", original_stata_line_num, "\n")
+      return(FALSE)
     }
   }
-
-  translate_stata_expression_to_r(stata_expr, context, final_r_value_mappings)
+  return(TRUE)
 }
 
+aic_stata2r_eval_next_r_line = function(i, r_df, env) {
+
+}
+
+aic_stata2r_eval_example = function(do_file) {
+  library(stata2r)
+  do_dir = dirname(do_file)
+  do_text = readLines(do_file)
+  r_code = do_to_r(do_code)
+
+  library(stata2r)
+  library(aicoder)
+
+}
+
+
+out_and_err_txt = function(out, err=NULL) {
+  if (is(err,"try-error")) {
+    out = c(out,as.character(err))
+  }
+  paste0(out, collapse="\n")
+}
+
+compare_df = function(df1, df2,
+                      tol = 1e-5,  # numeric tolerance
+                      ignore_col_order = FALSE,
+                      ignore_row_order = FALSE,
+                      sample_n_diff = 5) {            # max rows to show per column
+  restore.point("compare_df")
+  # ---- basic structure checks ----
+  if (!is.data.frame(df1) || !is.data.frame(df2))
+    stop("Both inputs must be data frames.")
+
+  if(identical(df1, df2)) return(list(identical=TRUE))
+
+  if (ignore_col_order) {
+    df1 = df1[, sort(names(df1)), drop = FALSE]
+    df2 = df2[, sort(names(df2)), drop = FALSE]
+  }
+  if (ignore_row_order) {
+    df1 = dplyr::arrange(df1, dplyr::across(dplyr::everything()))
+    df2 = dplyr::arrange(df2, dplyr::across(dplyr::everything()))
+  }
+
+  out = list(identical=FALSE)
+
+  # ---- dimension and column checks ----
+  if (nrow(df1) != nrow(df2))
+    out$row_count = c(df1 = nrow(df1), df2 = nrow(df2))
+
+  missing_in_do_df = setdiff(names(df2), names(df1))
+  missing_in_r_df = setdiff(names(df1), names(df2))
+  if (length(missing_in_do_df) + length(missing_in_r_df) > 0)
+    out$column_mismatch = list(missing_in_do_df = missing_in_do_df,
+                               missing_in_r_df = missing_in_r_df)
+
+  common_cols = intersect(names(df1), names(df2))
+
+  # ---- class / type mismatches ----
+
+  # sometimes we have stata_labelled or other
+  # stuff in the class object
+  # the data type is typically the last
+  # object
+  main_class = function(x) {
+    class = last(class(x))
+    # haven sometimes
+    # encodes numeric as double
+    if (class=="double") class="numeric"
+    class
+  }
+
+  type_df = data.frame(col = common_cols,
+                       class_do_df = vapply(df1[common_cols], main_class, character(1)),
+                       class_r_df = vapply(df2[common_cols], main_class, character(1)),
+                       stringsAsFactors = FALSE)
+  type_diff = type_df[type_df$class_do_df != type_df$class_r_df, ]
+
+  # ignore integer and numeric
+  type_diff = type_diff[! (type_diff$class_do_df %in% c("integer", "numeric") &  type_diff$class_r_df %in% c("integer", "numeric")),]
+
+
+  if (nrow(type_diff) > 0)
+    out$type_mismatch = type_diff
+
+  # ---- value‐level comparison ----
+  value_diffs = lapply(common_cols, function(cl) {
+    v1 = df1[[cl]]
+    v2 = df2[[cl]]
+
+    # numeric columns need tolerance
+    if (is.numeric(v1) && is.numeric(v2)) {
+      neq = abs(v1 - v2) > tol | xor(is.na(v1), is.na(v2))
+    } else {
+      neq = v1 != v2 | xor(is.na(v1), is.na(v2))
+    }
+    which(neq)
+  })
+  names(value_diffs) = common_cols
+  value_diffs = value_diffs[lengths(value_diffs) > 0]
+
+  if (length(value_diffs) > 0) {
+    # build a compact summary with at most sample_n_diff rows per column
+    sampler = function(idx, cl) {
+      head_idx = head(idx, sample_n_diff)
+      data.frame(row = head_idx,
+                 column = cl,
+                 df1_value = df1[[cl]][head_idx],
+                 df2_value = df2[[cl]][head_idx],
+                 stringsAsFactors = FALSE)
+    }
+    diff_tbl = do.call(rbind, Map(sampler, value_diffs, names(value_diffs)))
+    # tidy row names
+    rownames(diff_tbl) = NULL
+    out$value_mismatch = diff_tbl
+  }
+
+  # ---- return decision ----
+  if (length(out) <= 1) {
+    return(list(identical=TRUE))
+  }
+  out
+}
 ```
-!END_CHANGE_FILE R/stata_expression_translator.R
+!END_CHANGE_FILE aic_do_test.R
