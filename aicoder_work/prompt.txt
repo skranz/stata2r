@@ -1134,6 +1134,32 @@ translate_stata_expression_with_r_values = function(stata_expr, current_line_ind
 
 -----------------------------------------------------------
 
+### FILE: stata_type_utils.R
+```
+# Helper function to determine if a Stata expression is likely to produce a string result in R.
+is_stata_expr_string_type = function(stata_expr) {
+  if (is.na(stata_expr)) return(FALSE)
+  # Check for common Stata string functions
+  # Note: `string()` converts numeric to string, so it implies a string output.
+  string_funcs = c("strtrim", "stritrim", "lower", "upper", "substr", "subinstr", "strpos", "length", "strlen", "string")
+  if (any(sapply(string_funcs, function(f) stringi::stri_detect_fixed(stata_expr, paste0(f, "("))))) {
+    return(TRUE)
+  }
+  # Check for string literals (quoted strings)
+  if (stringi::stri_startswith_fixed(stata_expr, '"') && stringi::stri_endswith_fixed(stata_expr, '"')) {
+    return(TRUE)
+  }
+  if (stringi::stri_startswith_fixed(stata_expr, "'") && stringi::stri_endswith_fixed(stata_expr, "'")) {
+    return(TRUE)
+  }
+  FALSE
+}
+
+```
+### END OF FILE: stata_type_utils.R
+
+-----------------------------------------------------------
+
 ### FILE: stata2r_globals.R
 ```
 # Global environment to store package-wide settings, e.g., data directory
@@ -2465,17 +2491,26 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Step 1: Calculate the value for the new variable, potentially conditionally
   # Ensure logical comparisons are converted to numeric (0/1) to match Stata's default numeric type for logical expressions.
-  # Heuristic: if stata_expr contains common logical/comparison operators, it's likely a logical expression
-  # that Stata would store as 0/1.
   is_logical_expr = stringi::stri_detect_regex(stata_expr, "==|!=|~=|<=|>=|<|>|&|\\|")
+  is_string_result_type = is_stata_expr_string_type(stata_expr)
 
   calculated_value_expr = r_expr
+  na_for_if_else = "NA_real_" # Default to numeric NA
+
   if (is_logical_expr) {
     calculated_value_expr = paste0("as.numeric(", r_expr, ")")
+    # If the expression itself is logical, Stata converts it to 0/1. So the result is numeric.
+    # Hence, NA_real_ is appropriate.
+    na_for_if_else = "NA_real_"
+  } else if (is_string_result_type) {
+    # If not a logical expression, but identified as producing a string result, use NA_character_.
+    na_for_if_else = "NA_character_"
   }
+  # Otherwise (non-logical, non-string, i.e., numeric expression), NA_real_ is already the default.
+
 
   if (!is.na(r_if_cond) && r_if_cond != "") {
-    calc_expr = paste0("dplyr::if_else(", r_if_cond, ", ", calculated_value_expr, ", NA_real_)") # Use NA_real_ to force numeric type
+    calc_expr = paste0("dplyr::if_else(", r_if_cond, ", ", calculated_value_expr, ", ", na_for_if_else, ")")
   } else {
     calc_expr = calculated_value_expr
   }
@@ -2485,15 +2520,15 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Start with data or data after arrange, and add the first pipe
   if (arrange_call != "") {
-      r_code_lines = c(r_code_lines, paste0("data = ", arrange_call, " %>%")) # FIX: removed \n
+      r_code_lines = c(r_code_lines, paste0("data = ", arrange_call, " %>%"))
   } else {
-      r_code_lines = c(r_code_lines, "data = data %>%") # FIX: removed \n
+      r_code_lines = c(r_code_lines, "data = data %>%")
   }
 
   # Add grouping and mutate steps
   if (!is.null(group_vars_r_vec_str) && length(group_vars_list) > 0) {
-      r_code_lines = c(r_code_lines, paste0("  dplyr::group_by(dplyr::across(", group_vars_r_vec_str, ")) %>%")) # FIX: removed \n
-      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", new_var, " = ", calc_expr, ") %>%")) # FIX: removed \n
+      r_code_lines = c(r_code_lines, paste0("  dplyr::group_by(dplyr::across(", group_vars_r_vec_str, ")) %>%"))
+      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", new_var, " = ", calc_expr, ") %>%"))
       r_code_lines = c(r_code_lines, "  dplyr::ungroup()")
   } else {
       # If not grouped, just add the mutate step directly to the pipe chain
@@ -2506,6 +2541,7 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 
 ```
 ### END OF FILE: t_generate.R
@@ -3106,10 +3142,16 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Step 1: Calculate the value for replacement, potentially conditionally
   # Ensure logical comparisons are converted to numeric (0/1) to match Stata's default numeric type for logical expressions.
   is_logical_expr = stringi::stri_detect_regex(stata_expr, "==|!=|~=|<=|>=|<|>|&|\\|")
+  is_string_result_type = is_stata_expr_string_type(stata_expr)
 
   calculated_value_expr = r_expr
+  na_for_if_else = "NA_real_" # Default to numeric NA
+
   if (is_logical_expr) {
     calculated_value_expr = paste0("as.numeric(", r_expr, ")")
+    na_for_if_else = "NA_real_"
+  } else if (is_string_result_type) {
+    na_for_if_else = "NA_character_"
   }
 
   if (!is.na(r_if_cond) && r_if_cond != "") {
@@ -3122,14 +3164,14 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   r_code_lines = c()
 
   if (arrange_call != "") {
-      r_code_lines = c(r_code_lines, paste0("data = ", arrange_call, " %>%")) # FIX: removed \n
+      r_code_lines = c(r_code_lines, paste0("data = ", arrange_call, " %>%"))
   } else {
-      r_code_lines = c(r_code_lines, "data = data %>%") # FIX: removed \n
+      r_code_lines = c(r_code_lines, "data = data %>%")
   }
 
   if (!is.null(group_vars_r_vec_str) && length(group_vars_list) > 0) {
-      r_code_lines = c(r_code_lines, paste0("  dplyr::group_by(dplyr::across(", group_vars_r_vec_str, ")) %>%")) # FIX: removed \n
-      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", var_to_replace, " = ", calc_expr, ") %>%")) # FIX: removed \n
+      r_code_lines = c(r_code_lines, paste0("  dplyr::group_by(dplyr::across(", group_vars_r_vec_str, ")) %>%"))
+      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", var_to_replace, " = ", calc_expr, ") %>%"))
       r_code_lines = c(r_code_lines, "  dplyr::ungroup()")
   } else {
       r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", var_to_replace, " = ", calc_expr, ")"))
@@ -3140,6 +3182,7 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 
 ```
 ### END OF FILE: t_replace.R
@@ -4098,30 +4141,39 @@ data$group_clean = sfun_strip_stata_attributes(data$group_clean)
 
  12 do:  gen group_abbr = substr(group_clean, 1, 3) if group_clean != "unknown"
  12 r:  data = data %>%
-  dplyr::mutate(group_abbr = dplyr::if_else(group_clean != "unknown", stringi::stri_sub(group_clean, from =  1, length =  3), NA_real_))
+  dplyr::mutate(group_abbr = dplyr::if_else(group_clean != "unknown", stringi::stri_sub(group_clean, from =  1, length =  3), NA_character_))
 data$group_abbr = sfun_strip_stata_attributes(data$group_abbr) 
 data = data %>%
-  dplyr::mutate(group_abbr = dplyr::if_else(group_clean != "unknown", stringi::stri_sub(group_clean, from =  1, length =  3), NA_real_))
+  dplyr::mutate(group_abbr = dplyr::if_else(group_clean != "unknown", stringi::stri_sub(group_clean, from =  1, length =  3), NA_character_))
 
-Error: Problem with `mutate()` column `group_abbr`.
-ℹ `group_abbr = dplyr::if_else(...)`.
-✖ `false` must be a character vector, not a double vector.
-Caused by error in `glubort()`:
-! `false` must be a character vector, not a double vector.
 data$group_abbr = sfun_strip_stata_attributes(data$group_abbr)
 
-Warning: Unknown or uninitialised column: `group_abbr`.
-Error executing R code for Stata line  12 :  data = data %>%
-  dplyr::mutate(group_abbr = dplyr::if_else(group_clean != "unknown", stringi::stri_sub(group_clean, from =  1, length =  3), NA_real_))
+ 13 do:  gen contact_info = group_clean + ":" + num_str
+ 13 r:  data = data %>%
+  dplyr::mutate(contact_info = group_clean + ":" + num_str)
+data$contact_info = sfun_strip_stata_attributes(data$contact_info) 
+data = data %>%
+  dplyr::mutate(contact_info = group_clean + ":" + num_str)
 
-Error: Problem with `mutate()` column `group_abbr`.
-ℹ `group_abbr = dplyr::if_else(...)`.
-✖ `false` must be a character vector, not a double vector.
-Caused by error in `glubort()`:
-! `false` must be a character vector, not a double vector.
-data$group_abbr = sfun_strip_stata_attributes(data$group_abbr)
+Error: Problem with `mutate()` column `contact_info`.
+ℹ `contact_info = group_clean + ":" + num_str`.
+✖ non-numeric argument to binary operator
+Caused by error in `group_clean + ":"`:
+! non-numeric argument to binary operator
+data$contact_info = sfun_strip_stata_attributes(data$contact_info)
 
-Warning: Unknown or uninitialised column: `group_abbr`. 
+Warning: Unknown or uninitialised column: `contact_info`.
+Error executing R code for Stata line  13 :  data = data %>%
+  dplyr::mutate(contact_info = group_clean + ":" + num_str)
+
+Error: Problem with `mutate()` column `contact_info`.
+ℹ `contact_info = group_clean + ":" + num_str`.
+✖ non-numeric argument to binary operator
+Caused by error in `group_clean + ":"`:
+! non-numeric argument to binary operator
+data$contact_info = sfun_strip_stata_attributes(data$contact_info)
+
+Warning: Unknown or uninitialised column: `contact_info`. 
 
 ##############################
 # YOUR TASK
