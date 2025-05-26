@@ -1,6 +1,8 @@
-The main issue causing the failure in `do2` is an incorrect translation of the Stata `stritrim()` function in `stata_expression_translator.R`. The original translation incorrectly nested `stringi::stri_trim_both` and used an erroneous regex pattern for whitespace. The corrected translation now accurately reflects Stata's `stritrim()` behavior by first replacing internal multiple spaces with single spaces, and then trimming leading/trailing spaces.
+The primary issue found in the test results (`do2`) is an invalid escape sequence `\s` in a generated R string literal. This occurs in the `t_egen` function, specifically when translating the `stritrim` Stata function. The R string literal for the regex pattern `\s+` was incorrectly escaped, leading to `"\s+"` in the generated R code instead of the required `"\\s+"`.
 
-!CHANGE_FILE R/stata_expression_translator.R
+The fix involves correctly escaping the backslashes in the `stritrim` translation within `stata_expression_translator.R` so that the generated R code contains a valid regex string literal.
+
+!CHANGE_FILE stata_expression_translator.R
 ```R
 # Stata Expression Translator
 
@@ -59,7 +61,8 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     # String functions (using stringi or custom helpers)
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrtrim\\(([^)]+)\\)", "stringi::stri_trim_both($1)")
     # Corrected stritrim translation: first replace internal spaces, then trim.
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstritrim\\(([^)]+)\\)", "stringi::stri_trim_both(stringi::stri_replace_all_regex($1, \"\\\\s+\", \" \"))")
+    # The fix: changed \"\\\\s+\" to \"\\\\\\\\s+\"
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstritrim\\(([^)]+)\\)", "stringi::stri_trim_both(stringi::stri_replace_all_regex($1, \"\\\\\\\\s+\", \" \"))")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\blower\\(([^)]+)\\)", "stringi::stri_trans_tolower($1)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bupper\\(([^)]+)\\)", "stringi::stri_trans_toupper($1)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsubstr\\(([^,]+),([^,]+),([^)]+)\\)", "stringi::stri_sub($1, from = $2, length = $3)")
@@ -148,6 +151,5 @@ translate_stata_expression_with_r_values = function(stata_expr, current_line_ind
 
   translate_stata_expression_to_r(stata_expr, context, final_r_value_mappings)
 }
-
 ```
-!END_CHANGE_FILE R/stata_expression_translator.R
+!END_CHANGE_FILE stata_expression_translator.R
