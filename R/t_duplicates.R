@@ -16,16 +16,11 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
       return(paste0("# Failed to parse duplicates subcommand (drop, tag, or list required): ", rest_of_cmd))
   }
 
-  # Parse varlist, if/in, options from rest_after_subcmd
-  # Pattern: `varlist [if] [in] [, options]`
-  # This is complex to parse robustly. Let's simplify: assume varlist comes first, then if/in, then options.
-
   varlist_str = NA_character_
   stata_if_in_cond = NA_character_
   options_str = NA_character_
 
-  # Find if/in first
-  if(!is.na(rest_after_subcmd)){ # only parse if rest_after_subcmd is not NA
+  if(!is.na(rest_after_subcmd)){
     if_in_match = stringi::stri_match_first_regex(rest_after_subcmd, "\\s+(?:if\\s+|in\\s+)(.*)$")
     if(!is.na(if_in_match[1,1])) {
         stata_if_in_cond = if_in_match[1,2]
@@ -35,7 +30,6 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
         rest_after_subcmd_no_if_in = rest_after_subcmd
     }
 
-     # Find options
     options_match = stringi::stri_match_first_regex(rest_after_subcmd_no_if_in, ",\\s*(.*)$")
     if (!is.na(options_match[1,1])) {
         options_str = stringi::stri_trim_both(options_match[1,2])
@@ -46,8 +40,6 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
     }
   }
 
-
-  # Parse varlist (can be empty, means all variables)
   vars_for_duplicates = NA_character_
   if (!is.na(varlist_str) && varlist_str != "") {
       vars_for_duplicates_list = stringi::stri_split_regex(varlist_str, "\\s+")[[1]]
@@ -57,35 +49,25 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
        }
   }
 
-
-  # Translate the if/in condition for subsetting *before* duplicates logic
   r_subset_cond = NA_character_
-  data_source_for_duplicates = "data"
-  r_code_prefix = "" # Code to create subset if needed
-
   if (!is.na(stata_if_in_cond) && stata_if_in_cond != "") {
-      # Stata applies if/in condition *before* checking for duplicates.
-      # The duplicates check only happens on the subset of data specified by if/in.
       r_subset_cond = translate_stata_expression_with_r_values(stata_if_in_cond, line_num, cmd_df, context = list(is_by_group = FALSE))
-
       if (is.na(r_subset_cond) || r_subset_cond == "") {
            return(paste0("# Failed to translate if/in condition for duplicates: ", stata_if_in_cond))
       }
-
-      # Create a temporary subset variable
-      data_subset_varname = paste0("data_subset_L", cmd_obj$line) # Use actual line from cmd_obj
-      r_code_prefix = paste0(data_subset_varname, " = dplyr::filter(data, ", r_subset_cond, ")\n")
-      data_source_for_duplicates = data_subset_varname
   }
 
-
   r_code_lines = c()
+  # Temporary variable names
+  is_duplicate_tmp_var = paste0("stata_tmp_is_duplicate_L", cmd_obj$line)
+  satisfies_cond_tmp_var = paste0("stata_tmp_satisfies_cond_L", cmd_obj$line)
+  is_first_tmp_var = paste0("stata_tmp_is_first_L", cmd_obj$line)
+  data_duplicates_tmp_var = paste0("stata_tmp_data_duplicates_L", cmd_obj$line)
+
 
   if (subcommand == "drop") {
-      # Calculate the condition vector
-      cond_vector_expr = if (!is.na(r_subset_cond) && r_subset_cond != "") r_subset_cond else "TRUE" # TRUE if no condition
+      cond_vector_expr_with_data = if (!is.na(r_subset_cond) && r_subset_cond != "") paste0("with(data, ", r_subset_cond, ")") else "TRUE"
 
-      # Calculate the duplicate flag vector
       comment_vars_part = if(is.na(vars_for_duplicates)) "all variables" else paste0("variables: ", varlist_str)
       if (is.na(vars_for_duplicates)) {
           is_duplicate_expr = "base::duplicated(data, fromLast = FALSE)"
@@ -96,13 +78,12 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
       r_code_lines = c(
           r_code_lines,
           paste0("## Calculate duplicate flag based on ", comment_vars_part),
-          paste0("__is_duplicate_L", cmd_obj$line, " = ", is_duplicate_expr),
+          paste0(is_duplicate_tmp_var, " = ", is_duplicate_expr),
           paste0("## Calculate condition flag"),
-          paste0("__satisfies_cond_L", cmd_obj$line, " = ", cond_vector_expr),
-          paste0("data = dplyr::filter(data, !(__is_duplicate_L", cmd_obj$line, " & __satisfies_cond_L", cmd_obj$line, "))"),
-          paste0("rm(__is_duplicate_L", cmd_obj$line, ", __satisfies_cond_L", cmd_obj$line, ")")
+          paste0(satisfies_cond_tmp_var, " = ", cond_vector_expr_with_data),
+          paste0("data = dplyr::filter(data, !(", is_duplicate_tmp_var, " & ", satisfies_cond_tmp_var, "))"),
+          paste0("rm(", is_duplicate_tmp_var, ", ", satisfies_cond_tmp_var, ")")
       )
-
 
   } else if (subcommand == "tag") {
       gen_var = NA_character_
@@ -119,7 +100,7 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
           return(paste0("# duplicates tag requires gen() option: ", rest_of_cmd))
       }
 
-      cond_vector_expr = if (!is.na(r_subset_cond) && r_subset_cond != "") r_subset_cond else "TRUE"
+      cond_vector_expr_with_data = if (!is.na(r_subset_cond) && r_subset_cond != "") paste0("with(data, ", r_subset_cond, ")") else "TRUE"
       comment_vars_part = if(is.na(vars_for_duplicates)) "all variables" else paste0("variables: ", varlist_str)
 
        if (is.na(vars_for_duplicates)) {
@@ -131,17 +112,16 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
        r_code_lines = c(
           r_code_lines,
           paste0("## Calculate first occurrence flag based on ", comment_vars_part),
-          paste0("__is_first_L", cmd_obj$line, " = ", is_first_occurrence_expr),
+          paste0(is_first_tmp_var, " = ", is_first_occurrence_expr),
           paste0("## Calculate condition flag"),
-          paste0("__satisfies_cond_L", cmd_obj$line, " = ", cond_vector_expr),
-          paste0("data = dplyr::mutate(data, ", gen_var, " = dplyr::if_else(__is_first_L", cmd_obj$line, " & __satisfies_cond_L", cmd_obj$line, ", 1, 0))"),
-          paste0("rm(__is_first_L", cmd_obj$line, ", __satisfies_cond_L", cmd_obj$line, ")"),
-          # Apply attribute stripping after mutate
+          paste0(satisfies_cond_tmp_var, " = ", cond_vector_expr_with_data),
+          paste0("data = dplyr::mutate(data, ", gen_var, " = dplyr::if_else(", is_first_tmp_var, " & ", satisfies_cond_tmp_var, ", 1, 0))"),
+          paste0("rm(", is_first_tmp_var, ", ", satisfies_cond_tmp_var, ")"),
           paste0("data$", gen_var, " = sfun_strip_stata_attributes(data$", gen_var, ")")
        )
 
   } else if (subcommand == "list") {
-       cond_vector_expr = if (!is.na(r_subset_cond) && r_subset_cond != "") r_subset_cond else "TRUE"
+       cond_vector_expr_with_data = if (!is.na(r_subset_cond) && r_subset_cond != "") paste0("with(data, ", r_subset_cond, ")") else "TRUE"
        comment_vars_part = if(is.na(vars_for_duplicates)) "all variables" else paste0("variables: ", varlist_str)
 
         if (is.na(vars_for_duplicates)) {
@@ -153,12 +133,12 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
        r_code_lines = c(
           r_code_lines,
           paste0("## Calculate duplicate flag based on ", comment_vars_part),
-          paste0("__is_duplicate_L", cmd_obj$line, " = ", is_duplicate_expr),
+          paste0(is_duplicate_tmp_var, " = ", is_duplicate_expr),
           paste0("## Calculate condition flag"),
-          paste0("__satisfies_cond_L", cmd_obj$line, " = ", cond_vector_expr),
-          paste0("data_duplicates_L", cmd_obj$line, " = dplyr::filter(data, __is_duplicate_L", cmd_obj$line, " & __satisfies_cond_L", cmd_obj$line, ")"),
-          paste0("print(data_duplicates_L", cmd_obj$line, ")"),
-          paste0("rm(__is_duplicate_L", cmd_obj$line, ", __satisfies_cond_L", cmd_obj$line, ", data_duplicates_L", cmd_obj$line, ")")
+          paste0(satisfies_cond_tmp_var, " = ", cond_vector_expr_with_data),
+          paste0(data_duplicates_tmp_var, " = dplyr::filter(data, ", is_duplicate_tmp_var, " & ", satisfies_cond_tmp_var, ")"),
+          paste0("print(", data_duplicates_tmp_var, ")"),
+          paste0("rm(", is_duplicate_tmp_var, ", ", satisfies_cond_tmp_var, ", ", data_duplicates_tmp_var, ")")
        )
 
   } else {
@@ -180,5 +160,4 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   return(r_code_str)
 }
-
 

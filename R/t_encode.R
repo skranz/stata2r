@@ -61,62 +61,47 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
        }
   }
 
-  # R equivalent: factor() or as.integer(factor())
-  # Stata encode assigns integer codes (1, 2, ...) based on sorted unique values of the string variable.
-  # R factor() does this by default. as.integer() retrieves the integer codes.
-  # Value labels in R factor() correspond to Stata's encoded values.
-  # Stata encode applies the gen option only to the variables listed before the comma.
-  # If if/in is used, Stata encodes values *only for rows meeting the condition*.
-  # For rows not meeting the condition, the new variable is set to missing.
-  # This is similar to `gen newvar = .` followed by `replace newvar = ... if condition`.
+  # Temporary variable names
+  encoded_values_tmp_var = paste0("stata_tmp_encoded_values_L", cmd_obj$line)
+  satisfies_cond_tmp_var = paste0("stata_tmp_satisfies_cond_L", cmd_obj$line)
 
    r_code_lines = c(
-      # Generate the new variable initialized to NA (Stata missing)
-      # Using dplyr::mutate
-      paste0("data = dplyr::mutate(data, ", gen_var, " = NA_integer_)"), # Changed to dplyr::mutate
+      paste0("data = dplyr::mutate(data, ", gen_var, " = NA_integer_)"),
       # Calculate encoded values: factor() on the source variable
-      paste0("__encoded_values_L", cmd_obj$line, " = as.integer(base::factor(data$", varname_str, ", levels = base::unique(data$", varname_str, "[base::order(data$", varname_str, ")])))")
-      # Note: base::factor default levels are sorted unique values, matching Stata behavior.
+      # Using with(data, ...) to ensure varname_str is resolved from data columns
+      paste0(encoded_values_tmp_var, " = with(data, as.integer(base::factor(", varname_str, ", levels = base::unique(", varname_str, "[base::order(", varname_str, ")]))))")
    )
 
   # Apply the if/in condition for replacement
   if (!is.na(r_if_in_cond) && r_if_in_cond != "") {
-      # Replace values in gen_var where condition is true
        r_code_lines = c(r_code_lines,
-           paste0("## Calculate condition flag"),
-           paste0("__satisfies_cond_L", cmd_obj$line, " = ", r_if_in_cond),
-           paste0("data = dplyr::mutate(data, ", gen_var, " = dplyr::if_else(__satisfies_cond_L", cmd_obj$line, ", __encoded_values_L", cmd_obj$line, ", ", gen_var, "))"), # Changed to dplyr::mutate
-           paste0("rm(__satisfies_cond_L", cmd_obj$line, ")")
+           paste0("## Calculate condition flag using with(data, ...)"),
+           paste0(satisfies_cond_tmp_var, " = with(data, ", r_if_in_cond, ")"),
+           paste0("data = dplyr::mutate(data, ", gen_var, " = dplyr::if_else(", satisfies_cond_tmp_var, ", ", encoded_values_tmp_var, ", ", gen_var, "))"),
+           paste0("rm(", satisfies_cond_tmp_var, ")")
        )
   } else {
-      # Replace values in gen_var for all rows
       r_code_lines = c(r_code_lines,
-           paste0("data = dplyr::mutate(data, ", gen_var, " = __encoded_values_L", cmd_obj$line, ")") # Changed to dplyr::mutate
+           paste0("data = dplyr::mutate(data, ", gen_var, " = ", encoded_values_tmp_var, ")")
       )
   }
 
-  # Clean up temporary variable
-  r_code_lines = c(r_code_lines, paste0("rm(__encoded_values_L", cmd_obj$line, ")"))
-
-  # Apply attribute stripping to the newly created variable
+  r_code_lines = c(r_code_lines, paste0("rm(", encoded_values_tmp_var, ")"))
   r_code_lines = c(r_code_lines, paste0("data$", gen_var, " = sfun_strip_stata_attributes(data$", gen_var, ")"))
 
   r_code_str = paste(r_code_lines, collapse="\n")
 
-  # Add comment about options if any were present but not handled (excluding gen)
    options_str_cleaned = options_str
    if (!is.na(options_str_cleaned)) {
         options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "\\bgen\\s*\\([^)]+\\)", "")
-        options_str_cleaned = stringi::stri_trim_both(stringi::stri_replace_all_regex(options_str_cleaned, ",+", ",")) # Clean up multiple commas
-        options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "^,+", "") # Remove leading comma
+        options_str_cleaned = stringi::stri_trim_both(stringi::stri_replace_all_regex(options_str_cleaned, ",+", ","))
+        options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "^,+", "")
    }
 
    if (!is.na(options_str_cleaned) && options_str_cleaned != "") {
         r_code_str = paste0(r_code_str, paste0(" # Other options ignored: ", options_str_cleaned))
    }
 
-
   return(r_code_str)
 }
-
 

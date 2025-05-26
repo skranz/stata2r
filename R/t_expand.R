@@ -20,14 +20,18 @@ t_expand = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
        return(paste0("# expand command requires N expression: ", rest_of_cmd))
   }
 
-  r_n_expr = translate_stata_expression_with_r_values(stata_n_expr, line_num, cmd_df, context = list(is_by_group=FALSE))
+  # Context for r_n_expr and conditions should be global, not by_group specific
+  # but _n/_N in them needs to be resolved correctly (usually globally for these conditions)
+  eval_context = list(is_by_group = FALSE) # Conditions in expand are typically global context
+
+  r_n_expr = translate_stata_expression_with_r_values(stata_n_expr, line_num, cmd_df, context = eval_context)
    if (is.na(r_n_expr) || r_n_expr == "") {
        return(paste0("# Failed to translate N expression for expand: ", stata_n_expr))
    }
 
   r_if_cond = NA_character_
   if (!is.na(stata_if_cond) && stata_if_cond != "") {
-    r_if_cond = translate_stata_expression_with_r_values(stata_if_cond, line_num, cmd_df, context = list(is_by_group = FALSE))
+    r_if_cond = translate_stata_expression_with_r_values(stata_if_cond, line_num, cmd_df, context = eval_context)
   }
 
   r_in_range_cond = NA_character_
@@ -36,11 +40,12 @@ t_expand = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
         if (!is.na(range_match[1,1])) {
             start_row = as.integer(range_match[1,2])
             end_row = range_match[1,3]
-            # Changed to dplyr::row_number() to align with _n translation
+            # Use dplyr::row_number() which is context-aware via translate_stata_expression
+            # For expand, _n is global row number.
             if (is.na(end_row)) {
-                 r_in_range_cond = paste0("dplyr::row_number() == ", start_row)
+                 r_in_range_cond = paste0("as.numeric(dplyr::row_number()) == ", start_row)
             } else {
-                 r_in_range_cond = paste0("dplyr::row_number() >= ", start_row, " & dplyr::row_number() <= ", as.integer(end_row))
+                 r_in_range_cond = paste0("as.numeric(dplyr::row_number()) >= ", start_row, " & as.numeric(dplyr::row_number()) <= ", as.integer(end_row))
             }
         } else {
             return(paste0("# expand in range '", stata_in_range, "' not fully translated (f/l specifiers)."))
@@ -57,40 +62,52 @@ t_expand = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
 
   r_code_str = ""
-  line_id = cmd_obj$line # Actual line number from the do-file for unique temp var names
+  line_id = cmd_obj$line
+
+  # Temporary variable names
+  temp_n_values_var = paste0("stata_tmp_expand_n_values_L", line_id)
+  temp_cond_values_var = paste0("stata_tmp_expand_cond_values_L", line_id)
+  final_times_calc_var = paste0("stata_tmp_final_expand_times_L", line_id)
+
+  # Determine if r_n_expr or final_r_subset_cond need `with(data, ...)`
+  # Simple heuristic: if expression is not just a number.
+  # For r_n_expr:
+  n_expr_with_context = if (grepl("[a-zA-Z_]", r_n_expr) && !grepl("^\\d+(\\.\\d*)?$", r_n_expr)) {
+                            paste0("with(data, ", r_n_expr, ")")
+                          } else {
+                            r_n_expr
+                          }
+  # For final_r_subset_cond:
+  cond_expr_with_context = if (!is.na(final_r_subset_cond) && final_r_subset_cond != "") {
+                             paste0("with(data, ", final_r_subset_cond, ")")
+                           } else {
+                             NA_character_ # or "TRUE" if it's to be used directly
+                           }
+
 
   if (!is.na(final_r_subset_cond) && final_r_subset_cond != "") {
-       temp_n_values_var = paste0("__expand_n_values_L", line_id)
-       temp_cond_values_var = paste0("__expand_cond_values_L", line_id)
-       final_times_calc_var = paste0("__final_expand_times_L", line_id)
-
        r_code_lines = c(
-           paste0(temp_n_values_var, " = ", r_n_expr),
-           paste0(temp_cond_values_var, " = ", final_r_subset_cond),
+           paste0(temp_n_values_var, " = ", n_expr_with_context),
+           paste0(temp_cond_values_var, " = ", cond_expr_with_context),
            paste0(final_times_calc_var, " = ifelse(!is.na(", temp_cond_values_var, ") & ", temp_cond_values_var, ", ",
-                                             "ifelse(is.na(", temp_n_values_var, "), 1, pmax(0, as.integer(", temp_n_values_var, "))), ", # ensure N is non-negative integer, 1 if NA
-                                             "1)"), # if condition not met, expand 1 time (keep original)
-           paste0(final_times_calc_var, " = ifelse(is.na(", final_times_calc_var, "), 1, ", final_times_calc_var, ")"), # Ensure final times is not NA
+                                             "ifelse(is.na(", temp_n_values_var, "), 1, pmax(0, as.integer(", temp_n_values_var, "))), ",
+                                             "1)"),
+           paste0(final_times_calc_var, " = ifelse(is.na(", final_times_calc_var, "), 1, ", final_times_calc_var, ")"),
            paste0("data = data[base::rep(1:NROW(data), times = ", final_times_calc_var, "), ]"),
            paste0("if (exists('", temp_n_values_var, "')) rm(", temp_n_values_var, ", ", temp_cond_values_var, ", ", final_times_calc_var, ")")
        )
        r_code_str = paste(r_code_lines, collapse="\n")
   } else {
-       temp_n_values_var = paste0("__expand_n_values_L", line_id)
-       final_times_calc_var = paste0("__final_expand_times_L", line_id)
         r_code_lines = c(
-           paste0(temp_n_values_var, " = (", r_n_expr, ")"),
-           paste0(final_times_calc_var, " = ifelse(is.na(", temp_n_values_var, "), 1, pmax(0, as.integer(", temp_n_values_var, ")))"), # ensure N is non-negative integer, 1 if NA
+           paste0(temp_n_values_var, " = ", n_expr_with_context),
+           paste0(final_times_calc_var, " = ifelse(is.na(", temp_n_values_var, "), 1, pmax(0, as.integer(", temp_n_values_var, ")))"),
            paste0("data = data[base::rep(1:NROW(data), times = ", final_times_calc_var, "), ]"),
            paste0("if (exists('", temp_n_values_var, "')) rm(", temp_n_values_var, ", ", final_times_calc_var, ")")
         )
        r_code_str = paste(r_code_lines, collapse="\n")
   }
 
-  options_str_cleaned = NA_character_ # expand has few options, not handled yet.
-  # If options_str was parsed from original cmd:
-  # options_str_cleaned = options_str
-
+  options_str_cleaned = NA_character_
    if (!is.na(options_str_cleaned) && options_str_cleaned != "") {
         r_code_str = paste0(r_code_str, paste0(" # Options ignored: ", options_str_cleaned))
    }

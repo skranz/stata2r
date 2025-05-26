@@ -55,6 +55,7 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Translate if/in condition
   r_if_in_cond = NA_character_
   if (!is.na(stata_if_in_cond) && stata_if_in_cond != "") {
+       # Context for if/in is global, not by_group specific for resolution, but _n/_N can be tricky
        r_if_in_cond = translate_stata_expression_with_r_values(stata_if_in_cond, line_num, cmd_df, context = list(is_by_group=FALSE))
        if (is.na(r_if_in_cond) || r_if_in_cond == "") {
            return(paste0("# Failed to translate if/in condition for decode: ", stata_if_in_cond))
@@ -66,60 +67,50 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # haven package reads value labels into a "labelled" class. labelled::to_factor converts this.
   # as.character() converts the factor to strings.
 
-  # Generate the new variable initialized to NA_character_ (Stata missing string is "")
-  # Stata missing numeric decodes to missing string.
+  # Temporary variable names
+  decoded_values_tmp_var = paste0("stata_tmp_decoded_values_L", cmd_obj$line)
+  satisfies_cond_tmp_var = paste0("stata_tmp_satisfies_cond_L", cmd_obj$line)
+
    r_code_lines = c(
-      paste0("data = dplyr::mutate(data, ", gen_var, " = NA_character_)") # Initialize with NA string. Changed to dplyr::mutate
+      paste0("data = dplyr::mutate(data, ", gen_var, " = NA_character_)")
    )
 
-  # Calculate decoded values
-  # Use haven::as_factor or labelled::to_factor to respect value labels, then as.character.
-  # haven::as_factor handles labelled class from read_dta.
-  # Need to handle potential errors if the source variable isn't labelled correctly.
    r_code_lines = c(r_code_lines,
       paste0("## Decode values using haven::as_factor"),
-      paste0("__decoded_values_L", cmd_obj$line, " = as.character(haven::as_factor(data$", varname_str, ", levels = 'labels'))") # 'labels' uses value labels
+      # Calculate decoded values using with(data, ...) to ensure varname_str is found
+      paste0(decoded_values_tmp_var, " = with(data, as.character(haven::as_factor(", varname_str, ", levels = 'labels')))")
    )
 
   # Apply the if/in condition for replacement
   if (!is.na(r_if_in_cond) && r_if_in_cond != "") {
-      # Replace values in gen_var where condition is true
        r_code_lines = c(r_code_lines,
-           paste0("## Calculate condition flag"),
-           paste0("__satisfies_cond_L", cmd_obj$line, " = ", r_if_in_cond),
-           # Need to be careful with types in if_else. If gen_var is character, __decoded_values_L must be character.
-           paste0("data = dplyr::mutate(data, ", gen_var, " = dplyr::if_else(__satisfies_cond_L", cmd_obj$line, ", __decoded_values_L", cmd_obj$line, ", ", gen_var, "))"), # Changed to dplyr::mutate
-           paste0("rm(__satisfies_cond_L", cmd_obj$line, ")")
+           paste0("## Calculate condition flag using with(data, ...)"),
+           paste0(satisfies_cond_tmp_var, " = with(data, ", r_if_in_cond, ")"),
+           paste0("data = dplyr::mutate(data, ", gen_var, " = dplyr::if_else(", satisfies_cond_tmp_var, ", ", decoded_values_tmp_var, ", ", gen_var, "))"),
+           paste0("rm(", satisfies_cond_tmp_var, ")")
        )
   } else {
-      # Replace values in gen_var for all rows
       r_code_lines = c(r_code_lines,
-           paste0("data = dplyr::mutate(data, ", gen_var, " = __decoded_values_L", cmd_obj$line, ")") # Changed to dplyr::mutate
+           paste0("data = dplyr::mutate(data, ", gen_var, " = ", decoded_values_tmp_var, ")")
       )
   }
 
-  # Clean up temporary variable
-  r_code_lines = c(r_code_lines, paste0("rm(__decoded_values_L", cmd_obj$line, ")"))
-
-  # Apply attribute stripping to the newly created variable
+  r_code_lines = c(r_code_lines, paste0("rm(", decoded_values_tmp_var, ")"))
   r_code_lines = c(r_code_lines, paste0("data$", gen_var, " = sfun_strip_stata_attributes(data$", gen_var, ")"))
 
   r_code_str = paste(r_code_lines, collapse="\n")
 
-  # Add comment about options if any were present but not handled (excluding gen)
    options_str_cleaned = options_str
    if (!is.na(options_str_cleaned)) {
         options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "\\bgen\\s*\\([^)]+\\)", "")
-        options_str_cleaned = stringi::stri_trim_both(stringi::stri_replace_all_regex(options_str_cleaned, ",+", ",")) # Clean up multiple commas
-        options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "^,+", "") # Remove leading comma
+        options_str_cleaned = stringi::stri_trim_both(stringi::stri_replace_all_regex(options_str_cleaned, ",+", ","))
+        options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "^,+", "")
    }
 
    if (!is.na(options_str_cleaned) && options_str_cleaned != "") {
         r_code_str = paste0(r_code_str, paste0(" # Other options ignored: ", options_str_cleaned))
    }
 
-
   return(r_code_str)
 }
-
 
