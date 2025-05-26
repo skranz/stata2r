@@ -79,19 +79,37 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   # Step 5: Translate Stata '+' operator to sfun_stata_add for polymorphic behavior
   # This needs to be applied iteratively until no more '+' signs (that are not part of comparison operators) exist.
-  # The regex captures any non-whitespace sequence as an operand.
-  # This relies on R's expression parsing and `sfun_stata_add`'s logic.
+  # The regex for operands must be robust to capture complete R expressions, including nested function calls.
+  # This is the tricky part, as simple `\S+` patterns fail when expressions contain spaces or commas.
+
+  # Define a robust pattern for an R expression unit that can be an operand.
+  # This pattern matches:
+  # 1. A variable name (starts with letter/underscore, then alphanumeric/underscore/dot)
+  # 2. A numeric literal
+  # 3. A string literal (single or double quoted)
+  # 4. A function call (e.g., `log(x)`, `sfun_stata_add(a, b)`), allowing for one level of nested simple function calls
+  #    within its arguments, for robustness. This is a pragmatic balance for regex complexity.
+  #    `\\b\\w+\\((?:[^()]|\\b\\w+\\([^()]*\\))*\\)`
+  #    `[^()]` matches any character that is not a parenthesis.
+  #    `|\\b\\w+\\([^()]*\\)` matches a simple function call with no nested parens.
+  #    The `*` allows for multiple such elements.
+  operand_regex = paste0(
+      "(?:",
+      "[a-zA-Z_][a-zA-Z0-9_.]*|", # Variable name
+      "\\d+(?:\\.\\d+)?|",       # Numeric literal
+      "\"[^\"]*\"|'[^']*'|",     # String literal (double or single quoted)
+      "\\b\\w+\\((?:[^()]|\\b\\w+\\([^()]*\\))*\\)" # Function call (allowing one level of nested simple function calls)
+      ")"
+  )
+
   old_r_expr_add = ""
   while (r_expr != old_r_expr_add) {
     old_r_expr_add = r_expr
-    # Regex: Match 'operand' + 'operand', where an operand is one or more non-whitespace characters.
-    # This handles simple terms like `var`, `"literal"`, `123`, `func(arg)`, or already-wrapped `sfun_stata_add(...)`.
+    # Regex: Match 'operand' + 'operand', where an operand is defined by `operand_regex`.
     # It ensures that `+` is treated as an operator, not part of `==` or `!=`.
-    r_expr = stringi::stri_replace_all_regex(r_expr, "(\\S+?)\\s*(?<![<>=!~])\\+\\s*(?!\\s*\\+|\\s*=\\s*)([^\\s]+)", "sfun_stata_add($1, $2)")
-    # Note: This regex pattern is a common workaround for simple parsers. It assumes
-    # left-associativity for chained `+` operations, as `sfun_stata_add(sfun_stata_add(A,B), C)` is generated.
-    # The `(?!\s*=\s*)` ensures it's not `+=` (which Stata doesn't have anyway).
-    # The `(?!\s*\+\s*)` ensures it's not `++`.
+    r_expr = stringi::stri_replace_all_regex(r_expr,
+                                           paste0("(", operand_regex, ")\\s*(?<![<>=!~])\\+\\s*(?!\\s*\\+|\\s*=\\s*)(", operand_regex, ")"),
+                                           "sfun_stata_add($1, $2)")
   }
 
   return(r_expr)
@@ -161,4 +179,5 @@ translate_stata_expression_with_r_values = function(stata_expr, current_line_ind
 
   translate_stata_expression_to_r(stata_expr, context, final_r_value_mappings)
 }
+
 
