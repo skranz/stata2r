@@ -105,10 +105,10 @@ by generally rounding your R results.
   aic
 }
 
-aic_changes_stata2r = function(aic, resp_text = NULL) {
+aic_changes_stata2r = function(aic, resp_text = NULL, force_with_lease=TRUE) {
   restore.point("aic_stata2r_update")
   library(aicoder)
-  aic_parse_and_commit_changes(aic, resp_text)
+  aic_parse_and_commit_changes(aic, resp_text, force_with_lease=force_with_lease)
 }
 
 aic_test_stata2r = function(aic) {
