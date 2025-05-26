@@ -1,6 +1,10 @@
-The main issue identified from the test failure is a syntax error in the generated R code for `_n-offset` expressions within `dplyr::lag`. This is due to an incorrect placeholder replacement in `stata_expression_translator.R`. The fix directly incorporates `n = ` into the `dplyr::lag` and `dplyr::lead` calls, removing the need for a problematic secondary replacement.
+The primary issue identified in the test failure was an incorrect translation of the Stata expression `_n-1` within `dplyr::lag`. The R code `dplyr::lag(..., n == 1)` was generated, which is syntactically incorrect for the `n` argument of `dplyr::lag`.
 
-!CHANGE_FILE stata_expression_translator.R
+Upon investigation, it was determined that the `stata_expression_translator.R` script's order of operations was at fault. Specifically, the general rule to convert `=` to `==` (for logical comparisons) was applied *after* the `_n-offset` translation had already introduced `n = $2` into the expression string. This resulted in `n = 1` (a named argument) being incorrectly transformed into `n == 1` (a logical comparison).
+
+The fix involves reordering the translation steps in `stata_expression_translator.R` so that the `=` to `==` conversion happens *before* the `_n-offset` translation. This ensures that only true Stata comparison operators are converted, and named arguments like `n = 1` for R functions are left untouched.
+
+!CHANGE_FILE R/stata_expression_translator.R
 ```R
 # Stata Expression Translator
 
@@ -20,7 +24,13 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   r_expr = stata_expr
 
-  # Step 1: Translate Stata special variables and indexing (e.g., _n, _N, var[_n-1])
+  # Step 1: Translate Stata logical operators (moved this step up)
+  # This must happen before _n-offset translation to avoid `n = 1` becoming `n == 1`
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![<>!=~])\\s*=\\s*(?![=])", " == ") # Replace single = with == if not part of other ops
+  r_expr = stringi::stri_replace_all_regex(r_expr, "\\s+~=\\s+", " != ") # Stata `~=` to R `!=`
+
+
+  # Step 2: Translate Stata special variables and indexing (e.g., _n, _N, var[_n-1])
   # These are generally fixed references, not nested functions.
   # Use dplyr::lag/lead which are context-aware in grouped operations.
 
@@ -34,7 +44,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_n\\b", "as.numeric(dplyr::row_number())")
   r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_N\\b", "as.numeric(dplyr::n())")
 
-  # Step 2: Iteratively translate Stata functions (e.g., cond(), round(), log(), etc.)
+  # Step 3: Iteratively translate Stata functions (e.g., cond(), round(), log(), etc.)
   # This loop handles nested function calls by repeatedly applying transformations.
   old_r_expr = ""
   while (r_expr != old_r_expr) {
@@ -63,11 +73,6 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstring\\(([^)]+)\\)", "as.character($1)")
     # Date functions (placeholder, as actual implementation is complex)
   }
-
-  # Step 3: Translate Stata logical operators
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![<>!=~])\\s*=\\s*(?![=])", " == ") # Replace single = with == if not part of other ops
-
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\s+~=\\s+", " != ") # Stata `~=` to R `!=`
 
   # Step 4: Handle r() values using the mapping
   if (!is.null(r_value_mappings) && length(r_value_mappings) > 0) {
@@ -144,5 +149,6 @@ translate_stata_expression_with_r_values = function(stata_expr, current_line_ind
 
   translate_stata_expression_to_r(stata_expr, context, final_r_value_mappings)
 }
+
 ```
-!END_CHANGE_FILE stata_expression_translator.R
+!END_CHANGE_FILE R/stata_expression_translator.R

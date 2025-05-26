@@ -966,9 +966,9 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   # These are generally fixed references, not nested functions.
   # Use dplyr::lag/lead which are context-aware in grouped operations.
 
-  # Use a unique placeholder for 'n =' to avoid it being affected by '=' to '==' translation
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*-\\s*(\\d+)\\]", "dplyr::lag($1, __LAG_OFFSET_PLACEHOLDER__ = $2)")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*\\+\\s*(\\d+)\\]", "dplyr::lead($1, __LAG_OFFSET_PLACEHOLDER__ = $2)")
+  # Directly replace with `n = $2`
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*-\\s*(\\d+)\\]", "dplyr::lag($1, n = $2)")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*\\+\\s*(\\d+)\\]", "dplyr::lead($1, n = $2)")
   r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\]", "$1")
 
   # Handle _n and _N.
@@ -1008,9 +1008,6 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   # Step 3: Translate Stata logical operators
   r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![<>!=~])\\s*=\\s*(?![=])", " == ") # Replace single = with == if not part of other ops
-
-  # After all other transformations, restore the 'n =' for dplyr::lag/lead
-  r_expr = stringi::stri_replace_all_fixed(r_expr, "__LAG_OFFSET_PLACEHOLDER__ = ", "n = ")
 
   r_expr = stringi::stri_replace_all_regex(r_expr, "\\s+~=\\s+", " != ") # Stata `~=` to R `!=`
 
@@ -3868,27 +3865,37 @@ data$id = sfun_strip_stata_attributes(data$id)
  30 do:  bysort group_code (mean_i_overall): gen diff_mean = mean_i_overall - mean_i_overall[_n-1]
  30 r:  data = dplyr::arrange(data, group_code, mean_i_overall) %>%
   dplyr::group_by(dplyr::across(c("group_code"))) %>%
-  dplyr::mutate(diff_mean = mean_i_overall - dplyr::lag(mean_i_overall, __LAG_OFFSET_PLACEHOLDER__ == 1)) %>%
+  dplyr::mutate(diff_mean = mean_i_overall - dplyr::lag(mean_i_overall, n == 1)) %>%
   dplyr::ungroup()
 data$diff_mean = sfun_strip_stata_attributes(data$diff_mean) 
 data = dplyr::arrange(data, group_code, mean_i_overall) %>%
   dplyr::group_by(dplyr::across(c("group_code"))) %>%
-  dplyr::mutate(diff_mean = mean_i_overall - dplyr::lag(mean_i_overall, __LAG_OFFSET_PLACEHOLDER__ == 1)) %>%
+  dplyr::mutate(diff_mean = mean_i_overall - dplyr::lag(mean_i_overall, n == 1)) %>%
   dplyr::ungroup()
+
+Error: Problem with `mutate()` column `diff_mean`.
+ℹ `diff_mean = mean_i_overall - dplyr::lag(mean_i_overall, n == 1)`.
+✖ comparison (1) is possible only for atomic and list types
+ℹ The error occurred in group 1: group_code = 1.
+Caused by error in `n == 1`:
+! comparison (1) is possible only for atomic and list types
 data$diff_mean = sfun_strip_stata_attributes(data$diff_mean)
-Error: <text>:3:73: unexpected input
-2:   dplyr::group_by(dplyr::across(c("group_code"))) %>%
-3:   dplyr::mutate(diff_mean = mean_i_overall - dplyr::lag(mean_i_overall, _
-                                                                           ^
+
+Warning: Unknown or uninitialised column: `diff_mean`.
 Error executing R code for Stata line  30 :  data = dplyr::arrange(data, group_code, mean_i_overall) %>%
   dplyr::group_by(dplyr::across(c("group_code"))) %>%
-  dplyr::mutate(diff_mean = mean_i_overall - dplyr::lag(mean_i_overall, __LAG_OFFSET_PLACEHOLDER__ == 1)) %>%
+  dplyr::mutate(diff_mean = mean_i_overall - dplyr::lag(mean_i_overall, n == 1)) %>%
   dplyr::ungroup()
+
+Error: Problem with `mutate()` column `diff_mean`.
+ℹ `diff_mean = mean_i_overall - dplyr::lag(mean_i_overall, n == 1)`.
+✖ comparison (1) is possible only for atomic and list types
+ℹ The error occurred in group 1: group_code = 1.
+Caused by error in `n == 1`:
+! comparison (1) is possible only for atomic and list types
 data$diff_mean = sfun_strip_stata_attributes(data$diff_mean)
-Error: <text>:3:73: unexpected input
-2:   dplyr::group_by(dplyr::across(c("group_code"))) %>%
-3:   dplyr::mutate(diff_mean = mean_i_overall - dplyr::lag(mean_i_overall, _
-                                                                           ^ 
+
+Warning: Unknown or uninitialised column: `diff_mean`. 
 
 ##############################
 # YOUR TASK
