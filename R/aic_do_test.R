@@ -11,11 +11,11 @@ aic_stata2r_do_test = function(aic, test_dir, data_dir, data_prefix="") {
   has_err = is(err, "try-error") | isTRUE(err==FALSE)
 
   #test_log= list(ok=!has_err,test_name=basename(test_dir), msg="", log=log)
-  aic = aic_add_test(aic, test_name=basename(test_dir), ok=!has_err, log=log)
+  aic = aic_add_test(aic, test_name=basename(test_dir),show_test = TRUE, ok=!has_err, log=log)
   aic
 }
 
-aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="") {
+aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="", do_file = paste0(basename(test_dir),".do")) {
   restore.point("aic_stata2r_do_test_inner")
   setwd(test_dir)
 
@@ -34,7 +34,7 @@ aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="") {
   library(readr) # For destring
 
   # do code that will be translated
-  do_code = readLines("do1.do", warn=FALSE)
+  do_code = readLines(file.path(test_dir, basename(do_file)), warn=FALSE)
   #cat(do_code, sep="\n")
 
 
@@ -130,21 +130,6 @@ aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="") {
     }
   }
   return(TRUE)
-}
-
-aic_stata2r_eval_next_r_line = function(i, r_df, env) {
-
-}
-
-aic_stata2r_eval_example = function(do_file) {
-  library(stata2r)
-  do_dir = dirname(do_file)
-  do_text = readLines(do_file)
-  r_code = do_to_r(do_code)
-
-  library(stata2r)
-  library(aicoder)
-
 }
 
 
