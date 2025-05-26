@@ -9,7 +9,7 @@ example = function() {
 
 
   aic = aic_make_prompt_stata2r(aic)
-  cat(aic$prompt)
+  #cat(aic$prompt)
   aic_view_prompt(aic)
   rstudioapi::navigateToFile("~/aicoder/stata2r/aicoder_work/test_report.txt")
 
@@ -56,7 +56,7 @@ aic_new_stata2r = function(main_dir) {
     do_files = paste0(repo_dir,"inst/cases/", c("custom_1/do1.do")),
     response_file = file.path(repo_dir, "aicoder_work/ai_resp.txt"),
     temp_dir = file.path(main_dir, "temp"),
-    mod_protected_files = c("R/aic_stata2r.R","R/main.R","R/aic_stata_ex.R"),
+    mod_protected_files = c("R/aic_stata2r.R","R/main.R","R/aic_stata_ex.R","R/aic_do_test.R"),
     mod_fixed_dirs = c("r"="R"),
     mod_just_ext = c("r"),
     show_test = FALSE,

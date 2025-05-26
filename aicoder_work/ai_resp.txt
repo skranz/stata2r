@@ -1,146 +1,98 @@
-The primary error was in `t_decode.R` due to `haven::as_factor` failing. This failure was because the input variable (created by `t_encode.R`) was not a `haven::labelled` object with the necessary label attributes.
+The primary issue is that `collapse::fmerge` is not an exported function from the `collapse` package. The `merge` command translation needs to use `dplyr`'s join functions (`dplyr::inner_join`, `dplyr::left_join`, `dplyr::right_join`, `dplyr::full_join`) which correctly implement the logic for Stata's `merge` command and its `keep()` options.
 
-To fix this, I've updated `t_encode.R` to:
-1.  Correctly generate a `haven::labelled` integer vector for the new encoded variable. This involves:
-    *   Finding unique sorted string values from the source variable to serve as labels.
-    *   Mapping these string values to integer codes (1, 2, 3,...).
-    *   Using `haven::labelled()` to create the new variable, attaching the string-to-integer mapping as value labels.
-2.  Improved the logic for applying `if`/`in` conditions during encoding. The new variable is first initialized as a `haven::labelled` vector of NAs. Then, for rows meeting the condition, values from the fully computed (and labelled) temporary encoded vector are assigned. This avoids type conflicts with `dplyr::if_else` when dealing with `haven::labelled` objects.
+My change replaces the `collapse::fmerge` call with the appropriate `dplyr` join function based on the Stata `keep()` option.
 
-No changes were made to `t_decode.R` itself, as the corrected output from `t_encode.R` should now be processed correctly by `haven::as_factor`.
-
-!CHANGE_FILE R/t_encode.R
+!CHANGE_FILE t_merge.R
 ```R
-# Translate Stata 'encode' command
-# Stata: encode varname [if] [in] , gen(newvar) [options]
-# Converts string varname into numeric newvar with value labels.
+# Translate Stata 'merge' command
+# Stata: merge 1:1 varlist using filename [, options]
+# Stata: merge 1:m varlist using filename [, options]
+# Stata: merge m:1 varlist using filename [, options]
+# Stata: merge m:m varlist using filename [, options]
+# Options: keep(match master using all) nogenerate
 
-t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
-  restore.point("t_encode")
+t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_merge") # Added restore.point
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
-  # Parse varname, if/in, options (especially gen())
-  varname_str = NA_character_
-  stata_if_in_cond = NA_character_
+  # Parse merge type (1:1, 1:m, m:1, m:m), varlist, `using filename`, and options
+  # Corrected regex for merge type to allow 'm'
+  # Pattern: ^\s*([1m]:[1m])\s+(.*?)\s+using\s+([^,\s]+)(?:,\\s*(.*))?$
+  # G1: type, G2: varlist, G3: filename (can be quoted or macro), G4: options
+
+  merge_match = stringi::stri_match_first_regex(rest_of_cmd_trimmed, "^\\s*([1m]:[1m])\\s+(.*?)\\s+using\\s+(\"[^\"]+\"|`[^']+'|[^,\\s]+)(?:,\\s*(.*))?$")
+  merge_type = NA_character_
+  varlist_str = NA_character_
+  raw_filename_token = NA_character_
   options_str = NA_character_
 
-  # Find if/in first
-  if_in_match = stringi::stri_match_first_regex(rest_of_cmd_trimmed, "\\s+(?:if\\s+|in\\s+)(.*)$")
-  if(!is.na(if_in_match[1,1])) {
-      stata_if_in_cond = if_in_match[1,2]
-      rest_no_if_in = stringi::stri_replace_last_regex(rest_of_cmd_trimmed, "\\s+(?:if\\s+|in\\s+)(.*)$", "")
-      rest_no_if_in = stringi::stri_trim_both(rest_no_if_in)
+
+  if (is.na(merge_match[1,1])) {
+      # Check for older syntax without type: `merge varlist using filename` (defaults to 1:1)
+      merge_match_old = stringi::stri_match_first_regex(rest_of_cmd_trimmed, "^\\s*(.*?)\\s+using\\s+(\"[^\"]+\"|`[^']+'|[^,\\s]+)(?:,\\s*(.*))?$")
+      if (!is.na(merge_match_old[1,1])) {
+           merge_type = "1:1" # Assume 1:1 if type not specified
+           varlist_str = stringi::stri_trim_both(merge_match_old[1,2])
+           raw_filename_token = stringi::stri_trim_both(merge_match_old[1,3])
+           options_str = stringi::stri_trim_both(merge_match_old[1,4])
+      } else {
+           return(paste0("# Failed to parse merge command: ", rest_of_cmd))
+      }
   } else {
-      rest_no_if_in = rest_of_cmd_trimmed
+      merge_type = merge_match[1,2]
+      varlist_str = stringi::stri_trim_both(merge_match[1,3])
+      raw_filename_token = stringi::stri_trim_both(merge_match[1,4])
+      options_str = stringi::stri_trim_both(merge_match[1,5]) # NA if no options
   }
 
-   # Find options (which contain gen())
-  options_match = stringi::stri_match_first_regex(rest_no_if_in, ",\\s*(.*)$")
-  if (!is.na(options_match[1,1])) {
-      options_str = stringi::stri_trim_both(options_match[1,2])
-      varname_str = stringi::stri_replace_last_regex(rest_no_if_in, ",\\s*(.*)$", "")
-      varname_str = stringi::stri_trim_both(varname_str)
-  } else {
-      # This case implies `encode varname` without `, gen(newvar)` which is invalid for encode.
-      # However, parsing might mean options_str is NA if only gen() is present without a leading comma after varname.
-      # Stata syntax is `encode varname, gen(newvar)`
-      # For robustness, assume if options_str is NA, it's a parse issue or invalid Stata.
-      # The original code handled `varname_str = rest_no_if_in` here, which is likely incorrect
-      # if options are mandatory. Let's ensure gen() is found.
-      return(paste0("# encode command requires gen() in options: ", rest_of_cmd))
+  vars_to_merge_on = stringi::stri_split_regex(varlist_str, "\\s+")[[1]]
+  vars_to_merge_on = vars_to_merge_on[vars_to_merge_on != ""]
+  if (length(vars_to_merge_on) == 0) {
+       return(paste0("# merge command requires varlist: ", rest_of_cmd))
   }
+  # For dplyr::join, by argument can be a character vector of column names
+  vars_to_merge_on_r_vec_str = paste0('c("', paste(vars_to_merge_on, collapse = '", "'), '")')
 
-   if (is.na(varname_str) || varname_str == "") {
-       return(paste0("# encode command requires varname: ", rest_of_cmd))
-   }
+  using_source_r_expr = resolve_stata_filename(raw_filename_token, cmd_df, line_num, default_base_dir_var = "data_dir")
 
-  # Parse options, specifically `gen()`
-  gen_var = NA_character_
+
+  # Determine join type based on Stata's `keep()` option or default behavior
+  join_type_r_func = "dplyr::inner_join" # Stata's default is inner join
+  keep_spec_for_comment = "match" # Default keep() option for comment
+
+  # Handle keep() options if present, overriding defaults
   if (!is.na(options_str)) {
-      gen_opt_match = stringi::stri_match_first_regex(options_str, "\\bgen\\s*\\(([^)]+)\\)")
-      if (!is.na(gen_opt_match[1,1])) {
-           gen_vars_str = stringi::stri_trim_both(gen_opt_match[1,2])
-           gen_vars_list = stringi::stri_split_regex(gen_vars_str, "\\s+")[[1]]
-           gen_var = gen_vars_list[1] # encode generates a single variable
-       }
+      keep_opt_match = stringi::stri_match_first_regex(options_str, "\\bkeep\\s*\\(([^)]+)\\)")
+      if (!is.na(keep_opt_match[1,1])) {
+          keep_spec = stringi::stri_trim_both(keep_opt_match[1,2])
+          if (grepl("\\ball\\b", keep_spec)) {
+              join_type_r_func = "dplyr::full_join"
+              keep_spec_for_comment = "all"
+          } else if (grepl("\\bmaster\\b", keep_spec)) {
+              join_type_r_func = "dplyr::left_join" # Keep matched and master unmatched (left join)
+              keep_spec_for_comment = "master"
+          } else if (grepl("\\busing\\b", keep_spec)) {
+              join_type_r_func = "dplyr::right_join" # Keep matched and using unmatched (right join)
+               keep_spec_for_comment = "using"
+          } else if (grepl("\\bmatch\\b", keep_spec)) {
+              join_type_r_func = "dplyr::inner_join" # Keep matched only (inner join)
+              keep_spec_for_comment = "match"
+          }
+          # Other complex keep() specs like `keep(_merge==3)` are not handled here.
+      }
   }
 
-  if (is.na(gen_var)) {
-      return(paste0("# encode requires gen() option: ", rest_of_cmd))
-  }
+  # Handle nogenerate option
+  has_nogenerate = !is.na(options_str) && stringi::stri_detect_fixed(options_str, "nogenerate")
+  merge_comment = paste0("# Stata merge type: ", merge_type, ", keep(", keep_spec_for_comment, ")",
+                         if(has_nogenerate) ", nogenerate" else " # _merge variable was not generated.")
 
-  # Translate if/in condition
-  r_if_in_cond = NA_character_
-  if (!is.na(stata_if_in_cond) && stata_if_in_cond != "") {
-       r_if_in_cond = translate_stata_expression_with_r_values(stata_if_in_cond, line_num, cmd_df, context = list(is_by_group=FALSE))
-       if (is.na(r_if_in_cond) || r_if_in_cond == "") {
-           return(paste0("# Failed to translate if/in condition for encode: ", stata_if_in_cond))
-       }
-  }
 
-  # Temporary variable names for the fully calculated encoded vector and condition
-  encoded_values_full_tmp_var = paste0("stata_tmp_encoded_full_L", cmd_obj$line)
-  satisfies_cond_tmp_var = paste0("stata_tmp_encode_cond_L", cmd_obj$line)
-
-  r_code_lines = c()
-
-  # Initialize the new column as a haven_labelled integer vector.
-  # Labels will be derived from the source data.
-  r_code_lines = c(r_code_lines,
-    paste0("data = dplyr::mutate(data, ", gen_var, " = haven::labelled(rep(NA_integer_, NROW(data)), labels = c()))")
-  )
-
-  # Calculate the full encoded vector (based on all unique values in source column, sorted alphabetically)
-  # This ensures consistent labelling regardless of if/in conditions.
-  r_code_lines = c(r_code_lines,
-    paste0("temp_source_vector_L", cmd_obj$line, " = data[['", varname_str, "']]"),
-    # Get unique, non-NA, sorted string values to define labels
-    paste0("temp_unique_labels_L", cmd_obj$line, " = base::sort(base::unique(stats::na.omit(temp_source_vector_L", cmd_obj$line, "[temp_source_vector_L", cmd_obj$line, " != \"\"])))"), # Exclude empty strings from labels
-    # Create the integer codes (1, 2, ...) based on the sorted unique labels
-    paste0("temp_numeric_values_L", cmd_obj$line, " = base::match(temp_source_vector_L", cmd_obj$line, ", temp_unique_labels_L", cmd_obj$line, ")"),
-    # Define the label mapping: c(label1 = 1, label2 = 2, ...)
-    paste0("temp_label_map_L", cmd_obj$line, " = if (length(temp_unique_labels_L", cmd_obj$line, ") > 0) stats::setNames(seq_along(temp_unique_labels_L", cmd_obj$line, "), temp_unique_labels_L", cmd_obj$line, ") else stats::setNames(integer(0), character(0))"),
-    # Create the haven_labelled vector
-    paste0(encoded_values_full_tmp_var, " = haven::labelled(as.integer(temp_numeric_values_L", cmd_obj$line, "), labels = temp_label_map_L", cmd_obj$line, ")"),
-    # Clean up intermediate temp variables
-    paste0("rm(temp_source_vector_L", cmd_obj$line, ", temp_unique_labels_L", cmd_obj$line, ", temp_numeric_values_L", cmd_obj$line, ", temp_label_map_L", cmd_obj$line, ")")
-  )
-
-  # Apply the if/in condition for assignment to the target column in 'data'
-  if (!is.na(r_if_in_cond) && r_if_in_cond != "") {
-       r_code_lines = c(r_code_lines,
-           paste0("## Calculate condition flag for encode"),
-           # Stata 'if' treats missing as false. Ensure logical vector for subsetting.
-           paste0(satisfies_cond_tmp_var, " = dplyr::coalesce(with(data, ", r_if_in_cond, "), FALSE) & !is.na(with(data, ", r_if_in_cond, "))"),
-           # Assign only for rows meeting the condition
-           paste0("data[['", gen_var, "']][", satisfies_cond_tmp_var, "] = ", encoded_values_full_tmp_var, "[", satisfies_cond_tmp_var, "]"),
-           paste0("rm(", satisfies_cond_tmp_var, ")")
-       )
-  } else {
-      # No condition, assign the full encoded vector
-      r_code_lines = c(r_code_lines,
-           paste0("data[['", gen_var, "']] = ", encoded_values_full_tmp_var)
-      )
-  }
-
-  r_code_lines = c(r_code_lines, paste0("rm(", encoded_values_full_tmp_var, ")"))
-  r_code_lines = c(r_code_lines, paste0("data$", gen_var, " = sfun_strip_stata_attributes(data$", gen_var, ")")) # sfun_strip_stata_attributes is benign
-
-  r_code_str = paste(r_code_lines, collapse="\n")
-
-  # Add comment about other options if any were present but not handled (excluding gen)
-   options_str_cleaned = options_str
-   if (!is.na(options_str_cleaned)) {
-        options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "\\bgen\\s*\\([^)]+\\)", "")
-        options_str_cleaned = stringi::stri_trim_both(stringi::stri_replace_all_regex(options_str_cleaned, ",+", ","))
-        options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "^,+", "") # Remove leading comma
-   }
-
-   if (!is.na(options_str_cleaned) && options_str_cleaned != "") {
-        r_code_str = paste0(r_code_str, paste0("\n# Other options ignored: ", options_str_cleaned))
-   }
+  # Build the R command string using dplyr::*_join
+  # dplyr::join(x, y, by)
+  r_code_str = paste0("data = ", join_type_r_func, "(data, haven::read_dta(", using_source_r_expr, "), by = ", vars_to_merge_on_r_vec_str, ") ", merge_comment)
 
   return(r_code_str)
 }
 ```
-!END_CHANGE_FILE R/t_encode.R
+!END_CHANGE_FILE t_merge.R
