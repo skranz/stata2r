@@ -3,12 +3,10 @@
 # Converts string varname into numeric newvar with value labels.
 
 t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
-  restore.point("t_encode") # Added restore.point
+  restore.point("t_encode")
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
   # Parse varname, if/in, options (especially gen())
-  # Pattern: `varname [if] [in] , options`
-
   varname_str = NA_character_
   stata_if_in_cond = NA_character_
   options_str = NA_character_
@@ -23,14 +21,20 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       rest_no_if_in = rest_of_cmd_trimmed
   }
 
-   # Find options
+   # Find options (which contain gen())
   options_match = stringi::stri_match_first_regex(rest_no_if_in, ",\\s*(.*)$")
   if (!is.na(options_match[1,1])) {
       options_str = stringi::stri_trim_both(options_match[1,2])
       varname_str = stringi::stri_replace_last_regex(rest_no_if_in, ",\\s*(.*)$", "")
       varname_str = stringi::stri_trim_both(varname_str)
   } else {
-      varname_str = rest_no_if_in
+      # This case implies `encode varname` without `, gen(newvar)` which is invalid for encode.
+      # However, parsing might mean options_str is NA if only gen() is present without a leading comma after varname.
+      # Stata syntax is `encode varname, gen(newvar)`
+      # For robustness, assume if options_str is NA, it's a parse issue or invalid Stata.
+      # The original code handled `varname_str = rest_no_if_in` here, which is likely incorrect
+      # if options are mandatory. Let's ensure gen() is found.
+      return(paste0("# encode command requires gen() in options: ", rest_of_cmd))
   }
 
    if (is.na(varname_str) || varname_str == "") {
@@ -61,45 +65,66 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
        }
   }
 
-  # Temporary variable names
-  encoded_values_tmp_var = paste0("stata_tmp_encoded_values_L", cmd_obj$line)
-  satisfies_cond_tmp_var = paste0("stata_tmp_satisfies_cond_L", cmd_obj$line)
+  # Temporary variable names for the fully calculated encoded vector and condition
+  encoded_values_full_tmp_var = paste0("stata_tmp_encoded_full_L", cmd_obj$line)
+  satisfies_cond_tmp_var = paste0("stata_tmp_encode_cond_L", cmd_obj$line)
 
-   r_code_lines = c(
-      paste0("data = dplyr::mutate(data, ", gen_var, " = NA_integer_)"),
-      # Calculate encoded values: factor() on the source variable
-      # Using with(data, ...) to ensure varname_str is resolved from data columns
-      paste0(encoded_values_tmp_var, " = with(data, as.integer(base::factor(", varname_str, ", levels = base::unique(", varname_str, "[base::order(", varname_str, ")]))))")
-   )
+  r_code_lines = c()
 
-  # Apply the if/in condition for replacement
+  # Initialize the new column as a haven_labelled integer vector.
+  # Labels will be derived from the source data.
+  r_code_lines = c(r_code_lines,
+    paste0("data = dplyr::mutate(data, ", gen_var, " = haven::labelled(rep(NA_integer_, NROW(data)), labels = c()))")
+  )
+
+  # Calculate the full encoded vector (based on all unique values in source column, sorted alphabetically)
+  # This ensures consistent labelling regardless of if/in conditions.
+  r_code_lines = c(r_code_lines,
+    paste0("temp_source_vector_L", cmd_obj$line, " = data[['", varname_str, "']]"),
+    # Get unique, non-NA, sorted string values to define labels
+    paste0("temp_unique_labels_L", cmd_obj$line, " = base::sort(base::unique(stats::na.omit(temp_source_vector_L", cmd_obj$line, "[temp_source_vector_L", cmd_obj$line, " != \"\"])))"), # Exclude empty strings from labels
+    # Create the integer codes (1, 2, ...) based on the sorted unique labels
+    paste0("temp_numeric_values_L", cmd_obj$line, " = base::match(temp_source_vector_L", cmd_obj$line, ", temp_unique_labels_L", cmd_obj$line, ")"),
+    # Define the label mapping: c(label1 = 1, label2 = 2, ...)
+    paste0("temp_label_map_L", cmd_obj$line, " = if (length(temp_unique_labels_L", cmd_obj$line, ") > 0) stats::setNames(seq_along(temp_unique_labels_L", cmd_obj$line, "), temp_unique_labels_L", cmd_obj$line, ") else stats::setNames(integer(0), character(0))"),
+    # Create the haven_labelled vector
+    paste0(encoded_values_full_tmp_var, " = haven::labelled(as.integer(temp_numeric_values_L", cmd_obj$line, "), labels = temp_label_map_L", cmd_obj$line, ")"),
+    # Clean up intermediate temp variables
+    paste0("rm(temp_source_vector_L", cmd_obj$line, ", temp_unique_labels_L", cmd_obj$line, ", temp_numeric_values_L", cmd_obj$line, ", temp_label_map_L", cmd_obj$line, ")")
+  )
+
+  # Apply the if/in condition for assignment to the target column in 'data'
   if (!is.na(r_if_in_cond) && r_if_in_cond != "") {
        r_code_lines = c(r_code_lines,
-           paste0("## Calculate condition flag using with(data, ...)"),
-           paste0(satisfies_cond_tmp_var, " = with(data, ", r_if_in_cond, ")"),
-           paste0("data = dplyr::mutate(data, ", gen_var, " = dplyr::if_else(", satisfies_cond_tmp_var, ", ", encoded_values_tmp_var, ", ", gen_var, "))"),
+           paste0("## Calculate condition flag for encode"),
+           # Stata 'if' treats missing as false. Ensure logical vector for subsetting.
+           paste0(satisfies_cond_tmp_var, " = dplyr::coalesce(with(data, ", r_if_in_cond, "), FALSE) & !is.na(with(data, ", r_if_in_cond, "))"),
+           # Assign only for rows meeting the condition
+           paste0("data[['", gen_var, "']][", satisfies_cond_tmp_var, "] = ", encoded_values_full_tmp_var, "[", satisfies_cond_tmp_var, "]"),
            paste0("rm(", satisfies_cond_tmp_var, ")")
        )
   } else {
+      # No condition, assign the full encoded vector
       r_code_lines = c(r_code_lines,
-           paste0("data = dplyr::mutate(data, ", gen_var, " = ", encoded_values_tmp_var, ")")
+           paste0("data[['", gen_var, "']] = ", encoded_values_full_tmp_var)
       )
   }
 
-  r_code_lines = c(r_code_lines, paste0("rm(", encoded_values_tmp_var, ")"))
-  r_code_lines = c(r_code_lines, paste0("data$", gen_var, " = sfun_strip_stata_attributes(data$", gen_var, ")"))
+  r_code_lines = c(r_code_lines, paste0("rm(", encoded_values_full_tmp_var, ")"))
+  r_code_lines = c(r_code_lines, paste0("data$", gen_var, " = sfun_strip_stata_attributes(data$", gen_var, ")")) # sfun_strip_stata_attributes is benign
 
   r_code_str = paste(r_code_lines, collapse="\n")
 
+  # Add comment about other options if any were present but not handled (excluding gen)
    options_str_cleaned = options_str
    if (!is.na(options_str_cleaned)) {
         options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "\\bgen\\s*\\([^)]+\\)", "")
         options_str_cleaned = stringi::stri_trim_both(stringi::stri_replace_all_regex(options_str_cleaned, ",+", ","))
-        options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "^,+", "")
+        options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "^,+", "") # Remove leading comma
    }
 
    if (!is.na(options_str_cleaned) && options_str_cleaned != "") {
-        r_code_str = paste0(r_code_str, paste0(" # Other options ignored: ", options_str_cleaned))
+        r_code_str = paste0(r_code_str, paste0("\n# Other options ignored: ", options_str_cleaned))
    }
 
   return(r_code_str)
