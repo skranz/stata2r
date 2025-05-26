@@ -1,6 +1,6 @@
-The main issue causing the test failure is an overly aggressive regex in `stata_expression_translator.R` that incorrectly translates the `n =` argument in `dplyr::lag` (which is generated from Stata's `var[_n-offset]` syntax) into `n ==`. To fix this, I will introduce a temporary placeholder for the `n =` argument during the initial translation, allow other regexes (including the problematic `=` to `==` translation) to run, and then restore the `n =` argument as the very last step. This ensures that the R syntax for function arguments is not modified by expression translation rules.
+The main issue identified from the test failure is a syntax error in the generated R code for `_n-offset` expressions within `dplyr::lag`. This is due to an incorrect placeholder replacement in `stata_expression_translator.R`. The fix directly incorporates `n = ` into the `dplyr::lag` and `dplyr::lead` calls, removing the need for a problematic secondary replacement.
 
-!CHANGE_FILE R/stata_expression_translator.R
+!CHANGE_FILE stata_expression_translator.R
 ```R
 # Stata Expression Translator
 
@@ -24,9 +24,9 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   # These are generally fixed references, not nested functions.
   # Use dplyr::lag/lead which are context-aware in grouped operations.
 
-  # Use a unique placeholder for 'n =' to avoid it being affected by '=' to '==' translation
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*-\\s*(\\d+)\\]", "dplyr::lag($1, __LAG_OFFSET_PLACEHOLDER__ = $2)")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*\\+\\s*(\\d+)\\]", "dplyr::lead($1, __LAG_OFFSET_PLACEHOLDER__ = $2)")
+  # Directly replace with `n = $2`
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*-\\s*(\\d+)\\]", "dplyr::lag($1, n = $2)")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*\\+\\s*(\\d+)\\]", "dplyr::lead($1, n = $2)")
   r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\]", "$1")
 
   # Handle _n and _N.
@@ -66,9 +66,6 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   # Step 3: Translate Stata logical operators
   r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![<>!=~])\\s*=\\s*(?![=])", " == ") # Replace single = with == if not part of other ops
-
-  # After all other transformations, restore the 'n =' for dplyr::lag/lead
-  r_expr = stringi::stri_replace_all_fixed(r_expr, "__LAG_OFFSET_PLACEHOLDER__ = ", "n = ")
 
   r_expr = stringi::stri_replace_all_regex(r_expr, "\\s+~=\\s+", " != ") # Stata `~=` to R `!=`
 
@@ -148,4 +145,4 @@ translate_stata_expression_with_r_values = function(stata_expr, current_line_ind
   translate_stata_expression_to_r(stata_expr, context, final_r_value_mappings)
 }
 ```
-!END_CHANGE_FILE R/stata_expression_translator.R
+!END_CHANGE_FILE stata_expression_translator.R
