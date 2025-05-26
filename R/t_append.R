@@ -22,11 +22,11 @@ t_append = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   using_source_r_expr = resolve_stata_filename(raw_filename_token, cmd_df, line_num, default_base_dir_var = "data_dir")
 
   # Stata append requires variable names to match or be harmonized.
-  # collapse::fbind matches columns by name. Differences are filled with NA. This is similar to Stata.
+  # dplyr::bind_rows matches columns by name. Differences are filled with NA. This is similar to Stata.
   # Options like `force` (append even if variable types don't match) are not handled.
 
-  # Using collapse::fbind
-  r_code_str = paste0("data = collapse::fbind(data, haven::read_dta(", using_source_r_expr, "))")
+  # Using dplyr::bind_rows instead of collapse::fbind (due to reported "not exported" error)
+  r_code_str = paste0("data = dplyr::bind_rows(data, haven::read_dta(", using_source_r_expr, "))")
 
   # Add comment about options if any were present but not handled
   if (!is.na(options_str) && options_str != "") {
