@@ -1009,7 +1009,8 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     # String functions (using stringi or custom helpers)
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrtrim\\(([^)]+)\\)", "stringi::stri_trim_both($1)")
     # Corrected stritrim translation: first replace internal spaces, then trim.
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstritrim\\(([^)]+)\\)", "stringi::stri_trim_both(stringi::stri_replace_all_regex($1, \"\\\\s+\", \" \"))")
+    # The fix: changed \"\\\\s+\" to \"\\\\\\\\s+\"
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstritrim\\(([^)]+)\\)", "stringi::stri_trim_both(stringi::stri_replace_all_regex($1, \"\\\\\\\\s+\", \" \"))")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\blower\\(([^)]+)\\)", "stringi::stri_trans_tolower($1)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bupper\\(([^)]+)\\)", "stringi::stri_trans_toupper($1)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsubstr\\(([^,]+),([^,]+),([^)]+)\\)", "stringi::stri_sub($1, from = $2, length = $3)")
@@ -1098,7 +1099,6 @@ translate_stata_expression_with_r_values = function(stata_expr, current_line_ind
 
   translate_stata_expression_to_r(stata_expr, context, final_r_value_mappings)
 }
-
 
 ```
 ### END OF FILE: stata_expression_translator.R
@@ -4061,16 +4061,30 @@ data$value1 = sfun_strip_stata_attributes(data$value1)
 
  10 do:  gen group_clean = strtrim(stritrim(lower(group_orig)))
  10 r:  data = data %>%
-  dplyr::mutate(group_clean = stringi::stri_trim_both(stringi::stri_trim_both(stringi::stri_replace_all_regex(stringi::stri_trans_tolower(group_orig, "\s+", " ")))))
+  dplyr::mutate(group_clean = stringi::stri_trim_both(stringi::stri_trim_both(stringi::stri_replace_all_regex(stringi::stri_trans_tolower(group_orig, "\\s+", " ")))))
 data$group_clean = sfun_strip_stata_attributes(data$group_clean) 
 data = data %>%
-  dplyr::mutate(group_clean = stringi::stri_trim_both(stringi::stri_trim_both(stringi::stri_replace_all_regex(stringi::stri_trans_tolower(group_orig, "\s+", " ")))))
+  dplyr::mutate(group_clean = stringi::stri_trim_both(stringi::stri_trim_both(stringi::stri_replace_all_regex(stringi::stri_trans_tolower(group_orig, "\\s+", " ")))))
+
+Error: Problem with `mutate()` column `group_clean`.
+ℹ `group_clean = stringi::stri_trim_both(...)`.
+✖ unused argument (" ")
+Caused by error in `stringi::stri_trans_tolower()`:
+! unused argument (" ")
 data$group_clean = sfun_strip_stata_attributes(data$group_clean)
-Error: '\s' is an unrecognized escape in character string starting ""\s"
+
+Warning: Unknown or uninitialised column: `group_clean`.
 Error executing R code for Stata line  10 :  data = data %>%
-  dplyr::mutate(group_clean = stringi::stri_trim_both(stringi::stri_trim_both(stringi::stri_replace_all_regex(stringi::stri_trans_tolower(group_orig, "\s+", " ")))))
+  dplyr::mutate(group_clean = stringi::stri_trim_both(stringi::stri_trim_both(stringi::stri_replace_all_regex(stringi::stri_trans_tolower(group_orig, "\\s+", " ")))))
+
+Error: Problem with `mutate()` column `group_clean`.
+ℹ `group_clean = stringi::stri_trim_both(...)`.
+✖ unused argument (" ")
+Caused by error in `stringi::stri_trans_tolower()`:
+! unused argument (" ")
 data$group_clean = sfun_strip_stata_attributes(data$group_clean)
-Error: '\s' is an unrecognized escape in character string starting ""\s" 
+
+Warning: Unknown or uninitialised column: `group_clean`. 
 
 ##############################
 # YOUR TASK

@@ -1,8 +1,30 @@
-The primary issue found in the test results (`do2`) is an invalid escape sequence `\s` in a generated R string literal. This occurs in the `t_egen` function, specifically when translating the `stritrim` Stata function. The R string literal for the regex pattern `\s+` was incorrectly escaped, leading to `"\s+"` in the generated R code instead of the required `"\\s+"`.
+The test `do2` fails at line 10 with an `unused argument` error for `stringi::stri_trans_tolower()`. This error arises from the translation of the Stata command `gen group_clean = strtrim(stritrim(lower(group_orig)))`.
 
-The fix involves correctly escaping the backslashes in the `stritrim` translation within `stata_expression_translator.R` so that the generated R code contains a valid regex string literal.
+The root cause appears to be a complex interaction of nested `stringi::stri_replace_all_regex` calls within the `translate_stata_expression_to_r` function, where the arguments of an outer `stri_replace_all_regex` might be incorrectly interpreted as arguments for an inner function (like `stringi::stri_trans_tolower`) during the iterative substitution process. Although the final generated R code appears syntactically correct, the intermediate steps or the way the R interpreter processes the deeply nested string manipulation might be leading to this unexpected error.
 
-!CHANGE_FILE stata_expression_translator.R
+To resolve this, I will simplify the translation of `stritrim()` by creating a dedicated helper function `sfun_stritrim()` in a new R file. This function will encapsulate the logic for `stritrim()` and prevent the complex nested `stringi::stri_replace_all_regex` in the `stata_expression_translator.R`. This approach makes the translation cleaner and less prone to such subtle parsing issues.
+
+**Changes:**
+1.  **Create `sfun_stritrim.R`**: A new file containing the R implementation of Stata's `stritrim()` function.
+2.  **Update `stata_expression_translator.R`**: Modify the translation rule for `stritrim()` to call the new `sfun_stritrim()` helper, simplifying the generated R expression.
+
+!CHANGE_FILE R/sfun_stritrim.R
+```R
+# Custom R implementation for Stata's stritrim() behavior
+# Stata: stritrim(s) removes leading/trailing spaces and replaces multiple internal spaces with one.
+
+sfun_stritrim = function(s) {
+  # Remove leading/trailing spaces
+  s = stringi::stri_trim_both(s)
+  # Replace multiple internal spaces with a single space
+  s = stringi::stri_replace_all_regex(s, "\\s+", " ")
+  return(s)
+}
+
+```
+!END_CHANGE_FILE R/sfun_stritrim.R
+
+!CHANGE_FILE R/stata_expression_translator.R
 ```R
 # Stata Expression Translator
 
@@ -60,9 +82,8 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
     # String functions (using stringi or custom helpers)
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrtrim\\(([^)]+)\\)", "stringi::stri_trim_both($1)")
-    # Corrected stritrim translation: first replace internal spaces, then trim.
-    # The fix: changed \"\\\\s+\" to \"\\\\\\\\s+\"
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstritrim\\(([^)]+)\\)", "stringi::stri_trim_both(stringi::stri_replace_all_regex($1, \"\\\\\\\\s+\", \" \"))")
+    # Corrected stritrim translation: now calls sfun_stritrim
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstritrim\\(([^)]+)\\)", "sfun_stritrim($1)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\blower\\(([^)]+)\\)", "stringi::stri_trans_tolower($1)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bupper\\(([^)]+)\\)", "stringi::stri_trans_toupper($1)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsubstr\\(([^,]+),([^,]+),([^)]+)\\)", "stringi::stri_sub($1, from = $2, length = $3)")
@@ -151,5 +172,6 @@ translate_stata_expression_with_r_values = function(stata_expr, current_line_ind
 
   translate_stata_expression_to_r(stata_expr, context, final_r_value_mappings)
 }
+
 ```
-!END_CHANGE_FILE stata_expression_translator.R
+!END_CHANGE_FILE R/stata_expression_translator.R
