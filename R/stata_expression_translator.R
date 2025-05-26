@@ -16,7 +16,13 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   r_expr = stata_expr
 
-  # Step 1: Translate Stata special variables and indexing (e.g., _n, _N, var[_n-1])
+  # Step 1: Translate Stata logical operators (moved this step up)
+  # This must happen before _n-offset translation to avoid `n = 1` becoming `n == 1`
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![<>!=~])\\s*=\\s*(?![=])", " == ") # Replace single = with == if not part of other ops
+  r_expr = stringi::stri_replace_all_regex(r_expr, "\\s+~=\\s+", " != ") # Stata `~=` to R `!=`
+
+
+  # Step 2: Translate Stata special variables and indexing (e.g., _n, _N, var[_n-1])
   # These are generally fixed references, not nested functions.
   # Use dplyr::lag/lead which are context-aware in grouped operations.
 
@@ -30,7 +36,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_n\\b", "as.numeric(dplyr::row_number())")
   r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_N\\b", "as.numeric(dplyr::n())")
 
-  # Step 2: Iteratively translate Stata functions (e.g., cond(), round(), log(), etc.)
+  # Step 3: Iteratively translate Stata functions (e.g., cond(), round(), log(), etc.)
   # This loop handles nested function calls by repeatedly applying transformations.
   old_r_expr = ""
   while (r_expr != old_r_expr) {
@@ -59,11 +65,6 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstring\\(([^)]+)\\)", "as.character($1)")
     # Date functions (placeholder, as actual implementation is complex)
   }
-
-  # Step 3: Translate Stata logical operators
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![<>!=~])\\s*=\\s*(?![=])", " == ") # Replace single = with == if not part of other ops
-
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\s+~=\\s+", " != ") # Stata `~=` to R `!=`
 
   # Step 4: Handle r() values using the mapping
   if (!is.null(r_value_mappings) && length(r_value_mappings) > 0) {
@@ -140,4 +141,5 @@ translate_stata_expression_with_r_values = function(stata_expr, current_line_ind
 
   translate_stata_expression_to_r(stata_expr, context, final_r_value_mappings)
 }
+
 
