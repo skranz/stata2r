@@ -196,6 +196,15 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
           }
       }
 
+      # Final adjustment for NA type based on target_is_string
+      if (target_is_string) {
+          # If the target is a string, any NA result should be NA_character_
+          # This covers cases like `missing = .` or `else = .` when the variable is string
+          if (r_new_value == "NA_real_") { # Check if the string literal "NA_real_" was produced
+              r_new_value = "NA_character_"
+          }
+      }
+
       return(paste0(r_condition, " ~ ", r_new_value))
   }
 
@@ -237,12 +246,18 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   r_code_str = paste(r_code_lines, collapse="\n")
 
   # Add comment about options if any were present but not handled (excluding gen)
-   if (!is.na(options_str) && !grepl("\\bgen\\s*\\([^)]+\\)", options_str)) {
-        r_code_str = paste0(r_code_str, paste0(" # Other options ignored: ", options_str))
+   options_str_cleaned = options_str
+   if (!is.na(options_str_cleaned)) {
+        options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "\\bgen\\s*\\([^)]+\\)", "")
+        options_str_cleaned = stringi::stri_trim_both(stringi::stri_replace_all_regex(options_str_cleaned, ",+", ",")) # Clean up multiple commas
+        options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "^,+", "") # Remove leading comma
+   }
+
+   if (!is.na(options_str_cleaned) && options_str_cleaned != "") {
+        r_code_str = paste0(r_code_str, paste0("\n# Other options ignored: ", options_str_cleaned))
    }
 
 
   return(r_code_str)
 }
-
 
