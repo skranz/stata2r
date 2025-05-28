@@ -2211,12 +2211,13 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   } else if (egen_func_name == "rank") {
     # Stata rank() without fieldstrustmissings returns missing for missing.
     # Stata rank() with fieldstrustmissings treats missing values as true values (usually largest) and assigns them a rank.
+    # Stata's rank() uses the 'average' method for ties.
     if (is_fieldstrustmissings) {
       # Use base::rank with na.last=TRUE to assign ranks to NAs, treating them as largest
-      calc_expr = paste0("base::rank(", r_egen_args_conditional, ", ties.method = 'min', na.last = TRUE)")
+      calc_expr = paste0("base::rank(", r_egen_args_conditional, ", ties.method = 'average', na.last = TRUE)")
     } else {
-      # Default Stata rank: NAs get NA ranks. dplyr::min_rank does this.
-      calc_expr = paste0("dplyr::min_rank(", r_egen_args_conditional, ")")
+      # Default Stata rank: NAs get NA ranks, and uses 'average' method for ties.
+      calc_expr = paste0("base::rank(", r_egen_args_conditional, ", ties.method = 'average', na.last = 'keep')")
     }
   } else if (egen_func_name == "median" || egen_func_name == "p50") {
     calc_expr = paste0("stats::median(", r_egen_args_conditional, ", na.rm = TRUE)")
@@ -3902,11 +3903,11 @@ data = data %>%
  12 do:  bysort group: egen rank_i = rank(i)
  12 r:  data = data %>% 
   dplyr::group_by(!!!dplyr::syms(c("group"))) %>% 
-  dplyr::mutate(`rank_i` = dplyr::min_rank(i)) %>% 
+  dplyr::mutate(`rank_i` = base::rank(i, ties.method = 'average', na.last = 'keep')) %>% 
   dplyr::ungroup() 
 data = data %>% 
   dplyr::group_by(!!!dplyr::syms(c("group"))) %>% 
-  dplyr::mutate(`rank_i` = dplyr::min_rank(i)) %>% 
+  dplyr::mutate(`rank_i` = base::rank(i, ties.method = 'average', na.last = 'keep')) %>% 
   dplyr::ungroup()
 
  13 do:  gen flag = (i>20) if group=="A"
@@ -4334,11 +4335,11 @@ data = data %>%
  23 do:  egen rank_value1_in_group = rank(value1), by(group_clean) fieldstrustmissings
  23 r:  data = data %>% 
   dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
-  dplyr::mutate(`rank_value1_in_group` = base::rank(value1, ties.method = 'min', na.last = TRUE)) %>% 
+  dplyr::mutate(`rank_value1_in_group` = base::rank(value1, ties.method = 'average', na.last = TRUE)) %>% 
   dplyr::ungroup() 
 data = data %>% 
   dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
-  dplyr::mutate(`rank_value1_in_group` = base::rank(value1, ties.method = 'min', na.last = TRUE)) %>% 
+  dplyr::mutate(`rank_value1_in_group` = base::rank(value1, ties.method = 'average', na.last = TRUE)) %>% 
   dplyr::ungroup()
 
 Error: After Stata line  23 , R data set differs from Stata reference.
@@ -4433,7 +4434,7 @@ tibble [50 × 26] (S3: tbl_df/tbl/data.frame)
   ..- attr(*, "format.stata")= chr "%9.0g"
  $ int_value1                : num [1:50] 73 NA 52 29 44 NA 41 20 31 70 ...
  $ rounded_value1            : num [1:50] 73.9 NA 52.8 29.8 44.2 NA 41.7 20 31.9 70.1 ...
- $ random_uniform_draw       : num [1:50] 0.3657 0.2292 0.0844 0.2419 0.7366 ...
+ $ random_uniform_draw       : num [1:50] 0.91 0.427 0.948 0.622 0.44 ...
  $ id_plus_value2            : num [1:50] 5 5 NA NA 8 8 10 14 15 NA ...
  $ group_clean               : chr [1:50] "gamma" "gamma" "beta" "beta" ...
  $ group_abbr                : chr [1:50] "gam" "gam" "bet" "bet" ...
@@ -4446,7 +4447,7 @@ tibble [50 × 26] (S3: tbl_df/tbl/data.frame)
  $ group_numeric_id          : int [1:50] 3 3 2 2 3 2 1 1 2 3 ...
  $ tag_first_in_group        : int [1:50] 1 0 1 0 0 0 1 0 0 0 ...
  $ count_obs_in_group        : int [1:50] 11 11 20 20 11 20 16 16 20 11 ...
- $ rank_value1_in_group      : int [1:50] 8 10 12 4 5 19 3 1 5 7 ...
+ $ rank_value1_in_group      : num [1:50] 8 10 12 4 5 19 3 1 5 7 ...
 NULL
 
 Differences:List of 2
