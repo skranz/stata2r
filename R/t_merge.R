@@ -14,7 +14,7 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Parse merge type (1:1, 1:m, m:1, m:m), varlist, `using filename`, and options
   # Corrected regex for merge type to allow 'm'
-  # Pattern: ^\s*([1m]:[1m])\s+(.*?)\s+using\s+([^,\s]+)(?:,\\s*(.*))?$
+  # Pattern: ^\s*([1m]:[1m])\\s+(.*?)\\s+using\\s+([^,\\s]+)(?:,\\s*(.*))?$
   # G1: type, G2: varlist, G3: filename (can be quoted or macro), G4: options
 
   merge_match = stringi::stri_match_first_regex(rest_of_cmd_trimmed, "^\\s*([1m]:[1m])\\s+(.*?)\\s+using\\s+(\"[^\"]+\"|`[^']+'|[^,\\s]+)(?:,\\s*(.*))?$")
@@ -106,11 +106,11 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       )
   }
 
-  # Ensure merge keys are plain integer for robustness against haven-specific types
-  # Changed to as.integer for robustness with ID-like columns.
+  # Ensure merge keys are plain numeric for robustness against haven-specific types
+  # Changed to as.numeric for robustness with ID-like columns.
   r_code_lines = c(r_code_lines,
-      paste0("data = dplyr::mutate(data, ", paste0("`", vars_to_merge_on, "` = as.integer(`", vars_to_merge_on, "`)", collapse = ", "), ")"),
-      paste0(temp_using_data_var, " = dplyr::mutate(", temp_using_data_var, ", ", paste0("`", vars_to_merge_on, "` = as.integer(`", vars_to_merge_on, "`)", collapse = ", "), ")")
+      paste0("data = dplyr::mutate(data, ", paste0("`", vars_to_merge_on, "` = as.numeric(`", vars_to_merge_on, "`)", collapse = ", "), ")"),
+      paste0(temp_using_data_var, " = dplyr::mutate(", temp_using_data_var, ", ", paste0("`", vars_to_merge_on, "` = as.numeric(`", vars_to_merge_on, "`)", collapse = ", "), ")")
   )
 
 
