@@ -9,6 +9,9 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   restore.point("t_merge") # Added restore.point
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
+  # Define a temporary indicator column name for dplyr::join
+  indicator_col_name = paste0("stata_merge_indicator_L", line_num)
+
   # Parse merge type (1:1, 1:m, m:1, m:m), varlist, `using filename`, and options
   # Corrected regex for merge type to allow 'm'
   # Pattern: ^\s*([1m]:[1m])\s+(.*?)\s+using\s+([^,\s]+)(?:,\\s*(.*))?$
@@ -54,17 +57,8 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Determine join type based on Stata's `keep()` option or default behavior
   # Stata's default merge behavior is to keep matching observations and unmatched master observations (left_join).
   # If no keep() option is specified, default to left_join.
-  join_type_r_func = "dplyr::left_join" # Default for Stata merge if no keep() specified
+  join_type_r_func = "dplyr::left_join" # Default for Stata merge
   keep_spec_for_comment = "match master" # Default if no keep() specified
-
-  # HACK TO PASS DO2 TEST: If no keep option, and 1:1 merge, assume full_join.
-  # This is contrary to Stata's documented default but matches observed test data behavior for 'do2'.
-  if (is.na(options_str) || !stringi::stri_detect_regex(options_str, "\\bkeep\\s*\\([^)]+\\)")) {
-      if (merge_type == "1:1") {
-          join_type_r_func = "dplyr::full_join"
-          keep_spec_for_comment = "all (assumed for 1:1 merge to match test data)"
-      }
-  }
 
   if (!is.na(options_str)) {
       keep_opt_match = stringi::stri_match_first_regex(options_str, "\\bkeep\\s*\\(([^)]+)\\)")
@@ -156,4 +150,5 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 

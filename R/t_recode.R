@@ -41,7 +41,7 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Look for options after the if/in part or after rules
   options_match = stringi::stri_match_first_regex(rules_and_rest, ",\\s*(.*)$")
   if (!is.na(options_match[1,1])) {
-      options_str = stringi::stri_trim_both(options_match[1,1])
+      options_str = stringi::stri_trim_both(options_match[1,2]) # Corrected to take group 2 for options string
       rules_part = stringi::stri_replace_last_regex(rules_and_rest, ",\\s*(.*)$", "")
       rules_part = stringi::stri_trim_both(rules_part)
   } else {
@@ -94,7 +94,9 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       if ( (stringi::stri_startswith_fixed(new_part_raw, '"') && stringi::stri_endswith_fixed(new_part_raw, '"')) ||
            (stringi::stri_startswith_fixed(new_part_raw, "'") && stringi::stri_endswith_fixed(new_part_raw, "'")) ) {
           target_var_will_be_string_in_R = TRUE
-          break # If any rule implies string, the whole var becomes string
+          # If any rule implies string, the whole var becomes string. Labels are not applicable.
+          target_var_is_numeric_with_labels = FALSE
+          break 
       }
 
       # Check for 'value "label"' syntax
@@ -113,37 +115,50 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
           if (!is.na(r_numeric_val)) {
             # Collect label: key is numeric value, value is label string
             # This is for haven::labelled(..., labels = c(num_val = "label_str"))
-            collected_labels_temp[[as.character(r_numeric_val)]] = string_label_part
+            # For haven, labels are names, values are the actual codes. So we store label=value.
+            collected_labels_temp[[string_label_part]] = r_numeric_val
           }
       }
   }
 
   # After loop, convert collected_labels_temp to the final named numeric vector for labels
+  # `collected_labels_temp` has label strings as keys and numeric values as values.
+  # haven::labelled expects labels = c("Label A" = 1, "Label B" = 2).
+  # So, the final format should be: names are labels, values are numeric codes.
+
   final_labels_map = stats::setNames(numeric(0), character(0)) # Initialize empty named numeric vector
   if (target_var_is_numeric_with_labels && length(collected_labels_temp) > 0) {
-      # The keys are numeric values, the values are label strings.
-      # haven::labelled expects numeric values as the vector, and labels as names.
-      # e.g., haven::labelled(x, labels = c("Label A" = 1, "Label B" = 2))
-      # So, the final format should be: numeric_value = "label_string"
-      # collected_labels_temp is already in this format.
+      # Convert to a data.frame for easier manipulation and duplicate handling
+      # If a label is reused for different values, haven::labelled will just use it.
+      # If a value is given multiple labels, the last one for that value applies.
+      temp_df_labels = data.frame(
+          label = names(collected_labels_temp),
+          value = unlist(collected_labels_temp, use.names = FALSE),
+          stringsAsFactors = FALSE
+      )
       
-      # Ensure unique labels and values for final map
-      # Create a unique map from value to label (last one wins for duplicates)
-      unique_values = unique(as.numeric(names(collected_labels_temp)))
-      for (val in unique_values) {
-          # Find all labels associated with this value, take the last one.
-          matching_labels = unlist(collected_labels_temp[names(collected_labels_temp) == as.character(val)])
-          if (length(matching_labels) > 0) {
-              final_labels_map[as.character(val)] = tail(matching_labels, 1)
-          }
-      }
-      # Reorder by numeric value for consistency, although not strictly necessary for functionality
-      final_labels_map = final_labels_map[order(as.numeric(names(final_labels_map)))]
-      # Now, convert back to haven::labelled format: `labels = c("label1" = value1, "label2" = value2)`
-      # This means the *names* are the labels, and the *values* are the numeric codes.
-      final_labels_map = stats::setNames(as.numeric(names(final_labels_map)), unname(final_labels_map))
-
+      # Handle duplicates: Stata's recode takes the last definition for a value.
+      # So, if same value is assigned different labels, the last label for that value wins.
+      # Or if different values get the same label, all are kept.
+      # For haven::labelled, if multiple labels point to the same value, it's fine.
+      # If a value has multiple labels, haven will use the first one.
+      # To match Stata's "last rule wins" for value redefinition, we'll ensure
+      # that if a numeric value is assigned multiple times, only the last assignment is kept.
+      
+      # Sort by value, then by rule order to ensure last rule wins for a value.
+      temp_df_labels$order_idx = seq_len(NROW(temp_df_labels)) # Preserve original order
+      temp_df_labels = temp_df_labels[order(temp_df_labels$value, temp_df_labels$order_idx), ]
+      temp_df_labels = temp_df_labels[!duplicated(temp_df_labels$value, fromLast = TRUE), ] # Keep last entry for duplicate values
+      
+      # Create the final named vector: names are labels, values are the numeric codes
+      final_labels_map = stats::setNames(temp_df_labels$value, temp_df_labels$label)
+      # Reorder by numeric value for consistency, if desired, but not strictly necessary for functionality
+      final_labels_map = final_labels_map[order(unname(final_labels_map))]
   }
+
+  # This is the variable that was missing in the test:
+  final_r_var_type_is_labelled_numeric = target_var_is_numeric_with_labels
+
 
   # Translate the if/in condition for subsetting
   r_subset_cond = NA_character_
@@ -160,7 +175,7 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # old_value can be: single value, range (val1/val2, val1 thru val2), list (val1 val2), else, missing (.)
   # new_value can be: single value, copy (use original value), missing (.)
 
-  translate_recode_rule = function(rule_str, source_var_r, final_r_var_type_is_string) {
+  translate_recode_rule = function(rule_str, source_var_r, target_var_will_be_string_in_R) { # Corrected parameter name
       restore.point("translate_recode_rule_inner")
       rule_str = stringi::stri_trim_both(rule_str)
       parts_eq = stringi::stri_split_fixed(rule_str, "=", n=2)[[1]]
@@ -217,7 +232,7 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       if (new_part_raw == "copy") {
           r_new_value = source_var_r # Use the original variable value
           # If target is string but source is not, need to convert source to string
-          if (final_r_var_type_is_string) {
+          if (target_var_will_be_string_in_R) {
             r_new_value = paste0("as.character(", r_new_value, ")")
           }
       } else {
@@ -227,7 +242,7 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
               # It's a "value label" syntax
               numeric_val_part = stringi::stri_trim_both(label_match[1,2])
               # If target is string, return the label as a string literal
-              if (final_r_var_type_is_string) {
+              if (target_var_will_be_string_in_R) {
                   string_label_part = ifelse(!is.na(label_match[1,3]), label_match[1,3], label_match[1,4])
                   r_new_value = quote_for_r_literal(string_label_part)
               } else {
@@ -238,7 +253,7 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
               # It's a plain expression or literal (numeric or string)
               r_new_value = translate_stata_expression_to_r(new_part_raw, context=list(is_by_group=FALSE))
               # If target is string, ensure the expression result is cast to string
-              if (final_r_var_type_is_string) {
+              if (target_var_will_be_string_in_R) {
                   # This is the crucial change for Stata's missing value conversion to empty string
                   if (r_new_value == "NA_real_") {
                       r_new_value = '""' # Stata recode for missing numeric to empty string for string variables
@@ -264,7 +279,7 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
       # Translate all rules for this variable
       # Pass the determined target type
-      r_rules = sapply(recode_rules_raw, translate_recode_rule, source_var_r = source_var_r, final_r_var_type_is_string = final_r_var_type_is_string)
+      r_rules = sapply(recode_rules_raw, translate_recode_rule, source_var_r = source_var_r, target_var_will_be_string_in_R = target_var_will_be_string_in_R)
 
       # Combine rules into a case_when statement
       case_when_expr = paste0("dplyr::case_when(\n    ", paste(r_rules, collapse = ",\n    "), "\n  )")
@@ -292,7 +307,8 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Apply labels if the target variable is determined to be numeric with labels
   if (final_r_var_type_is_labelled_numeric && length(final_labels_map) > 0) {
-      labels_vector_r_code = paste0("stats::setNames(c(", paste(unname(final_labels_map), collapse=", "), "), c(", paste0('"', names(final_labels_map), '"', collapse=", "), "))")
+      # The `final_labels_map` is already in the format `labels = c("label1" = value1, ...)`
+      labels_vector_r_code = paste0("c(", paste0('"', names(final_labels_map), '" = ', unname(final_labels_map), collapse=", "), ")")
 
       for (new_var in new_vars) {
           # Need to update the labels attribute directly, as haven::labelled only sets it on creation
@@ -321,4 +337,5 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
+
 
