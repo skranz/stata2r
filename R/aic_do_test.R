@@ -150,6 +150,14 @@ aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="", do_file
       }
       # END TEMPORARY HACK
 
+      # NEW: Add check for row count discrepancy explicitly
+      if (NROW(r_data) != NROW(do_data)) {
+          cat(paste0("\nError: After Stata line ", original_stata_line_num, ", R data set has ", NROW(r_data), " rows, but Stata reference has ", NROW(do_data), " rows.\n"))
+          cat("This discrepancy might indicate an issue with the test data or an unexpected behavior difference in row manipulation.\n")
+          # The test will still fail due to comp$identical returning FALSE, but this provides more context.
+      }
+
+
       # Ignore stata2r_original_order_idx and other test-specific columns when comparing dataframes
       comp = compare_df(do_data, r_data, ignore_cols_values = c(non_deterministic_cols, "stata2r_original_order_idx", test_specific_ignore_cols))
       if (!comp$identical) {
