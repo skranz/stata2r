@@ -217,19 +217,16 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
 
 
-  # Determine variables for initial sorting (for `bysort` logic)
+  # Determine variables for initial sorting (for `bysort` logic or for functions requiring internal sort)
   sort_vars_for_arrange = character(0)
+
   if (cmd_obj$is_by_prefix) {
-    # Stata's `bysort` sorts by all variables in `varlist` (group + sort).
+    # Stata's `bysort` sorts by all variables in `varlist` (group + sort). This sort is permanent.
     sort_vars_for_arrange = unique(c(group_vars_list_bare, cmd_obj$by_sort_vars))
     sort_vars_for_arrange = sort_vars_for_arrange[!is.na(sort_vars_for_arrange) & sort_vars_for_arrange != ""]
-  } else if (egen_func_name %in% c("rank", "group", "tag")) { # Added "rank" here
+  } else if (egen_func_name %in% c("rank", "group", "tag")) {
     # If not by-prefix, but it's a function sensitive to order (rank, group, tag)
-    # and has a by() option, or implicit grouping through function args.
-    # The `by()` option variables are already in `group_vars_list_bare`.
-    # For `rank`, it's generally sorted by the grouping variables + the variable being ranked.
-    # For `group`, `tag`, it's sorted by the variables that define the group.
-
+    # The sort is temporary, so we will restore original order later.
     if (length(group_vars_list_bare) > 0) {
       sort_vars_for_arrange = unique(c(sort_vars_for_arrange, group_vars_list_bare))
     }
@@ -239,21 +236,24 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       # `egen_args_str` for rank is the variable to rank.
       sort_vars_for_arrange = unique(c(sort_vars_for_arrange, egen_args_str))
     }
-  }
-
-  arrange_call_str = ""
-  if (length(sort_vars_for_arrange) > 0) {
-    sort_vars_for_arrange = unique(sort_vars_for_arrange)
-    arrange_vars_expr = paste0('!!!dplyr::syms(c("', paste0(sort_vars_for_arrange, collapse = '", "'), '"))')
-    arrange_call_str = paste0("data = dplyr::arrange(data, ", arrange_vars_expr, ")")
+    sort_vars_for_arrange = sort_vars_for_arrange[!is.na(sort_vars_for_arrange) & sort_vars_for_arrange != ""]
   }
 
   r_code_lines = c()
-  if (arrange_call_str != "") {
-      r_code_lines = c(r_code_lines, arrange_call_str)
+  pipe_elements = list("data") # Start the pipe with the data object
+
+  # Add initial arrange if it's a `bysort` prefix. This is a permanent sort.
+  if (cmd_obj$is_by_prefix && length(sort_vars_for_arrange) > 0) {
+      arrange_vars_expr = paste0('!!!dplyr::syms(c("', paste0(sort_vars_for_arrange, collapse = '", "'), '"))')
+      r_code_lines = c(r_code_lines, paste0("data = dplyr::arrange(data, ", arrange_vars_expr, ")"))
   }
 
-  pipe_elements = list("data") # Start the pipe with the data object
+  # Add arrange for `egen group/tag/rank` functions within the pipe, if not already handled by bysort prefix
+  if (!cmd_obj$is_by_prefix && length(sort_vars_for_arrange) > 0 && !is_row_function) {
+      arrange_vars_expr = paste0('!!!dplyr::syms(c("', paste0(sort_vars_for_arrange, collapse = '", "'), '"))')
+      pipe_elements = c(pipe_elements, paste0("dplyr::arrange(", arrange_vars_expr, ")"))
+  }
+
 
   # Add grouping and mutate steps
   if (length(group_vars_list_bare) > 0 && !is_row_function) {
@@ -267,12 +267,10 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     pipe_elements = c(pipe_elements, "dplyr::ungroup()")
   }
 
-  # For `group`, `tag`, and `rank` functions, restore original order IF an initial arrange was done.
-  # This is crucial for matching Stata's behavior of not changing overall order unless explicitly sorted later.
-  # REMOVED: This block was causing issues because bysort implies a permanent sort.
-  # if (egen_func_name %in% c("group", "tag", "rank") && arrange_call_str != "" && !is_row_function) {
-  #   pipe_elements = c(pipe_elements, "dplyr::arrange(stata2r_original_order_idx)")
-  # }
+  # Restore original order if it was a temporary sort for egen functions without bysort prefix
+  if (!cmd_obj$is_by_prefix && length(sort_vars_for_arrange) > 0 && !is_row_function) {
+    pipe_elements = c(pipe_elements, "dplyr::arrange(stata2r_original_order_idx)")
+  }
 
   r_code_lines = c(r_code_lines, paste0("data = ", paste(pipe_elements, collapse = " %>% \n  ")))
 
