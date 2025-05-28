@@ -173,7 +173,8 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       # Apply global if/in condition around the case_when
       if (!is.na(r_subset_cond) && r_subset_cond != "") {
           # If condition is met, apply case_when. Otherwise, keep original value.
-          final_value_expr = paste0("dplyr::if_else(", r_subset_cond, ",\n",
+          # Stata's `if` condition treats missing as FALSE, so use coalesce.
+          final_value_expr = paste0("dplyr::if_else(dplyr::coalesce(", r_subset_cond, ", FALSE),\n",
                                     "    ", case_when_expr, ",\n",
                                     "    data$", source_var_r, ")") # Keep original value if condition not met.
       } else {

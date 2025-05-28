@@ -66,6 +66,7 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
 
   if (subcommand == "drop") {
+      # For filter, NA in condition is treated as FALSE, which matches Stata's behavior.
       cond_vector_expr_with_data = if (!is.na(r_subset_cond) && r_subset_cond != "") paste0("with(data, ", r_subset_cond, ")") else "TRUE"
 
       comment_vars_part = if(is.na(vars_for_duplicates)) "all variables" else paste0("variables: ", varlist_str)
@@ -100,7 +101,8 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
           return(paste0("# duplicates tag requires gen() option: ", rest_of_cmd))
       }
 
-      cond_vector_expr_with_data = if (!is.na(r_subset_cond) && r_subset_cond != "") paste0("with(data, ", r_subset_cond, ")") else "TRUE"
+      # Stata `if` condition treats missing as false.
+      cond_vector_expr_with_data = if (!is.na(r_subset_cond) && r_subset_cond != "") paste0("dplyr::coalesce(with(data, ", r_subset_cond, "), FALSE)") else "TRUE"
       comment_vars_part = if(is.na(vars_for_duplicates)) "all variables" else paste0("variables: ", varlist_str)
 
        if (is.na(vars_for_duplicates)) {
@@ -113,15 +115,17 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
           r_code_lines,
           paste0("## Calculate first occurrence flag based on ", comment_vars_part),
           paste0(is_first_tmp_var, " = ", is_first_occurrence_expr),
-          paste0("## Calculate condition flag"),
+          paste0("## Calculate condition flag, treating NA as FALSE"),
           paste0(satisfies_cond_tmp_var, " = ", cond_vector_expr_with_data),
-          paste0("data = dplyr::mutate(data, ", gen_var, " = dplyr::if_else(", is_first_tmp_var, " & ", satisfies_cond_tmp_var, ", 1, 0))"),
+          # The if_else condition itself must treat any NA as FALSE for Stata compatibility.
+          paste0("data = dplyr::mutate(data, ", gen_var, " = dplyr::if_else(dplyr::coalesce(", is_first_tmp_var, ", FALSE) & ", satisfies_cond_tmp_var, ", 1, 0))"),
           paste0("rm(", is_first_tmp_var, ", ", satisfies_cond_tmp_var, ")")
           # Removed sfun_strip_stata_attributes call as per instruction in sfun_strip_stata_attributes.R
           # paste0("data$", gen_var, " = sfun_strip_stata_attributes(data$", gen_var, ")")
        )
 
   } else if (subcommand == "list") {
+       # For filter, NA in condition is treated as FALSE, which matches Stata's behavior.
        cond_vector_expr_with_data = if (!is.na(r_subset_cond) && r_subset_cond != "") paste0("with(data, ", r_subset_cond, ")") else "TRUE"
        comment_vars_part = if(is.na(vars_for_duplicates)) "all variables" else paste0("variables: ", varlist_str)
 
