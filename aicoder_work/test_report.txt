@@ -257,6 +257,8 @@ data = dplyr::filter(data, group_code==1)
 
  27 do:  merge 1:m group_code using "`t1'", keep(match master) nogenerate
  27 r:  stata_tmp_using_data_L27 = haven::read_dta(R_tempfile_L24_t1_path)
+data = stata2r::sfun_strip_stata_attributes(data)
+stata_tmp_using_data_L27 = stata2r::sfun_strip_stata_attributes(stata_tmp_using_data_L27)
 data = dplyr::mutate(data, `group_code` = as.numeric(`group_code`))
 stata_tmp_using_data_L27 = dplyr::mutate(stata_tmp_using_data_L27, `group_code` = as.numeric(`group_code`))
 common_cols = intersect(names(data), names(stata_tmp_using_data_L27))
@@ -268,6 +270,10 @@ data = dplyr::select(data, -dplyr::any_of('stata_merge_indicator_L27'))
 rm(stata_tmp_using_data_L27, common_cols, common_cols_not_by)
 # Stata merge type: 1:m, keep(master), nogenerate 
 stata_tmp_using_data_L27 = haven::read_dta(R_tempfile_L24_t1_path)
+
+data = stata2r::sfun_strip_stata_attributes(data)
+
+stata_tmp_using_data_L27 = stata2r::sfun_strip_stata_attributes(stata_tmp_using_data_L27)
 
 data = dplyr::mutate(data, `group_code` = as.numeric(`group_code`))
 
@@ -901,6 +907,8 @@ data = dplyr::arrange(data, !!!dplyr::syms(c("id")))
 
  70 do:  merge 1:1 id using "extra_data_temp.dta", nogen
  70 r:  stata_tmp_using_data_L70 = haven::read_dta(file.path(stata2r_env$working_dir, "extra_data_temp.dta"))
+data = stata2r::sfun_strip_stata_attributes(data)
+stata_tmp_using_data_L70 = stata2r::sfun_strip_stata_attributes(stata_tmp_using_data_L70)
 if (any(base::duplicated(dplyr::select(data, dplyr::all_of(c("id")))))) { stop('Merge 1:1 failed: Duplicate keys found in master dataset (data).') }
 if (any(base::duplicated(dplyr::select(stata_tmp_using_data_L70, dplyr::all_of(c("id")))))) { stop('Merge 1:1 failed: Duplicate keys found in using dataset (', file.path(stata2r_env$working_dir, "extra_data_temp.dta"), ').') }
 data = dplyr::mutate(data, `id` = as.numeric(`id`))
@@ -914,6 +922,10 @@ data = dplyr::select(data, -dplyr::any_of('stata_merge_indicator_L70'))
 rm(stata_tmp_using_data_L70, common_cols, common_cols_not_by)
 # Stata merge type: 1:1, keep(match master), nogenerate 
 stata_tmp_using_data_L70 = haven::read_dta(file.path(stata2r_env$working_dir, "extra_data_temp.dta"))
+
+data = stata2r::sfun_strip_stata_attributes(data)
+
+stata_tmp_using_data_L70 = stata2r::sfun_strip_stata_attributes(stata_tmp_using_data_L70)
 
 if (any(base::duplicated(dplyr::select(data, dplyr::all_of(c("id")))))) { stop('Merge 1:1 failed: Duplicate keys found in master dataset (data).') }
 
