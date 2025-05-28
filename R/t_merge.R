@@ -93,10 +93,10 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # For 1:1 merge, check for unique keys in both master and using datasets to replicate Stata's strictness
   if (merge_type == "1:1") {
-      # Use base R subsetting to select columns for duplicated check, which is more robust
+      # Use dplyr::select to get the key columns as a tibble before passing to base::duplicated
       r_code_lines = c(r_code_lines,
-          paste0("if (any(duplicated(data[, ", vars_to_merge_on_r_vec_str, ", drop=FALSE]))) { stop('Merge 1:1 failed: Duplicate keys found in master dataset (data).') }"),
-          paste0("if (any(duplicated(", temp_using_data_var, "[, ", vars_to_merge_on_r_vec_str, ", drop=FALSE]))) { stop('Merge 1:1 failed: Duplicate keys found in using dataset (', ", using_source_r_expr, ", ').') }")
+          paste0("if (any(base::duplicated(dplyr::select(data, dplyr::all_of(", vars_to_merge_on_r_vec_str, "))))) { stop('Merge 1:1 failed: Duplicate keys found in master dataset (data).') }"),
+          paste0("if (any(base::duplicated(dplyr::select(", temp_using_data_var, ", dplyr::all_of(", vars_to_merge_on_r_vec_str, "))))) { stop('Merge 1:1 failed: Duplicate keys found in using dataset (', ", using_source_r_expr, ", ').') }")
       )
   }
 
@@ -166,5 +166,4 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
-
 
