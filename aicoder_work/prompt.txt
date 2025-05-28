@@ -1324,7 +1324,8 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
 
   # Parse aggregate definitions: "(stat) var [name=expr ...] (stat) var [name=expr ...] ..."
-  aggregate_matches = stringi::stri_match_all_regex(aggregate_part, "\\(([a-zA-Z_][a-zA-Z0-9_]*)\\)\\s+([a-zA-Z0-9_]+)(?:\\s*=\\s*([a-zA-Z0-9_]+))?")[[1]]
+  # Updated regex to correctly capture expressions for source and target variables.
+  aggregate_matches = stringi::stri_match_all_regex(aggregate_part, "\\(([a-zA-Z_][a-zA-Z0-9_]*)\\)\\s*([^,=]+?)(?:\\s*=\\s*([^,=]+?))?")[[1]]
 
   if (NROW(aggregate_matches) == 0) {
     return(paste0("# Failed to parse collapse aggregate definitions: ", aggregate_part))
@@ -1361,46 +1362,48 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   new_vars_created = character(NROW(aggregate_matches))
   for (j in 1:NROW(aggregate_matches)) {
     stat_from_regex = aggregate_matches[j, 2]
+    # g2_val_from_regex is the first captured group after the stat (either newvar or source_expr)
     g2_val_from_regex = aggregate_matches[j, 3]
+    # g3_val_from_regex is the second captured group (the source_expr if newvar=source_expr)
     g3_val_from_regex = aggregate_matches[j, 4]
 
-    actual_stata_source_var_name = ""
+    actual_stata_source_expr = ""
     actual_stata_target_var_name = ""
 
-    if (is.na(g3_val_from_regex)) { # Matched (stat) g2_val_from_regex
-        actual_stata_source_var_name = g2_val_from_regex
+    if (is.na(g3_val_from_regex)) { # Matched (stat) g2_val_from_regex (e.g., (mean) myvar)
+        actual_stata_source_expr = g2_val_from_regex
         actual_stata_target_var_name = g2_val_from_regex
-    } else { # Matched (stat) g2_val_from_regex = g3_val_from_regex
-        actual_stata_source_var_name = g3_val_from_regex
+    } else { # Matched (stat) g2_val_from_regex = g3_val_from_regex (e.g., (mean) newvar = oldvar+1)
+        actual_stata_source_expr = g3_val_from_regex
         actual_stata_target_var_name = g2_val_from_regex
     }
     new_vars_created[j] = actual_stata_target_var_name
 
-    r_source_var_bare = translate_stata_expression_with_r_values(actual_stata_source_var_name, cmd_obj$line, cmd_df, context)
-     if (is.na(r_source_var_bare) || r_source_var_bare == "") {
-         return(paste0("# Failed to translate source variable '", actual_stata_source_var_name, "' for collapse stat '", stat_from_regex, "'"))
+    r_source_expr_translated = translate_stata_expression_with_r_values(actual_stata_source_expr, cmd_obj$line, cmd_df, context)
+     if (is.na(r_source_expr_translated) || r_source_expr_translated == "") {
+         return(paste0("# Failed to translate source expression '", actual_stata_source_expr, "' for collapse stat '", stat_from_regex, "'"))
      }
 
     # Map Stata stats to collapse functions
     collapse_func_expr = switch(stat_from_regex,
-      "mean" = paste0("collapse::fmean(", r_source_var_bare, ", na.rm = TRUE)"),
-      "sum" = paste0("collapse::fsum(", r_source_var_bare, ", na.rm = TRUE)"),
-      "count" = paste0("collapse::fN(", r_source_var_bare, ", non.na = TRUE)"), # Counts non-missing values of var
+      "mean" = paste0("collapse::fmean(", r_source_expr_translated, ", na.rm = TRUE)"),
+      "sum" = paste0("collapse::fsum(", r_source_expr_translated, ", na.rm = TRUE)"),
+      "count" = paste0("collapse::fN(", r_source_expr_translated, ", non.na = TRUE)"), # Counts non-missing values of var/expr
       "N" = "NROW(.)", # N is number of observations in group. NROW(.) in fsummarise.
-      "first" = paste0("collapse::ffirst(", r_source_var_bare, ")"), # na.rm = TRUE by default
-      "last" = paste0("collapse::flast(", r_source_var_bare, ")"),   # na.rm = TRUE by default
-      "min" = paste0("collapse::fmin(", r_source_var_bare, ", na.rm = TRUE)"),
-      "max" = paste0("collapse::fmax(", r_source_var_bare, ", na.rm = TRUE)"),
-      "median" = paste0("collapse::fmedian(", r_source_var_bare, ", na.rm = TRUE)"),
-      "sd" = paste0("collapse::fsd(", r_source_var_bare, ", na.rm = TRUE)"),
-      "p1" = paste0("collapse::fquantile(", r_source_var_bare, ", probs = 0.01, na.rm = TRUE)"),
-      "p5" = paste0("collapse::fquantile(", r_source_var_bare, ", probs = 0.05, na.rm = TRUE)"),
-      "p10" = paste0("collapse::fquantile(", r_source_var_bare, ", probs = 0.10, na.rm = TRUE)"),
-      "p25" = paste0("collapse::fquantile(", r_source_var_bare, ", probs = 0.25, na.rm = TRUE)"),
-      "p75" = paste0("collapse::fquantile(", r_source_var_bare, ", probs = 0.75, na.rm = TRUE)"),
-      "p90" = paste0("collapse::fquantile(", r_source_var_bare, ", probs = 0.90, na.rm = TRUE)"),
-      "p95" = paste0("collapse::fquantile(", r_source_var_bare, ", probs = 0.95, na.rm = TRUE)"),
-      "p99" = paste0("collapse::fquantile(", r_source_var_bare, ", probs = 0.99, na.rm = TRUE)"),
+      "first" = paste0("collapse::ffirst(", r_source_expr_translated, ")"), # na.rm = TRUE by default
+      "last" = paste0("collapse::flast(", r_source_expr_translated, ")"),   # na.rm = TRUE by default
+      "min" = paste0("collapse::fmin(", r_source_expr_translated, ", na.rm = TRUE)"),
+      "max" = paste0("collapse::fmax(", r_source_expr_translated, ", na.rm = TRUE)"),
+      "median" = paste0("collapse::fmedian(", r_source_expr_translated, ", na.rm = TRUE)"),
+      "sd" = paste0("collapse::fsd(", r_source_expr_translated, ", na.rm = TRUE)"),
+      "p1" = paste0("collapse::fquantile(", r_source_expr_translated, ", probs = 0.01, na.rm = TRUE)"),
+      "p5" = paste0("collapse::fquantile(", r_source_expr_translated, ", probs = 0.05, na.rm = TRUE)"),
+      "p10" = paste0("collapse::fquantile(", r_source_expr_translated, ", probs = 0.10, na.rm = TRUE)"),
+      "p25" = paste0("collapse::fquantile(", r_source_expr_translated, ", probs = 0.25, na.rm = TRUE)"),
+      "p75" = paste0("collapse::fquantile(", r_source_expr_translated, ", probs = 0.75, na.rm = TRUE)"),
+      "p90" = paste0("collapse::fquantile(", r_source_expr_translated, ", probs = 0.90, na.rm = TRUE)"),
+      "p95" = paste0("collapse::fquantile(", r_source_expr_translated, ", probs = 0.95, na.rm = TRUE)"),
+      "p99" = paste0("collapse::fquantile(", r_source_expr_translated, ", probs = 0.99, na.rm = TRUE)"),
       NULL
     )
 
@@ -2726,6 +2729,7 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # If no keep() option is specified, default to left_join.
   join_type_r_func = "dplyr::left_join"
   keep_spec_for_comment = "match master" # Default if no keep() specified
+  indicator_col_name = "_merge_status_tmp_L" # Temporary column for join status, unique per line
 
   if (!is.na(options_str)) {
       keep_opt_match = stringi::stri_match_first_regex(options_str, "\\bkeep\\s*\\(([^)]+)\\)")
@@ -2752,13 +2756,6 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   has_nogenerate = !is.na(options_str) && stringi::stri_detect_fixed(options_str, "nogenerate")
   
   # Build the R command string using dplyr::*_join
-  # dplyr::join(x, y, by)
-
-  # Logic to handle common columns not in 'by' argument:
-  # Stata merge behavior: if a non-key variable exists in both, it takes the master's value.
-  # To replicate this, we need to drop such columns from the 'using' dataset before the join.
-  # This applies to left_join and inner_join (i.e., keep(master), keep(match)).
-  # For full_join/right_join, we typically want all columns, so no special dropping needed.
 
   # Load the using dataset into a temporary variable first
   r_code_lines = c()
@@ -2772,25 +2769,49 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   )
 
   # Conditional dropping of columns from the using dataset
-  # Only drop if the join type implies master's values are preferred for common non-key columns
-  # (i.e., left_join or inner_join, which correspond to Stata's keep(master) or keep(match))
   # This is a general Stata merge rule: master's non-key variables take precedence.
   r_code_lines = c(r_code_lines,
     paste0("if (length(common_cols_not_by) > 0) { ", temp_using_data_var, " = dplyr::select(", temp_using_data_var, ", -dplyr::all_of(common_cols_not_by)) }")
   )
 
-  # Perform the join
-  merge_comment_line = paste0("# Stata merge type: ", merge_type, ", keep(", keep_spec_for_comment, ")")
-  if (has_nogenerate) {
-    merge_comment_line = paste0(merge_comment_line, ", nogenerate (_merge variable was not generated by translator)")
-  } else {
-    merge_comment_line = paste0(merge_comment_line, " (_merge variable was not generated by translator)")
-  }
+  # Perform the join with indicator
+  r_code_lines = c(r_code_lines, paste0("data = ", join_type_r_func, "(data, ", temp_using_data_var, ", by = ", vars_to_merge_on_r_vec_str, ", indicator = \"", indicator_col_name, "\")"))
 
-  r_code_lines = c(r_code_lines, paste0("data = ", join_type_r_func, "(data, ", temp_using_data_var, ", by = ", vars_to_merge_on_r_vec_str, ") ", merge_comment_line))
+  # Generate _merge variable unless nogenerate option is present
+  if (!has_nogenerate) {
+      r_code_lines = c(r_code_lines,
+          paste0("data = dplyr::mutate(data, _merge = dplyr::case_when("),
+          paste0("  ", indicator_col_name, " == \"left_only\" ~ 1L,"),
+          paste0("  ", indicator_col_name, " == \"right_only\" ~ 2L,"),
+          paste0("  ", indicator_col_name, " == \"both\" ~ 3L,"),
+          paste0("  TRUE ~ NA_integer_ # Should not happen if join is successful, but for safety"),
+          paste0(")) %>% dplyr::select(-", indicator_col_name, ")") # Remove temporary indicator column
+      )
+  } else {
+    r_code_lines = c(r_code_lines, paste0(" # _merge variable was not generated due to 'nogenerate' option."))
+  }
 
   # Clean up temporary variables
   r_code_lines = c(r_code_lines, paste0("rm(", temp_using_data_var, ", common_cols, common_cols_not_by)"))
+
+  # Add comment about options
+  merge_comment_line = paste0("# Stata merge type: ", merge_type, ", keep(", keep_spec_for_comment, ")")
+  if (has_nogenerate) {
+    merge_comment_line = paste0(merge_comment_line, ", nogenerate")
+  }
+  r_code_lines = c(r_code_lines, merge_comment_line)
+
+  options_str_cleaned = options_str
+  if (!is.na(options_str_cleaned)) {
+      # Remove keep() and nogenerate from options string for comment
+      options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "\\bkeep\\s*\\([^)]+\\)", "")
+      options_str_cleaned = stringi::stri_replace_first_fixed(options_str_cleaned, "nogenerate", "")
+      options_str_cleaned = stringi::stri_trim_both(stringi::stri_replace_all_regex(options_str_cleaned, ",+", ","))
+      options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "^,+", "")
+  }
+  if (!is.na(options_str_cleaned) && options_str_cleaned != "") {
+       r_code_lines = c(r_code_lines, paste0(" # Other options ignored: ", options_str_cleaned))
+  }
 
   return(paste(r_code_lines, collapse="\n"))
 }
