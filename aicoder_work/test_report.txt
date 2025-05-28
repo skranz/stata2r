@@ -668,13 +668,53 @@ data = data %>%
   dplyr::mutate(`mixed_var_as_str` = dplyr::if_else(dplyr::coalesce(!sfun_missing(mixed_val_num), FALSE), sfun_string(mixed_val_num), ""))
 
  41 do:  encode group_clean, generate(group_code_num)
- 41 r:  # encode requires gen() option: group_clean, generate(group_code_num) 
-# encode requires gen() option: group_clean, generate(group_code_num)
+ 41 r:  data = dplyr::mutate(data, `group_code_num` = haven::labelled(rep(NA_integer_, NROW(data)), labels = c()))
+temp_source_vector_L41 = data[['group_clean']]
+temp_unique_labels_L41 = base::sort(base::unique(stats::na.omit(temp_source_vector_L41[temp_source_vector_L41 != ""])))
+temp_numeric_values_L41 = base::match(temp_source_vector_L41, temp_unique_labels_L41)
+temp_label_map_L41 = if (length(temp_unique_labels_L41) > 0) stats::setNames(seq_along(temp_unique_labels_L41), temp_unique_labels_L41) else stats::setNames(integer(0), character(0))
+stata_tmp_encoded_full_L41 = haven::labelled(as.integer(temp_numeric_values_L41), labels = temp_label_map_L41)
+rm(temp_source_vector_L41, temp_unique_labels_L41, temp_numeric_values_L41, temp_label_map_L41)
+data[['group_code_num']] = stata_tmp_encoded_full_L41
+rm(stata_tmp_encoded_full_L41) 
+data = dplyr::mutate(data, `group_code_num` = haven::labelled(rep(NA_integer_, NROW(data)), labels = c()))
 
-Error: After Stata line  41 , R data set differs from Stata reference.
+temp_source_vector_L41 = data[['group_clean']]
+
+temp_unique_labels_L41 = base::sort(base::unique(stats::na.omit(temp_source_vector_L41[temp_source_vector_L41 != ""])))
+
+temp_numeric_values_L41 = base::match(temp_source_vector_L41, temp_unique_labels_L41)
+
+temp_label_map_L41 = if (length(temp_unique_labels_L41) > 0) stats::setNames(seq_along(temp_unique_labels_L41), temp_unique_labels_L41) else stats::setNames(integer(0), character(0))
+
+stata_tmp_encoded_full_L41 = haven::labelled(as.integer(temp_numeric_values_L41), labels = temp_label_map_L41)
+
+rm(temp_source_vector_L41, temp_unique_labels_L41, temp_numeric_values_L41, temp_label_map_L41)
+
+data[['group_code_num']] = stata_tmp_encoded_full_L41
+
+rm(stata_tmp_encoded_full_L41)
+
+ 42 do:  label define group_label_map 1 "alpha" 2 "beta" 3 "gamma" 4 "unknown", replace
+ 42 r:  # Stata command 'label define group_label_map 1 "alpha" 2 "beta" 3 "gamma" 4 "unknown", replace' not yet fully translated. 
+# Stata command 'label define group_label_map 1 "alpha" 2 "beta" 3 "gamma" 4 "unknown", replace' not yet fully translated.
+
+ 43 do:  label values group_code_num group_label_map
+ 43 r:  # Stata command 'label values group_code_num group_label_map' not yet fully translated. 
+# Stata command 'label values group_code_num group_label_map' not yet fully translated.
+
+ 44 do:  label variable group_code_num "Numeric code for cleaned group"
+ 44 r:  # Stata command 'label variable group_code_num "Numeric code for cleaned group"' not yet fully translated. 
+# Stata command 'label variable group_code_num "Numeric code for cleaned group"' not yet fully translated.
+
+ 45 do:  decode group_code_num, generate(group_from_decode)
+ 45 r:  # decode requires gen() option: group_code_num, generate(group_from_decode) 
+# decode requires gen() option: group_code_num, generate(group_from_decode)
+
+Error: After Stata line  45 , R data set differs from Stata reference.
 
 Data set from Stata (do_df):
-tibble [50 × 39] (S3: tbl_df/tbl/data.frame)
+tibble [50 × 40] (S3: tbl_df/tbl/data.frame)
  $ id                    : num [1:50] 1 2 3 4 5 6 7 8 9 10 ...
   ..- attr(*, "label")= chr "id"
   ..- attr(*, "format.stata")= chr "%9.0g"
@@ -762,14 +802,18 @@ tibble [50 × 39] (S3: tbl_df/tbl/data.frame)
  $ mixed_var_as_str      : chr [1:50] "" "42" "10" "20" ...
   ..- attr(*, "format.stata")= chr "%9s"
  $ group_code_num        : dbl+lbl [1:50] 3, 3, 2, 2, 3, 2, 1, 1, 2, 3, 2, 3, 3, 1, 4, 4, 1, 2, ...
+   ..@ label       : chr "Numeric code for cleaned group"
    ..@ format.stata: chr "%8.0g"
    ..@ labels      : Named num [1:4] 1 2 3 4
-   .. ..- attr(*, "names")= chr [1:4] "alpha" "beta" "gamma" "na"
+   .. ..- attr(*, "names")= chr [1:4] "alpha" "beta" "gamma" "unknown"
+ $ group_from_decode     : chr [1:50] "gamma" "gamma" "beta" "beta" ...
+  ..- attr(*, "label")= chr "Numeric code for cleaned group"
+  ..- attr(*, "format.stata")= chr "%9s"
  - attr(*, "label")= chr "Written by R."
 NULL
 
 Data set from R (r_df):
-tibble [50 × 39] (S3: tbl_df/tbl/data.frame)
+tibble [50 × 40] (S3: tbl_df/tbl/data.frame)
  $ id                        : num [1:50] 1 2 3 4 5 6 7 8 9 10 ...
   ..- attr(*, "label")= chr "id"
   ..- attr(*, "format.stata")= chr "%9.0g"
@@ -796,7 +840,7 @@ tibble [50 × 39] (S3: tbl_df/tbl/data.frame)
   ..- attr(*, "format.stata")= chr "%9.0g"
  $ int_value1                : num [1:50] 73 NA 52 29 44 NA 41 20 31 70 ...
  $ rounded_value1            : num [1:50] 73.9 NA 52.8 29.8 44.2 NA 41.7 20 31.9 70.1 ...
- $ random_uniform_draw       : num [1:50] 0.814 0.523 0.406 0.012 0.188 ...
+ $ random_uniform_draw       : num [1:50] 0.583 0.316 0.72 0.143 0.246 ...
  $ id_plus_value2            : num [1:50] 5 5 NA NA 8 8 10 14 15 NA ...
  $ group_clean               : chr [1:50] "gamma" "gamma" "beta" "beta" ...
  $ group_abbr                : chr [1:50] "gam" "gam" "bet" "bet" ...
@@ -828,11 +872,14 @@ tibble [50 × 39] (S3: tbl_df/tbl/data.frame)
   .. ..$ expected: chr [1:12] "a number" "a number" "a number" "a number" ...
   .. ..$ actual  : chr [1:12] "apple" "apple" "apple" "banana" ...
  $ mixed_var_as_str          : chr [1:50] "" "42" "10" "20" ...
+ $ group_code_num            : int+lbl [1:50] 3, 3, 2, 2, 3, 2, 1, 1, 2, 3, 2, 3, 3, 1, 4, 4, 1, 2, ...
+   ..@ labels: Named int [1:4] 1 2 3 4
+   .. ..- attr(*, "names")= chr [1:4] "alpha" "beta" "gamma" "na"
 NULL
 
 Differences:List of 2
  $ identical      : logi FALSE
  $ column_mismatch:List of 2
   ..$ missing_in_do_df: chr(0) 
-  ..$ missing_in_r_df : chr "group_code_num"
+  ..$ missing_in_r_df : chr "group_from_decode"
 NULL
