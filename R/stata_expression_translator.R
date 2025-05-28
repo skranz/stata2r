@@ -91,6 +91,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     # Date functions
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bdate\\(([^,]+),([^,]+),([^)]+)\\)", "sfun_stata_date($1, $2, $3)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bdate\\(([^,]+),([^)]+)\\)", "sfun_stata_date($1, $2)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\byear\\(([^)]+)\\)", "collapse::fyear($1 - 3652)") # Stata date epoch is 1960-01-01, collapse::fyear assumes 1970-01-01
   }
 
   # Step 6: Translate Stata '+' operator to sfun_stata_add for polymorphic behavior
