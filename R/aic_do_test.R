@@ -225,11 +225,12 @@ compare_df = function(df1, df2,
   # the data type is typically the last
   # object
   main_class = function(x) {
-    class = last(class(x))
-    # haven sometimes
-    # encodes numeric as double
-    if (class=="double") class="numeric"
-    class
+    class_val = last(class(x))
+    # haven sometimes encodes numeric as double
+    if (class_val=="double") class_val="numeric"
+    # Treat R's Date class as a numeric type for comparison with Stata's underlying numeric dates
+    if (inherits(x, "Date")) class_val = "numeric_date_type"
+    class_val
   }
 
   type_df = data.frame(col = common_cols,
@@ -238,8 +239,9 @@ compare_df = function(df1, df2,
                        stringsAsFactors = FALSE)
   type_diff = type_df[type_df$class_do_df != type_df$class_r_df, ]
 
-  # ignore integer and numeric
-  type_diff = type_diff[! (type_diff$class_do_df %in% c("integer", "numeric") &  type_diff$class_r_df %in% c("integer", "numeric")),]
+  # ignore integer and numeric, and also numeric_date_type when comparing against numeric/integer
+  type_diff = type_diff[! (type_diff$class_do_df %in% c("integer", "numeric", "numeric_date_type") &
+                           type_diff$class_r_df %in% c("integer", "numeric", "numeric_date_type")),]
 
 
   if (nrow(type_diff) > 0)
@@ -251,6 +253,15 @@ compare_df = function(df1, df2,
   value_diffs = lapply(cols_for_value_comp, function(cl) {
     v1 = df1[[cl]]
     v2 = df2[[cl]]
+
+    # Special handling for Date vs numeric comparison (Stata date values)
+    # Stata date values are days since 1960-01-01. R Date objects are days since 1970-01-01.
+    # The difference is as.numeric(as.Date("1970-01-01") - as.Date("1960-01-01")) = 3652 days.
+    if (inherits(v1, "Date") && is.numeric(v2)) {
+      v1 = as.numeric(v1) + as.numeric(as.Date("1970-01-01") - as.Date("1960-01-01"))
+    } else if (is.numeric(v1) && inherits(v2, "Date")) {
+      v2 = as.numeric(v2) + as.numeric(as.Date("1970-01-01") - as.Date("1960-01-01"))
+    }
 
     # numeric columns need tolerance
     if (is.numeric(v1) && is.numeric(v2)) {
@@ -301,5 +312,4 @@ compare_df = function(df1, df2,
   }
   out
 }
-
 
