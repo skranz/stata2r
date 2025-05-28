@@ -21,19 +21,14 @@ sfun_stata_add = function(x, y) {
     x_char = as.character(x)
     y_char = as.character(y)
 
-    # Stata specific: missing numeric (NA in R) becomes empty string for concatenation.
-    # This is a heuristic as we don't have original type info, assuming if it's numeric NA, it was Stata's '.'
-    x_val = if (is.numeric(x) && is.na(x)) "" else x_char
-    y_val = if (is.numeric(y) && is.na(y)) "" else y_char
+    # Stata specific: missing numeric (NA in R) and string missing (NA_character_ in R)
+    # become empty string for concatenation.
+    x_val = x_char
+    y_val = y_char
+    x_val[is.na(x_val)] = ""
+    y_val[is.na(y_val)] = ""
 
-    # If either original value was NA_character_ (from a Stata string missing), the result should be NA_character_
-    # This needs to check the `as.character()` result for NA, not just `is.na(x)`.
-    # `paste0` converts NA to "NA" by default. We need to prevent this if the original was NA_character_.
-    if (is.na(x_char) || is.na(y_char)) {
-        return(NA_character_)
-    } else {
-        return(paste0(x_val, y_val))
-    }
+    return(paste0(x_val, y_val))
   }
 }
 
