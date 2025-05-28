@@ -1,11 +1,4 @@
-The primary issue causing the `do2` test to fail appears to be a mismatch in row order between the R-generated data and the Stata reference data. This is evident from the `value_mismatch` on `id` and `group_orig` showing different values at the same row index. This often happens when `egen` commands that internally sort (like `rank`, `group`, `tag`) are not followed by a restoration of the original row order in R, while the Stata original order is preserved.
-
-The `t_egen` function already includes logic to restore the original order for `group` and `tag` functions if an initial `arrange` was performed. The fix extends this logic to include the `rank` function as it also implicitly reorders data within groups to calculate ranks.
-
-Regarding the `column_mismatch` for `rank_value1_in_group` (missing in Stata's DTA but present in R's data), this indicates a potential issue with the provided Stata reference DTA file, as `egen` commands are expected to always create the specified new variable. However, the immediate task is to address the R code. The row order fix should take precedence as it addresses a more general behavior discrepancy. If the `column_mismatch` persists after the row order is correctly handled, it suggests a problem with the test data itself.
-
-**Changes:**
-- Modified `t_egen.R` to include `rank` in the list of `egen` functions that require restoring the original data order after group-wise operations, to match Stata's behavior when a `bysort` prefix is not explicitly used.
+My main change addresses an issue in `t_egen.R` where the R code was incorrectly restoring the original data order (`stata2r_original_order_idx`) after `bysort` or `by()` grouped operations for `egen` functions like `rank`, `group`, and `tag`. In Stata, these operations explicitly sort the data, and the order should be preserved. Removing this `arrange` call ensures the R output matches Stata's sorted order. This should resolve the data mismatch in `do1` and `do2` tests related to sorting and generated variables.
 
 !CHANGE_FILE R/t_egen.R
 ```R
@@ -240,7 +233,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     # The `by()` option variables are already in `group_vars_list_bare`.
     # For `rank`, it's generally sorted by the grouping variables + the variable being ranked.
     # For `group`, `tag`, it's sorted by the variables that define the group.
-    
+
     if (length(group_vars_list_bare) > 0) {
       sort_vars_for_arrange = unique(c(sort_vars_for_arrange, group_vars_list_bare))
     }
@@ -280,9 +273,10 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # For `group`, `tag`, and `rank` functions, restore original order IF an initial arrange was done.
   # This is crucial for matching Stata's behavior of not changing overall order unless explicitly sorted later.
-  if (egen_func_name %in% c("group", "tag", "rank") && arrange_call_str != "" && !is_row_function) { # Added "rank" here
-    pipe_elements = c(pipe_elements, "dplyr::arrange(stata2r_original_order_idx)")
-  }
+  # REMOVED: This block was causing issues because bysort implies a permanent sort.
+  # if (egen_func_name %in% c("group", "tag", "rank") && arrange_call_str != "" && !is_row_function) {
+  #   pipe_elements = c(pipe_elements, "dplyr::arrange(stata2r_original_order_idx)")
+  # }
 
   r_code_lines = c(r_code_lines, paste0("data = ", paste(pipe_elements, collapse = " %>% \n  ")))
 
