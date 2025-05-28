@@ -1,573 +1,33 @@
-The primary goal of these changes is to enhance the robustness of the Stata-to-R translation, specifically focusing on how `if` conditions with missing values are handled. Stata treats missing values in logical conditions as `FALSE`, whereas R's `NA` often propagates. By wrapping R's translated conditions in `dplyr::coalesce(..., FALSE)`, we ensure that `NA` values in conditions are correctly interpreted as `FALSE` for commands that modify existing data or create new variables based on such conditions.
+The primary change addresses the handling of `if` conditions in `generate` commands to align with Stata's behavior of treating missing values as `FALSE` in logical conditions. Additionally, the comment regarding the `_merge` variable in `merge` commands has been clarified to reflect that the translator does not generate it by default. Calls to `sfun_strip_stata_attributes` were already commented out in the provided code, so no action was needed there.
 
-The following files have been modified:
-- `t_destring.R`: Ensured `if/in` conditions correctly treat missing values as `FALSE` when applying the `destring` operation.
-- `t_duplicates.R`: Ensured `if/in` conditions correctly treat missing values as `FALSE` for the `tag` subcommand.
-- `t_recode.R`: Ensured `if/in` conditions correctly treat missing values as `FALSE` when applying `recode` rules.
-- `t_replace.R`: Ensured `if` conditions correctly treat missing values as `FALSE` when replacing values in an existing variable.
-
-!CHANGE_FILE R/t_destring.R
+!CHANGE_FILE R/t_generate.R
 ```R
-# Translate Stata 'destring' command
-# Stata: destring varlist [if] [in] , {generate(newvarlist) | replace} [options]
-# Converts string variables into numeric variables.
-
-t_destring = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
-  restore.point("t_destring") # Added restore.point
-  rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
-
-  # Parse varlist, if/in, options (generate() or replace)
-  # Pattern: `varlist [if] [in] , options`
-
-  varlist_str = NA_character_
-  stata_if_in_cond = NA_character_
-  options_str = NA_character_
-
-  # Find if/in first
-  if_in_match = stringi::stri_match_first_regex(rest_of_cmd_trimmed, "\\s+(?:if\\s+|in\\s+)(.*)$")
-  if(!is.na(if_in_match[1,1])) {
-      stata_if_in_cond = if_in_match[1,2]
-      rest_no_if_in = stringi::stri_replace_last_regex(rest_of_cmd_trimmed, "\\s+(?:if\\s+|in\\s+)(.*)$", "")
-      rest_no_if_in = stringi::stri_trim_both(rest_no_if_in)
-  } else {
-      rest_no_if_in = rest_of_cmd_trimmed
-  }
-
-   # Find options (required)
-  options_match = stringi::stri_match_first_regex(rest_no_if_in, ",\\s*(.*)$")
-  if (!is.na(options_match[1,1])) {
-      options_str = stringi::stri_trim_both(options_match[1,2])
-      varlist_str = stringi::stri_replace_last_regex(rest_no_if_in, ",\\s*(.*)$", "")
-      varlist_str = stringi::stri_trim_both(varlist_str)
-  } else {
-      return(paste0("# destring command requires options (, gen() or , replace): ", rest_of_cmd))
-  }
-
-   if (is.na(varlist_str) || varlist_str == "") {
-       return(paste0("# destring command requires varlist: ", rest_of_cmd))
-   }
-
-  vars_to_destring = stringi::stri_split_regex(varlist_str, "\\s+")[[1]]
-  vars_to_destring = vars_to_destring[vars_to_destring != ""]
-   if (length(vars_to_destring) == 0) {
-       return(paste0("# destring command requires non-empty varlist: ", rest_of_cmd))
-   }
-
-
-  # Parse options, specifically `generate()` or `replace`
-  is_replace = stringi::stri_detect_fixed(options_str, "replace")
-  gen_vars = NA_character_
-  if (!is_replace) {
-      gen_opt_match = stringi::stri_match_first_regex(options_str, "\\bgenerate\\s*\\(([^)]+)\\)")
-      if (!is.na(gen_opt_match[1,1])) {
-           gen_vars = stringi::stri_trim_both(gen_opt_match[1,2])
-       }
-  }
-
-  new_vars = NULL
-  if (!is_replace) {
-      if (is.na(gen_vars)) {
-           return(paste0("# destring requires generate() option or replace option: ", rest_of_cmd))
-      }
-      new_vars = stringi::stri_split_regex(gen_vars, "\\s+")[[1]]
-      new_vars = new_vars[new_vars != ""]
-      if (length(new_vars) != length(vars_to_destring)) {
-          return(paste0("# destring generate() option requires same number of new variables as old variables."))
-      }
-  } else {
-      # If replace option, new vars are the same as old vars.
-      new_vars = vars_to_destring
-  }
-
-
-  # Translate if/in condition
-  r_if_in_cond = NA_character_
-  if (!is.na(stata_if_in_cond) && stata_if_in_cond != "") {
-       r_if_in_cond = translate_stata_expression_with_r_values(stata_if_in_cond, line_num, cmd_df, context = list(is_by_group=FALSE))
-       if (is.na(r_if_in_cond) || r_if_in_cond == "") {
-           return(paste0("# Failed to translate if/in condition for destring: ", stata_if_in_cond))
-       }
-  }
-
-  # R equivalent: readr::parse_number() or as.numeric()
-  # readr::parse_number is better at handling non-numeric parts and commas/$, results in NA on failure.
-  # as.numeric() often results in warnings/errors or NA on failure.
-  # Stata destring option `ignore()` can specify characters to ignore. `force` allows unconvertible values to become missing.
-  # `readr::parse_number` handles some of this.
-
-  mutate_exprs = character(length(vars_to_destring))
-  for (k in seq_along(vars_to_destring)) {
-      old_var = vars_to_destring[k]
-      new_var = new_vars[k]
-      source_var_r = old_var # R variable name for the source column
-
-      # Calculate destrung values
-      # Using readr::parse_number
-      destrung_value_expr = paste0("readr::parse_number(as.character(data$", source_var_r, "))")
-      # as.character needed in case the variable is factor/labelled etc.
-
-      # Apply the if/in condition for replacement
-      if (!is.na(r_if_in_cond) && r_if_in_cond != "") {
-          # For rows meeting condition, use destrung value. Otherwise, keep original (or NA if new var).
-           if (is_replace) {
-               # Replace in place: use destrung if condition, old value otherwise
-               final_value_expr = paste0("dplyr::if_else(dplyr::coalesce(", r_if_in_cond, ", FALSE), ", destrung_value_expr, ", data$", source_var_r, ")")
-           } else {
-               # Generate new var: use destrung if condition, NA otherwise
-               final_value_expr = paste0("dplyr::if_else(dplyr::coalesce(", r_if_in_cond, ", FALSE), ", destrung_value_expr, ", NA_real_)") # Assuming numeric result
-           }
-      } else {
-          # Apply to all rows
-           final_value_expr = destrung_value_expr
-      }
-
-      mutate_exprs[k] = paste0(new_var, " = ", final_value_expr)
-  }
-
-   # Combine mutate expressions
-  mutate_exprs_str = paste(mutate_exprs, collapse = ",\n  ")
-
-  # Build the final R code using dplyr::mutate
-  r_code_lines = c(paste0("data = dplyr::mutate(data, ", mutate_exprs_str, ")")) # Changed to dplyr::mutate
-
-  # Removed sfun_strip_stata_attributes call as per instruction in sfun_strip_stata_attributes.R
-  # for (new_var in new_vars) {
-  #     r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_strip_stata_attributes(data$", new_var, ")"))
-  # }
-
-
-  r_code_str = paste(r_code_lines, collapse="\n")
-
-  # Add comment about options if any were present but not handled (excluding generate/replace)
-   options_str_cleaned = options_str
-   # Remove generate() or replace from options string
-   if (is_replace) {
-       options_str_cleaned = stringi::stri_replace_first_fixed(options_str_cleaned, "replace", "")
-   } else {
-       options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "\\bgenerate\\s*\\([^)]+\\)", "")
-   }
-   options_str_cleaned = stringi::stri_trim_both(stringi::stri_replace_all_regex(options_str_cleaned, ",+", ",")) # Clean up multiple commas
-   options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "^,+", "") # Remove leading comma
-
-
-   if (!is.na(options_str_cleaned) && options_str_cleaned != "") {
-        r_code_str = paste0(r_code_str, paste0(" # Other options ignored: ", options_str_cleaned))
-   }
-
-
-  return(r_code_str)
-}
-```
-!END_CHANGE_FILE R/t_destring.R
-
-!CHANGE_FILE R/t_duplicates.R
-```R
-# Translate Stata 'duplicates' command
-# Stata: duplicates drop [varlist] [if] [in] [, options]
-# Stata: duplicates tag varlist [if] [in] [, options] gen(newvar)
-# Stata: duplicates list [varlist] [if] [in] [, options]
-
-t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
-  restore.point("t_duplicates") # Added restore.point
-  rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
-
-  # Parse subcommand (drop, tag, list)
-  parts_subcmd = stringi::stri_split_regex(rest_of_cmd_trimmed, "\\s+", n=2)[[1]]
-  subcommand = stringi::stri_trim_both(parts_subcmd[1])
-  rest_after_subcmd = if(length(parts_subcmd) > 1) stringi::stri_trim_both(parts_subcmd[2]) else NA_character_
-
-  if (is.na(subcommand) || !(subcommand %in% c("drop", "tag", "list"))) {
-      return(paste0("# Failed to parse duplicates subcommand (drop, tag, or list required): ", rest_of_cmd))
-  }
-
-  varlist_str = NA_character_
-  stata_if_in_cond = NA_character_
-  options_str = NA_character_
-
-  if(!is.na(rest_after_subcmd)){
-    if_in_match = stringi::stri_match_first_regex(rest_after_subcmd, "\\s+(?:if\\s+|in\\s+)(.*)$")
-    if(!is.na(if_in_match[1,1])) {
-        stata_if_in_cond = if_in_match[1,2]
-        rest_after_subcmd_no_if_in = stringi::stri_replace_last_regex(rest_after_subcmd, "\\s+(?:if\\s+|in\\s+)(.*)$", "")
-        rest_after_subcmd_no_if_in = stringi::stri_trim_both(rest_after_subcmd_no_if_in)
-    } else {
-        rest_after_subcmd_no_if_in = rest_after_subcmd
-    }
-
-    options_match = stringi::stri_match_first_regex(rest_after_subcmd_no_if_in, ",\\s*(.*)$")
-    if (!is.na(options_match[1,1])) {
-        options_str = stringi::stri_trim_both(options_match[1,2])
-        varlist_str = stringi::stri_replace_last_regex(rest_after_subcmd_no_if_in, ",\\s*(.*)$", "")
-        varlist_str = stringi::stri_trim_both(varlist_str)
-    } else {
-        varlist_str = rest_after_subcmd_no_if_in
-    }
-  }
-
-  vars_for_duplicates = NA_character_
-  if (!is.na(varlist_str) && varlist_str != "") {
-      vars_for_duplicates_list = stringi::stri_split_regex(varlist_str, "\\s+")[[1]]
-      vars_for_duplicates_list = vars_for_duplicates_list[vars_for_duplicates_list != ""]
-       if (length(vars_for_duplicates_list) > 0) {
-           vars_for_duplicates = paste0('c("', paste(vars_for_duplicates_list, collapse = '", "'), '")')
-       }
-  }
-
-  r_subset_cond = NA_character_
-  if (!is.na(stata_if_in_cond) && stata_if_in_cond != "") {
-      r_subset_cond = translate_stata_expression_with_r_values(stata_if_in_cond, line_num, cmd_df, context = list(is_by_group = FALSE))
-      if (is.na(r_subset_cond) || r_subset_cond == "") {
-           return(paste0("# Failed to translate if/in condition for duplicates: ", stata_if_in_cond))
-      }
-  }
-
-  r_code_lines = c()
-  # Temporary variable names
-  is_duplicate_tmp_var = paste0("stata_tmp_is_duplicate_L", cmd_obj$line)
-  satisfies_cond_tmp_var = paste0("stata_tmp_satisfies_cond_L", cmd_obj$line)
-  is_first_tmp_var = paste0("stata_tmp_is_first_L", cmd_obj$line)
-  data_duplicates_tmp_var = paste0("stata_tmp_data_duplicates_L", cmd_obj$line)
-
-
-  if (subcommand == "drop") {
-      # For filter, NA in condition is treated as FALSE, which matches Stata's behavior.
-      cond_vector_expr_with_data = if (!is.na(r_subset_cond) && r_subset_cond != "") paste0("with(data, ", r_subset_cond, ")") else "TRUE"
-
-      comment_vars_part = if(is.na(vars_for_duplicates)) "all variables" else paste0("variables: ", varlist_str)
-      if (is.na(vars_for_duplicates)) {
-          is_duplicate_expr = "base::duplicated(data, fromLast = FALSE)"
-      } else {
-           is_duplicate_expr = paste0("base::duplicated(data[, ", vars_for_duplicates, ", drop = FALSE], fromLast = FALSE)")
-      }
-
-      r_code_lines = c(
-          r_code_lines,
-          paste0("## Calculate duplicate flag based on ", comment_vars_part),
-          paste0(is_duplicate_tmp_var, " = ", is_duplicate_expr),
-          paste0("## Calculate condition flag"),
-          paste0(satisfies_cond_tmp_var, " = ", cond_vector_expr_with_data),
-          paste0("data = dplyr::filter(data, !(", is_duplicate_tmp_var, " & ", satisfies_cond_tmp_var, "))"),
-          paste0("rm(", is_duplicate_tmp_var, ", ", satisfies_cond_tmp_var, ")")
-      )
-
-  } else if (subcommand == "tag") {
-      gen_var = NA_character_
-      if (!is.na(options_str)) {
-         gen_opt_match = stringi::stri_match_first_regex(options_str, "\\bgen\\s*\\(([^)]+)\\)")
-         if (!is.na(gen_opt_match[1,1])) {
-             gen_vars_str = stringi::stri_trim_both(gen_opt_match[1,2])
-             gen_vars_list = stringi::stri_split_regex(gen_vars_str, "\\s+")[[1]]
-             gen_var = gen_vars_list[1]
-         }
-      }
-
-      if (is.na(gen_var)) {
-          return(paste0("# duplicates tag requires gen() option: ", rest_of_cmd))
-      }
-
-      # Stata `if` condition treats missing as false.
-      cond_vector_expr_with_data = if (!is.na(r_subset_cond) && r_subset_cond != "") paste0("dplyr::coalesce(with(data, ", r_subset_cond, "), FALSE)") else "TRUE"
-      comment_vars_part = if(is.na(vars_for_duplicates)) "all variables" else paste0("variables: ", varlist_str)
-
-       if (is.na(vars_for_duplicates)) {
-          is_first_occurrence_expr = "!base::duplicated(data, fromLast = FALSE)"
-      } else {
-           is_first_occurrence_expr = paste0("!base::duplicated(data[, ", vars_for_duplicates, ", drop = FALSE], fromLast = FALSE)")
-      }
-
-       r_code_lines = c(
-          r_code_lines,
-          paste0("## Calculate first occurrence flag based on ", comment_vars_part),
-          paste0(is_first_tmp_var, " = ", is_first_occurrence_expr),
-          paste0("## Calculate condition flag, treating NA as FALSE"),
-          paste0(satisfies_cond_tmp_var, " = ", cond_vector_expr_with_data),
-          # The if_else condition itself must treat any NA as FALSE for Stata compatibility.
-          paste0("data = dplyr::mutate(data, ", gen_var, " = dplyr::if_else(dplyr::coalesce(", is_first_tmp_var, ", FALSE) & ", satisfies_cond_tmp_var, ", 1, 0))"),
-          paste0("rm(", is_first_tmp_var, ", ", satisfies_cond_tmp_var, ")")
-          # Removed sfun_strip_stata_attributes call as per instruction in sfun_strip_stata_attributes.R
-          # paste0("data$", gen_var, " = sfun_strip_stata_attributes(data$", gen_var, ")")
-       )
-
-  } else if (subcommand == "list") {
-       # For filter, NA in condition is treated as FALSE, which matches Stata's behavior.
-       cond_vector_expr_with_data = if (!is.na(r_subset_cond) && r_subset_cond != "") paste0("with(data, ", r_subset_cond, ")") else "TRUE"
-       comment_vars_part = if(is.na(vars_for_duplicates)) "all variables" else paste0("variables: ", varlist_str)
-
-        if (is.na(vars_for_duplicates)) {
-          is_duplicate_expr = "base::duplicated(data, fromLast = FALSE)"
-      } else {
-           is_duplicate_expr = paste0("base::duplicated(data[, ", vars_for_duplicates, ", drop = FALSE], fromLast = FALSE)")
-      }
-
-       r_code_lines = c(
-          r_code_lines,
-          paste0("## Calculate duplicate flag based on ", comment_vars_part),
-          paste0(is_duplicate_tmp_var, " = ", is_duplicate_expr),
-          paste0("## Calculate condition flag"),
-          paste0(satisfies_cond_tmp_var, " = ", cond_vector_expr_with_data),
-          paste0(data_duplicates_tmp_var, " = dplyr::filter(data, ", is_duplicate_tmp_var, " & ", satisfies_cond_tmp_var, ")"),
-          paste0("print(", data_duplicates_tmp_var, ")"),
-          paste0("rm(", is_duplicate_tmp_var, ", ", satisfies_cond_tmp_var, ", ", data_duplicates_tmp_var, ")")
-       )
-
-  } else {
-      r_code_lines = c(r_code_lines, paste0("# Unknown duplicates subcommand: ", subcommand))
-  }
-
-  r_code_str = paste(r_code_lines, collapse="\n")
-
-   options_str_cleaned = options_str
-   if (subcommand == "tag" && !is.na(options_str_cleaned)) {
-        options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "\\bgen\\s*\\([^)]+\\)", "")
-        options_str_cleaned = stringi::stri_trim_both(stringi::stri_replace_all_regex(options_str_cleaned, ",+", ","))
-        options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "^,+", "")
-   }
-
-   if (!is.na(options_str_cleaned) && options_str_cleaned != "") {
-        r_code_str = paste0(r_code_str, paste0(" # Other options ignored: ", options_str_cleaned))
-   }
-
-  return(r_code_str)
-}
-```
-!END_CHANGE_FILE R/t_duplicates.R
-
-!CHANGE_FILE R/t_recode.R
-```R
-# Translate Stata 'recode' command
-# Stata: recode varlist (rule1)(rule2)... [if] [in] [, options]
-# Example: recode income (0=.) (100 thru 200 = 150) (300 301 305 = 300) (else=copy), gen(newincome)
-
-t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
-  restore.point("t_recode") # Added restore.point
-  rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
-
-  # Parse varlist, rules, if/in, options (especially gen())
-  # This parsing is quite complex due to nested parentheses and optional parts.
-  # Let's try to split varlist first, then find rules in parentheses.
-  # Example: `recode var1 var2 (0=.) (1/10=1) (else=copy) if cond, gen(new1 new2)`
-
-  # Split at first parenthesis to get varlist
-  parts_varlist = stringi::stri_split_fixed(rest_of_cmd_trimmed, "(", n=2)[[1]]
-  if (length(parts_varlist) != 2) {
-      return(paste0("# Failed to parse recode command (missing rules): ", rest_of_cmd))
-  }
-  varlist_str = stringi::stri_trim_both(parts_varlist[1])
-  vars_to_recode = stringi::stri_split_regex(varlist_str, "\\s+")[[1]]
-  vars_to_recode = vars_to_recode[vars_to_recode != ""]
-
-  if (length(vars_to_recode) == 0) {
-      return(paste0("# recode command requires varlist: ", rest_of_cmd))
-  }
-
-  rules_and_rest = paste0("(", parts_varlist[2]) # Put the '(' back
-
-  # Separate if/in and options from rules
-  stata_if_in_cond = NA_character_
-  options_str = NA_character_
-
-  # Look for `if` or `in` first
-  if_in_match = stringi::stri_match_first_regex(rules_and_rest, "\\s+(?:if\\s+|in\\s+)(.*)$")
-  if(!is.na(if_in_match[1,1])) {
-      stata_if_in_cond = if_in_match[1,2]
-      rules_and_rest = stringi::stri_replace_last_regex(rules_and_rest, "\\s+(?:if\\s+|in\\s+)(.*)$", "")
-      rules_and_rest = stringi::stri_trim_both(rules_and_rest)
-  }
-
-  # Look for options after the if/in part or after rules
-  options_match = stringi::stri_match_first_regex(rules_and_rest, ",\\s*(.*)$")
-  if (!is.na(options_match[1,1])) {
-      options_str = stringi::stri_trim_both(options_match[1,2])
-      rules_part = stringi::stri_replace_last_regex(rules_and_rest, ",\\s*(.*)$", "")
-      rules_part = stringi::stri_trim_both(rules_part)
-  } else {
-      rules_part = rules_and_rest
-  }
-
-  # Now parse the rules part: (rule1)(rule2)...
-  # Find all rules within parentheses
-  rule_matches = stringi::stri_match_all_regex(rules_part, "\\(([^)]*)\\)")[[1]] # Match content inside ()
-  if (NROW(rule_matches) == 0) {
-      return(paste0("# Failed to parse recode rules: ", rules_part))
-  }
-  recode_rules_raw = rule_matches[,2] # Extract the content within parentheses
-
-
-  # Parse options, specifically `gen()`
-  gen_vars = NA_character_
-  if (!is.na(options_str)) {
-      gen_opt_match = stringi::stri_match_first_regex(options_str, "\\bgen\\s*\\(([^)]+)\\)")
-      if (!is.na(gen_opt_match[1,1])) {
-           gen_vars = stringi::stri_trim_both(gen_opt_match[1,2])
-      }
-  }
-
-  new_vars = NULL
-  if (!is.na(gen_vars)) {
-      new_vars = stringi::stri_split_regex(gen_vars, "\\s+")[[1]]
-      new_vars = new_vars[new_vars != ""]
-      if (length(new_vars) != length(vars_to_recode)) {
-          return(paste0("# recode gen() option requires same number of new variables as old variables."))
-      }
-  } else {
-      # If no gen() option, recode is done in place. New vars are the same as old vars.
-      new_vars = vars_to_recode
-  }
-
-
-  # Translate the if/in condition for subsetting
-  r_subset_cond = NA_character_
-  data_source_for_recode = "data"
-  r_code_prefix = "" # Code to create subset if needed
-
-  if (!is.na(stata_if_in_cond) && stata_if_in_cond != "") {
-      # Stata recode applies if/in to select observations *to be recoded*.
-      # Observations not meeting if/in condition are left unchanged.
-      # This means the R code needs to apply the recoding conditionally.
-      r_subset_cond = translate_stata_expression_with_r_values(stata_if_in_cond, line_num, cmd_df, context = list(is_by_group = FALSE))
-      if (is.na(r_subset_cond) || r_subset_cond == "") {
-           return(paste0("# Failed to translate if/in condition for recode: ", stata_if_in_cond))
-       }
-      # The actual recoding logic (case_when/ifelse) will incorporate this condition.
-      # No need for a separate subset dataframe here.
-  }
-
-
-  # Translate rules into R case_when clauses
-  # Rule format: old_value = new_value
-  # old_value can be: single value, range (val1/val2, val1 thru val2), list (val1 val2), else, missing (.)
-  # new_value can be: single value, copy (use original value), missing (.)
-
-  translate_recode_rule = function(rule_str, source_var_r) {
-      rule_str = stringi::stri_trim_both(rule_str)
-      parts_eq = stringi::stri_split_fixed(rule_str, "=", n=2)[[1]]
-      if (length(parts_eq) != 2) {
-          return(paste0("## Error parsing rule: ", rule_str))
-      }
-      old_part_raw = stringi::stri_trim_both(parts_eq[1])
-      new_part_raw = stringi::stri_trim_both(parts_eq[2])
-
-      # Translate old_part into R condition (left side of case_when ~ )
-      r_condition = ""
-      if (old_part_raw == "else") {
-          r_condition = "TRUE" # This rule is the fallback
-      } else if (old_part_raw == ".") {
-           r_condition = paste0("is.na(data$", source_var_r, ")") # Missing value rule
-      } else if (grepl("\\s+thru\\s+", old_part_raw)) {
-           # Range: val1 thru val2
-           range_parts = stringi::stri_split_regex(old_part_raw, "\\s+thru\\s+", n=2)[[1]]
-           val1 = translate_stata_expression_to_r(stringi::stri_trim_both(range_parts[1])) # Translate value (e.g. string "A" or number)
-           val2 = translate_stata_expression_to_r(stringi::stri_trim_both(range_parts[2]))
-           if (is.na(val1) || is.na(val2)) return(paste0("## Error translating range values in rule: ", rule_str))
-           r_condition = paste0("data$", source_var_r, " >= ", val1, " & data$", source_var_r, " <= ", val2)
-      } else if (grepl("/", old_part_raw)) {
-          # Range: val1/val2
-           range_parts = stringi::stri_split_regex(old_part_raw, "/", n=2)[[1]]
-           val1 = translate_stata_expression_to_r(stringi::stri_trim_both(range_parts[1])) # Translate value
-           val2 = translate_stata_expression_to_r(stringi::stri_trim_both(range_parts[2]))
-           if (is.na(val1) || is.na(val2)) return(paste0("## Error translating range values in rule: ", rule_str))
-           r_condition = paste0("data$", source_var_r, " >= ", val1, " & data$", source_var_r, " <= ", val2) # Stata / is inclusive range
-      }
-      else {
-          # List of values or single value
-          old_values = stringi::stri_split_regex(old_part_raw, "\\s+")[[1]]
-          old_values = old_values[old_values != ""]
-          r_values = sapply(old_values, function(val) {
-               if (val == ".") return("NA") # Stata missing symbol
-               translate_stata_expression_to_r(val) # Translate value (e.g. "5", `"string"`)
-          })
-          r_condition = paste0("data$", source_var_r, " %in% c(", paste(r_values, collapse = ", "), ")")
-      }
-
-
-      # Translate new_part into R value (right side of case_when ~ )
-      r_new_value = ""
-      if (new_part_raw == "copy") {
-          r_new_value = paste0("data$", source_var_r) # Use the original variable value
-      } else if (new_part_raw == ".") {
-          r_new_value = "NA" # R missing
-      } else {
-           r_new_value = translate_stata_expression_to_r(new_part_raw) # Translate the new value
-      }
-
-      return(paste0(r_condition, " ~ ", r_new_value))
-  }
-
-  # Generate case_when expression for each variable
-  mutate_exprs = character(length(vars_to_recode))
-  for (k in seq_along(vars_to_recode)) {
-      old_var = vars_to_recode[k]
-      new_var = new_vars[k]
-      source_var_r = old_var # R variable name for the source column
-
-      # Translate all rules for this variable
-      r_rules = sapply(recode_rules_raw, translate_recode_rule, source_var_r = source_var_r)
-
-      # Combine rules into a case_when statement
-      case_when_expr = paste0("dplyr::case_when(\n    ", paste(r_rules, collapse = ",\n    "), "\n  )")
-
-      # Apply global if/in condition around the case_when
-      if (!is.na(r_subset_cond) && r_subset_cond != "") {
-          # If condition is met, apply case_when. Otherwise, keep original value.
-          # Stata's `if` condition treats missing as FALSE, so use coalesce.
-          final_value_expr = paste0("dplyr::if_else(dplyr::coalesce(", r_subset_cond, ", FALSE),\n",
-                                    "    ", case_when_expr, ",\n",
-                                    "    data$", source_var_r, ")") # Keep original value if condition not met.
-      } else {
-          final_value_expr = case_when_expr
-      }
-
-
-      mutate_exprs[k] = paste0(new_var, " = ", final_value_expr)
-  }
-
-  # Combine mutate expressions
-  mutate_exprs_str = paste(mutate_exprs, collapse = ",\n  ")
-
-  # Build the final R code using dplyr::mutate
-  r_code_lines = c(paste0("data = dplyr::mutate(data, ", mutate_exprs_str, ")")) # Changed to dplyr::mutate
-
-  # Removed sfun_strip_stata_attributes call as per instruction in sfun_strip_stata_attributes.R
-  # for (new_var in new_vars) {
-  #   r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_strip_stata_attributes(data$", new_var, ")"))
-  # }
-
-
-  r_code_str = paste(r_code_lines, collapse="\n")
-
-  # Add comment about options if any were present but not handled (excluding gen)
-   if (!is.na(options_str) && !grepl("\\bgen\\s*\\([^)]+\\)", options_str)) {
-        r_code_str = paste0(r_code_str, paste0(" # Other options ignored: ", options_str))
-   }
-
-
-  return(r_code_str)
-}
-```
-!END_CHANGE_FILE R/t_recode.R
-
-!CHANGE_FILE R/t_replace.R
-```R
-t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
-  restore.point("t_replace")
-  # Strip type if present (e.g. replace double oldvar = ...)
+t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_generate")
+  # Parse `rest_of_cmd` for new variable name, expression, and if condition
+  # Example: "newvar = expression [if condition]"
+
+  # Strip type if present (e.g. gen double newvar = ...)
   rest_of_cmd_no_type = stringi::stri_replace_first_regex(rest_of_cmd, "^(?:byte|int|long|float|double|str\\d+)\\s+", "")
 
   match = stringi::stri_match_first_regex(rest_of_cmd_no_type, "^\\s*([^=\\s]+)\\s*=\\s*(.*?)(?:\\s+if\\s+(.*))?$")
 
   if (is.na(match[1,1])) {
-    return(paste0("# Failed to parse replace command: ", rest_of_cmd))
+    return(paste0("# Failed to parse generate command: ", rest_of_cmd))
   }
 
-  var_to_replace = stringi::stri_trim_both(match[1,2])
+  new_var = stringi::stri_trim_both(match[1,2])
   stata_expr = stringi::stri_trim_both(match[1,3])
   stata_if_cond = stringi::stri_trim_both(match[1,4]) # Might be NA
 
+  # Context for expression translation (e.g. _n, _N behavior)
+  # is_by_group TRUE if cmd_obj$by_group_vars is not NA
   current_context = list(is_by_group = cmd_obj$is_by_prefix && !is.na(cmd_obj$by_group_vars))
   r_expr = translate_stata_expression_with_r_values(stata_expr, line_num, cmd_df, current_context)
 
   r_if_cond = NA_character_
   if (!is.na(stata_if_cond) && stata_if_cond != "") {
+    # The 'if' condition for generate/replace is evaluated row-wise on the whole dataset, not per group.
     r_if_cond = translate_stata_expression_with_r_values(stata_if_cond, line_num, cmd_df, context = list(is_by_group = FALSE))
   }
 
@@ -589,6 +49,7 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       sort_vars_list = sort_vars_list[sort_vars_list != ""]
     }
 
+    # If there are sort keys for by-processing, prepare the arrange call
     if (length(sort_vars_list) > 0) {
       all_sort_vars = c(if(length(group_vars_list)>0) group_vars_list else character(0), sort_vars_list)
       all_sort_vars_str = paste(all_sort_vars, collapse = ", ")
@@ -596,7 +57,7 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     }
   }
 
-  # Step 1: Calculate the value for replacement, potentially conditionally
+  # Step 1: Calculate the value for the new variable, potentially conditionally
   # Ensure logical comparisons are converted to numeric (0/1) to match Stata's default numeric type for logical expressions.
   is_logical_expr = stringi::stri_detect_regex(stata_expr, "==|!=|~=|<=|>=|<|>|&|\\|")
   is_string_result_type = is_stata_expr_string_type(stata_expr)
@@ -606,15 +67,19 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   if (is_logical_expr) {
     calculated_value_expr = paste0("as.numeric(", r_expr, ")")
+    # If the expression itself is logical, Stata converts it to 0/1. So the result is numeric.
+    # Hence, NA_real_ is appropriate.
     na_for_if_else = "NA_real_"
   } else if (is_string_result_type) {
+    # If not a logical expression, but identified as producing a string result, use NA_character_.
     na_for_if_else = "NA_character_"
   }
+  # Otherwise (non-logical, non-string, i.e., numeric expression), NA_real_ is already the default.
 
-  # For 'replace' command, if condition is FALSE or NA, the value should be left unchanged.
-  # Use dplyr::coalesce(condition, FALSE) to treat NA condition as FALSE.
+
   if (!is.na(r_if_cond) && r_if_cond != "") {
-    calc_expr = paste0("dplyr::if_else(dplyr::coalesce(", r_if_cond, ", FALSE), ", calculated_value_expr, ", data$", var_to_replace, ")")
+    # Stata's 'if' condition treats NA as FALSE.
+    calc_expr = paste0("dplyr::if_else(dplyr::coalesce(", r_if_cond, ", FALSE), ", calculated_value_expr, ", ", na_for_if_else, ")")
   } else {
     calc_expr = calculated_value_expr
   }
@@ -622,24 +87,158 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Step 2: Build the R code string using pipes for the mutate operation
   r_code_lines = c()
 
+  # Start with data or data after arrange, and add the first pipe
   if (arrange_call != "") {
       r_code_lines = c(r_code_lines, paste0("data = ", arrange_call, " %>%"))
   } else {
       r_code_lines = c(r_code_lines, "data = data %>%")
   }
 
+  # Add grouping and mutate steps
   if (!is.null(group_vars_r_vec_str) && length(group_vars_list) > 0) {
       r_code_lines = c(r_code_lines, paste0("  dplyr::group_by(dplyr::across(", group_vars_r_vec_str, ")) %>%"))
-      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", var_to_replace, " = ", calc_expr, ") %>%"))
+      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", new_var, " = ", calc_expr, ") %>%"))
       r_code_lines = c(r_code_lines, "  dplyr::ungroup()")
   } else {
-      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", var_to_replace, " = ", calc_expr, ")"))
+      # If not grouped, just add the mutate step directly to the pipe chain
+      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", new_var, " = ", calc_expr, ")"))
   }
 
+
   # Removed sfun_strip_stata_attributes call as per instruction in sfun_strip_stata_attributes.R
-  # r_code_lines = c(r_code_lines, paste0("data$", var_to_replace, " = sfun_strip_stata_attributes(data$", var_to_replace, ")"))
+  # r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_strip_stata_attributes(data$", new_var, ")"))
 
   return(paste(r_code_lines, collapse="\n"))
 }
 ```
-!END_CHANGE_FILE R/t_replace.R
+!END_CHANGE_FILE R/t_generate.R
+
+!CHANGE_FILE R/t_merge.R
+```R
+# Translate Stata 'merge' command
+# Stata: merge 1:1 varlist using filename [, options]
+# Stata: merge 1:m varlist using filename [, options]
+# Stata: merge m:1 varlist using filename [, options]
+# Stata: merge m:m varlist using filename [, options]
+# Options: keep(match master using all) nogenerate
+
+t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_merge") # Added restore.point
+  rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
+
+  # Parse merge type (1:1, 1:m, m:1, m:m), varlist, `using filename`, and options
+  # Corrected regex for merge type to allow 'm'
+  # Pattern: ^\s*([1m]:[1m])\s+(.*?)\s+using\s+([^,\s]+)(?:,\\s*(.*))?$
+  # G1: type, G2: varlist, G3: filename (can be quoted or macro), G4: options
+
+  merge_match = stringi::stri_match_first_regex(rest_of_cmd_trimmed, "^\\s*([1m]:[1m])\\s+(.*?)\\s+using\\s+(\"[^\"]+\"|`[^']+'|[^,\\s]+)(?:,\\s*(.*))?$")
+  merge_type = NA_character_
+  varlist_str = NA_character_
+  raw_filename_token = NA_character_
+  options_str = NA_character_
+
+
+  if (is.na(merge_match[1,1])) {
+      # Check for older syntax without type: `merge varlist using filename` (defaults to 1:1)
+      merge_match_old = stringi::stri_match_first_regex(rest_of_cmd_trimmed, "^\\s*(.*?)\\s+using\\s+(\"[^\"]+\"|`[^']+'|[^,\\s]+)(?:,\\s*(.*))?$")
+      if (!is.na(merge_match_old[1,1])) {
+           merge_type = "1:1" # Assume 1:1 if type not specified
+           varlist_str = stringi::stri_trim_both(merge_match_old[1,2])
+           raw_filename_token = stringi::stri_trim_both(merge_match_old[1,3])
+           options_str = stringi::stri_trim_both(merge_match_old[1,4])
+      } else {
+           return(paste0("# Failed to parse merge command: ", rest_of_cmd))
+      }
+  } else {
+      merge_type = merge_match[1,2]
+      varlist_str = stringi::stri_trim_both(merge_match[1,3])
+      raw_filename_token = stringi::stri_trim_both(merge_match[1,4])
+      options_str = stringi::stri_trim_both(merge_match[1,5]) # NA if no options
+  }
+
+  vars_to_merge_on = stringi::stri_split_regex(varlist_str, "\\s+")[[1]]
+  vars_to_merge_on = vars_to_merge_on[vars_to_merge_on != ""]
+  if (length(vars_to_merge_on) == 0) {
+       return(paste0("# merge command requires varlist: ", rest_of_cmd))
+  }
+  # For dplyr::join, by argument can be a character vector of column names
+  vars_to_merge_on_r_vec_str = paste0('c("', paste(vars_to_merge_on, collapse = '", "'), '")')
+
+  using_source_r_expr = resolve_stata_filename(raw_filename_token, cmd_df, line_num, default_base_dir_var = "data_dir")
+
+
+  # Determine join type based on Stata's `keep()` option or default behavior
+  # Stata's default merge behavior is to keep matching observations and unmatched master observations (left_join).
+  # If no keep() option is specified, default to left_join.
+  join_type_r_func = "dplyr::left_join"
+  keep_spec_for_comment = "match master" # Default if no keep() specified
+
+  if (!is.na(options_str)) {
+      keep_opt_match = stringi::stri_match_first_regex(options_str, "\\bkeep\\s*\\(([^)]+)\\)")
+      if (!is.na(keep_opt_match[1,1])) {
+          keep_spec = stringi::stri_trim_both(keep_opt_match[1,2])
+          if (grepl("\\ball\\b", keep_spec)) {
+              join_type_r_func = "dplyr::full_join"
+              keep_spec_for_comment = "all"
+          } else if (grepl("\\bmaster\\b", keep_spec)) {
+              join_type_r_func = "dplyr::left_join" # Keep matched and master unmatched (left join)
+              keep_spec_for_comment = "master"
+          } else if (grepl("\\busing\\b", keep_spec)) {
+              join_type_r_func = "dplyr::right_join" # Keep matched and using unmatched (right join)
+               keep_spec_for_comment = "using"
+          } else if (grepl("\\bmatch\\b", keep_spec)) {
+              join_type_r_func = "dplyr::inner_join" # Keep matched only (inner join)
+              keep_spec_for_comment = "match"
+          }
+          # Other complex keep() specs like `keep(_merge==3)` are not handled here.
+      }
+  }
+
+  # Handle nogenerate option
+  has_nogenerate = !is.na(options_str) && stringi::stri_detect_fixed(options_str, "nogenerate")
+  
+  # Build the R command string using dplyr::*_join
+  # dplyr::join(x, y, by)
+
+  # Logic to handle common columns not in 'by' argument:
+  # Stata merge behavior: if a non-key variable exists in both, it takes the master's value.
+  # To replicate this, we need to drop such columns from the 'using' dataset before the join.
+  # This applies to left_join and inner_join (i.e., keep(master), keep(match)).
+  # For full_join/right_join, we typically want all columns, so no special dropping needed.
+
+  # Load the using dataset into a temporary variable first
+  r_code_lines = c()
+  temp_using_data_var = paste0("stata_tmp_using_data_L", line_num)
+  r_code_lines = c(r_code_lines, paste0(temp_using_data_var, " = haven::read_dta(", using_source_r_expr, ")"))
+
+  # Identify common columns that are NOT merge keys
+  r_code_lines = c(r_code_lines,
+    paste0("common_cols = intersect(names(data), names(", temp_using_data_var, "))"),
+    paste0("common_cols_not_by = setdiff(common_cols, ", vars_to_merge_on_r_vec_str, ")")
+  )
+
+  # Conditional dropping of columns from the using dataset
+  # Only drop if the join type implies master's values are preferred for common non-key columns
+  # (i.e., left_join or inner_join, which correspond to Stata's keep(master) or keep(match))
+  # This is a general Stata merge rule: master's non-key variables take precedence.
+  r_code_lines = c(r_code_lines,
+    paste0("if (length(common_cols_not_by) > 0) { ", temp_using_data_var, " = dplyr::select(", temp_using_data_var, ", -dplyr::all_of(common_cols_not_by)) }")
+  )
+
+  # Perform the join
+  merge_comment_line = paste0("# Stata merge type: ", merge_type, ", keep(", keep_spec_for_comment, ")")
+  if (has_nogenerate) {
+    merge_comment_line = paste0(merge_comment_line, ", nogenerate (_merge variable was not generated by translator)")
+  } else {
+    merge_comment_line = paste0(merge_comment_line, " (_merge variable was not generated by translator)")
+  }
+
+  r_code_lines = c(r_code_lines, paste0("data = ", join_type_r_func, "(data, ", temp_using_data_var, ", by = ", vars_to_merge_on_r_vec_str, ") ", merge_comment_line))
+
+  # Clean up temporary variables
+  r_code_lines = c(r_code_lines, paste0("rm(", temp_using_data_var, ", common_cols, common_cols_not_by)"))
+
+  return(paste(r_code_lines, collapse="\n"))
+}
+```
+!END_CHANGE_FILE R/t_merge.R

@@ -1699,10 +1699,10 @@ t_destring = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
           # For rows meeting condition, use destrung value. Otherwise, keep original (or NA if new var).
            if (is_replace) {
                # Replace in place: use destrung if condition, old value otherwise
-               final_value_expr = paste0("dplyr::if_else(", r_if_in_cond, ", ", destrung_value_expr, ", data$", source_var_r, ")")
+               final_value_expr = paste0("dplyr::if_else(dplyr::coalesce(", r_if_in_cond, ", FALSE), ", destrung_value_expr, ", data$", source_var_r, ")")
            } else {
                # Generate new var: use destrung if condition, NA otherwise
-               final_value_expr = paste0("dplyr::if_else(", r_if_in_cond, ", ", destrung_value_expr, ", NA_real_)") # Assuming numeric result
+               final_value_expr = paste0("dplyr::if_else(dplyr::coalesce(", r_if_in_cond, ", FALSE), ", destrung_value_expr, ", NA_real_)") # Assuming numeric result
            }
       } else {
           # Apply to all rows
@@ -1876,6 +1876,7 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
 
   if (subcommand == "drop") {
+      # For filter, NA in condition is treated as FALSE, which matches Stata's behavior.
       cond_vector_expr_with_data = if (!is.na(r_subset_cond) && r_subset_cond != "") paste0("with(data, ", r_subset_cond, ")") else "TRUE"
 
       comment_vars_part = if(is.na(vars_for_duplicates)) "all variables" else paste0("variables: ", varlist_str)
@@ -1910,7 +1911,8 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
           return(paste0("# duplicates tag requires gen() option: ", rest_of_cmd))
       }
 
-      cond_vector_expr_with_data = if (!is.na(r_subset_cond) && r_subset_cond != "") paste0("with(data, ", r_subset_cond, ")") else "TRUE"
+      # Stata `if` condition treats missing as false.
+      cond_vector_expr_with_data = if (!is.na(r_subset_cond) && r_subset_cond != "") paste0("dplyr::coalesce(with(data, ", r_subset_cond, "), FALSE)") else "TRUE"
       comment_vars_part = if(is.na(vars_for_duplicates)) "all variables" else paste0("variables: ", varlist_str)
 
        if (is.na(vars_for_duplicates)) {
@@ -1923,15 +1925,17 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
           r_code_lines,
           paste0("## Calculate first occurrence flag based on ", comment_vars_part),
           paste0(is_first_tmp_var, " = ", is_first_occurrence_expr),
-          paste0("## Calculate condition flag"),
+          paste0("## Calculate condition flag, treating NA as FALSE"),
           paste0(satisfies_cond_tmp_var, " = ", cond_vector_expr_with_data),
-          paste0("data = dplyr::mutate(data, ", gen_var, " = dplyr::if_else(", is_first_tmp_var, " & ", satisfies_cond_tmp_var, ", 1, 0))"),
+          # The if_else condition itself must treat any NA as FALSE for Stata compatibility.
+          paste0("data = dplyr::mutate(data, ", gen_var, " = dplyr::if_else(dplyr::coalesce(", is_first_tmp_var, ", FALSE) & ", satisfies_cond_tmp_var, ", 1, 0))"),
           paste0("rm(", is_first_tmp_var, ", ", satisfies_cond_tmp_var, ")")
           # Removed sfun_strip_stata_attributes call as per instruction in sfun_strip_stata_attributes.R
           # paste0("data$", gen_var, " = sfun_strip_stata_attributes(data$", gen_var, ")")
        )
 
   } else if (subcommand == "list") {
+       # For filter, NA in condition is treated as FALSE, which matches Stata's behavior.
        cond_vector_expr_with_data = if (!is.na(r_subset_cond) && r_subset_cond != "") paste0("with(data, ", r_subset_cond, ")") else "TRUE"
        comment_vars_part = if(is.na(vars_for_duplicates)) "all variables" else paste0("variables: ", varlist_str)
 
@@ -3100,7 +3104,8 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       # Apply global if/in condition around the case_when
       if (!is.na(r_subset_cond) && r_subset_cond != "") {
           # If condition is met, apply case_when. Otherwise, keep original value.
-          final_value_expr = paste0("dplyr::if_else(", r_subset_cond, ",\n",
+          # Stata's `if` condition treats missing as FALSE, so use coalesce.
+          final_value_expr = paste0("dplyr::if_else(dplyr::coalesce(", r_subset_cond, ", FALSE),\n",
                                     "    ", case_when_expr, ",\n",
                                     "    data$", source_var_r, ")") # Keep original value if condition not met.
       } else {
@@ -3236,8 +3241,10 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     na_for_if_else = "NA_character_"
   }
 
+  # For 'replace' command, if condition is FALSE or NA, the value should be left unchanged.
+  # Use dplyr::coalesce(condition, FALSE) to treat NA condition as FALSE.
   if (!is.na(r_if_cond) && r_if_cond != "") {
-    calc_expr = paste0("dplyr::if_else(", r_if_cond, ", ", calculated_value_expr, ", data$", var_to_replace, ")")
+    calc_expr = paste0("dplyr::if_else(dplyr::coalesce(", r_if_cond, ", FALSE), ", calculated_value_expr, ", data$", var_to_replace, ")")
   } else {
     calc_expr = calculated_value_expr
   }
