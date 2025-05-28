@@ -1,7 +1,14 @@
 t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   restore.point("t_replace")
+  # Capture explicit type declaration (e.g., `str10`)
+  explicit_type_match = stringi::stri_match_first_regex(rest_of_cmd, "^\\s*(byte|int|long|float|double|str\\d+|strL)\\s+")
+  declared_type_str = NA_character_
+  if (!is.na(explicit_type_match[1,1])) {
+    declared_type_str = explicit_type_match[1,2]
+  }
+
   # Strip type if present (e.g. replace double oldvar = ...)
-  rest_of_cmd_no_type = stringi::stri_replace_first_regex(rest_of_cmd, "^(?:byte|int|long|float|double|str\\d+)\\s+", "")
+  rest_of_cmd_no_type = stringi::stri_replace_first_regex(rest_of_cmd, "^(?:byte|int|long|float|double|str\\d+|strL)\\s+", "")
 
   match = stringi::stri_match_first_regex(rest_of_cmd_no_type, "^\\s*([^=\\s]+)\\s*=\\s*(.*?)(?:\\s+if\\s+(.*))?$")
 
@@ -51,21 +58,32 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     }
   }
 
-  # Step 1: Calculate the value for replacement, potentially conditionally
-  # Determine the type of NA to use for the `if_else` fallback based on the *original Stata expression*.
-  calculated_value_expr = r_expr
-  na_for_if_else = "NA_real_" # Default to numeric NA
+  # Determine if the target variable is a string type.
+  # For 'replace', we should check the current type of the variable in the data,
+  # or if an explicit `str#` type is declared.
+  # The existing variable `var_to_replace`'s type is difficult to know at translation time.
+  # However, `is_stata_expr_string_type` for the expression itself is a good proxy.
+  # If the target variable *was* string, and the expression *is* string, it stays string.
+  # If the target variable *was* numeric, and the expression *is* string, it becomes string.
+  # If the target variable *was* string, and the expression *is* numeric, it tries to convert (Stata warns/errors).
+  # The most robust approach is to rely on `is_stata_expr_string_type` and explicit `str#` declaration.
+  target_var_will_be_string = FALSE
+  if (!is.na(declared_type_str) && stringi::stri_startswith_fixed(declared_type_str, "str")) {
+      target_var_will_be_string = TRUE
+  } else if (is_stata_expr_string_type(stata_expr)) {
+      target_var_will_be_string = TRUE
+  }
+  # If not explicitly declared and not string expression, assume numeric.
 
-  if (is_stata_expr_string_type(stata_expr)) {
-    na_for_if_else = "NA_character_"
-  } else {
-    # If the original Stata expression is a logical comparison, it yields numeric 0/1 in Stata.
-    is_logical_expr = stringi::stri_detect_regex(stata_expr, "==|!=|~=|<=|>=|<|>|&|\\|")
-    if (is_logical_expr) {
-      calculated_value_expr = paste0("as.numeric(", r_expr, ")")
-      na_for_if_else = "NA_real_" # Logical to numeric
-    }
-    # Otherwise, it's assumed to be numeric, and NA_real_ is appropriate.
+  # The value to assign if the condition is false/missing.
+  # For 'replace', if condition is false, the *original value* is kept, not NA or "".
+  # So, `na_or_empty_str_for_false_cond` is not needed in the `if_else` 'false' branch;
+  # instead, it's `data$`var_to_replace`.
+
+  # The expression result itself might need casting, e.g. logical expr to numeric 0/1
+  calculated_value_expr = r_expr
+  if (!target_var_will_be_string && stringi::stri_detect_regex(stata_expr, "==|!=|~=|<=|>=|<|>|&|\\|")) {
+    calculated_value_expr = paste0("as.numeric(", r_expr, ")")
   }
 
   # For 'replace' command, if condition is FALSE or NA, the value should be left unchanged.
@@ -98,5 +116,4 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
-
 

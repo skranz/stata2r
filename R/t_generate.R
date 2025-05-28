@@ -3,8 +3,15 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Parse `rest_of_cmd` for new variable name, expression, and if condition
   # Example: "newvar = expression [if condition]"
 
+  # Capture explicit type declaration (e.g., `str10`)
+  explicit_type_match = stringi::stri_match_first_regex(rest_of_cmd, "^\\s*(byte|int|long|float|double|str\\d+|strL)\\s+")
+  declared_type_str = NA_character_
+  if (!is.na(explicit_type_match[1,1])) {
+    declared_type_str = explicit_type_match[1,2]
+  }
+
   # Strip type if present (e.g. gen double newvar = ...)
-  rest_of_cmd_no_type = stringi::stri_replace_first_regex(rest_of_cmd, "^(?:byte|int|long|float|double|str\\d+)\\s+", "")
+  rest_of_cmd_no_type = stringi::stri_replace_first_regex(rest_of_cmd, "^\\s*(?:byte|int|long|float|double|str\\d+|strL)\\s+", "")
 
   match = stringi::stri_match_first_regex(rest_of_cmd_no_type, "^\\s*([^=\\s]+)\\s*=\\s*(.*?)(?:\\s+if\\s+(.*))?$")
 
@@ -59,26 +66,28 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     }
   }
 
-  # Step 1: Calculate the value for the new variable, potentially conditionally
-  # Determine the type of NA to use for the `if_else` fallback based on the *original Stata expression*.
-  calculated_value_expr = r_expr
-  na_for_if_else = "NA_real_" # Default to numeric NA
+  # Determine if the target variable will be a string type.
+  # This determines the 'NA' value when the 'if' condition is false.
+  target_var_will_be_string = FALSE
+  if (!is.na(declared_type_str) && stringi::stri_startswith_fixed(declared_type_str, "str")) {
+      target_var_will_be_string = TRUE
+  } else if (is_stata_expr_string_type(stata_expr)) {
+      target_var_will_be_string = TRUE
+  }
 
-  if (is_stata_expr_string_type(stata_expr)) {
-    na_for_if_else = "NA_character_"
-  } else {
-    # If the original Stata expression is a logical comparison, it yields numeric 0/1 in Stata.
-    is_logical_expr = stringi::stri_detect_regex(stata_expr, "==|!=|~=|<=|>=|<|>|&|\\|")
-    if (is_logical_expr) {
-      calculated_value_expr = paste0("as.numeric(", r_expr, ")")
-      na_for_if_else = "NA_real_" # Logical to numeric
-    }
-    # Otherwise, it's assumed to be numeric, and NA_real_ is appropriate.
+  # Step 1: Calculate the value for the new variable, potentially conditionally
+  # The value to assign if the condition is false/missing.
+  na_or_empty_str_for_false_cond = if (target_var_will_be_string) '""' else "NA_real_"
+
+  # The expression result itself might need casting, e.g. logical expr to numeric 0/1
+  calculated_value_expr = r_expr
+  if (!target_var_will_be_string && stringi::stri_detect_regex(stata_expr, "==|!=|~=|<=|>=|<|>|&|\\|")) {
+    calculated_value_expr = paste0("as.numeric(", r_expr, ")")
   }
 
   if (!is.na(r_if_cond) && r_if_cond != "") {
     # Stata's 'if' condition treats NA as FALSE.
-    calc_expr = paste0("dplyr::if_else(dplyr::coalesce(", r_if_cond, ", FALSE), ", calculated_value_expr, ", ", na_for_if_else, ")")
+    calc_expr = paste0("dplyr::if_else(dplyr::coalesce(", r_if_cond, ", FALSE), ", calculated_value_expr, ", ", na_or_empty_str_for_false_cond, ")")
   } else {
     calc_expr = calculated_value_expr
   }
@@ -109,5 +118,4 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
-
 
