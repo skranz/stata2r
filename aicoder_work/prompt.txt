@@ -2691,7 +2691,7 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     paste0("temp_numeric_values_L", cmd_obj$line, " = base::match(temp_source_vector_L", cmd_obj$line, ", temp_unique_labels_L", cmd_obj$line, ")"),
     # Define the label mapping: c(value = "label_string") format for haven::labelled
     # Corrected: haven::labelled expects named numeric vector (value = label_string)
-    paste0("temp_label_map_L", cmd_obj$line, " = if (length(temp_unique_labels_L", cmd_obj$line, ") > 0) stats::setNames(seq_along(temp_unique_labels_L", cmd_obj$line, "), temp_unique_labels_L", cmd_obj$line, ") else stats::setNames(numeric(0), character(0))"),
+    paste0("temp_label_map_L", cmd_obj$line, " = if (length(temp_unique_labels_L", cmd_obj$line, ") > 0) stats::setNames(seq_along(temp_unique_labels_L", cmd_obj$line, "), as.character(temp_unique_labels_L", cmd_obj$line, ")) else stats::setNames(numeric(0), character(0))"),
     # Create the haven_labelled vector
     paste0(encoded_values_full_tmp_var, " = haven::labelled(as.integer(temp_numeric_values_L", cmd_obj$line, "), labels = temp_label_map_L", cmd_obj$line, ")"),
     # Clean up intermediate temp variables
@@ -2734,7 +2734,6 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
-
 
 ```
 ### END OF FILE: t_encode.R
@@ -3118,17 +3117,16 @@ t_label_define = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   numeric_values_for_labels = sapply(values, function(v) {
       if (v == ".") return(NA_real_) # Stata system missing
       # Stata extended missing values (.a to .z) are usually also mapped to NA by haven.
-      # haven::labelled labels argument does not support mapping extended missings directly.
       # For now, just treat .x as NA.
       if (stringi::stri_detect_regex(v, "^\\.[a-zA-Z]$")) return(NA_real_)
       as.numeric(v) # Convert numeric strings to numeric
   })
 
   # Construct the R named numeric vector string for haven::labelled format: c("label_string" = value_numeric)
-  # Example: c("Male" = 1, "Female" = 2, "Not Applicable" = NA_real_)
-  # Names are labels, values are numeric codes
-  label_pairs_str = paste0('"', labels, '" = ', numeric_values_for_labels)
-  new_labels_r_format_str = paste0("c(", paste(label_pairs_str, collapse = ", "), ")")
+  # This will be constructed in the generated R code.
+  label_pairs_for_r_code = paste0('"', labels, '" = as.numeric(', numeric_values_for_labels, ')')
+  label_map_r_code_str = paste0("c(", paste(label_pairs_for_r_code, collapse = ", "), ")")
+
 
   # Handle options: replace, add, modify
   is_replace = !is.na(options_str) && stringi::stri_detect_fixed(options_str, "replace")
@@ -3138,12 +3136,11 @@ t_label_define = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   r_code_lines = c(r_code_lines, "if (!exists('stata2r_env$label_defs')) stata2r_env$label_defs = list()")
   
   if (is_replace) {
-      r_code_lines = c(r_code_lines, paste0("stata2r_env$label_defs$`", lblname, "` = ", new_labels_r_format_str))
+      r_code_lines = c(r_code_lines, paste0("stata2r_env$label_defs$`", lblname, "` = ", label_map_r_code_str))
   } else {
       # If not replacing, merge existing labels with new ones. New labels overwrite old ones.
       r_code_lines = c(r_code_lines, paste0("current_labels = stata2r_env$label_defs$`", lblname, "`"))
-      r_code_lines = c(r_code_lines, paste0("new_labels = ", new_labels_r_format_str))
-      # Combine, new_labels (on right) will overwrite current_labels if names (values) conflict
+      r_code_lines = c(r_code_lines, paste0("new_labels = ", label_map_r_code_str))
       r_code_lines = c(r_code_lines, paste0("stata2r_env$label_defs$`", lblname, "` = c(current_labels[!names(current_labels) %in% names(new_labels)], new_labels)"))
   }
 
@@ -4528,7 +4525,7 @@ rm(stata_tmp_is_duplicate_L20, stata_tmp_satisfies_cond_L20)
 temp_source_vector_L21 = data[['group']]
 temp_unique_labels_L21 = base::sort(base::unique(stats::na.omit(temp_source_vector_L21)))
 temp_numeric_values_L21 = base::match(temp_source_vector_L21, temp_unique_labels_L21)
-temp_label_map_L21 = if (length(temp_unique_labels_L21) > 0) stats::setNames(seq_along(temp_unique_labels_L21), temp_unique_labels_L21) else stats::setNames(numeric(0), character(0))
+temp_label_map_L21 = if (length(temp_unique_labels_L21) > 0) stats::setNames(seq_along(temp_unique_labels_L21), as.character(temp_unique_labels_L21)) else stats::setNames(numeric(0), character(0))
 stata_tmp_encoded_full_L21 = haven::labelled(as.integer(temp_numeric_values_L21), labels = temp_label_map_L21)
 rm(temp_source_vector_L21, temp_unique_labels_L21, temp_numeric_values_L21, temp_label_map_L21)
 data[['group_code']] = stata_tmp_encoded_full_L21
@@ -4541,7 +4538,7 @@ temp_unique_labels_L21 = base::sort(base::unique(stats::na.omit(temp_source_vect
 
 temp_numeric_values_L21 = base::match(temp_source_vector_L21, temp_unique_labels_L21)
 
-temp_label_map_L21 = if (length(temp_unique_labels_L21) > 0) stats::setNames(seq_along(temp_unique_labels_L21), temp_unique_labels_L21) else stats::setNames(numeric(0), character(0))
+temp_label_map_L21 = if (length(temp_unique_labels_L21) > 0) stats::setNames(seq_along(temp_unique_labels_L21), as.character(temp_unique_labels_L21)) else stats::setNames(numeric(0), character(0))
 
 stata_tmp_encoded_full_L21 = haven::labelled(as.integer(temp_numeric_values_L21), labels = temp_label_map_L21)
 
@@ -5006,7 +5003,7 @@ data = data %>%
 temp_source_vector_L41 = data[['group_clean']]
 temp_unique_labels_L41 = base::sort(base::unique(stats::na.omit(temp_source_vector_L41)))
 temp_numeric_values_L41 = base::match(temp_source_vector_L41, temp_unique_labels_L41)
-temp_label_map_L41 = if (length(temp_unique_labels_L41) > 0) stats::setNames(seq_along(temp_unique_labels_L41), temp_unique_labels_L41) else stats::setNames(numeric(0), character(0))
+temp_label_map_L41 = if (length(temp_unique_labels_L41) > 0) stats::setNames(seq_along(temp_unique_labels_L41), as.character(temp_unique_labels_L41)) else stats::setNames(numeric(0), character(0))
 stata_tmp_encoded_full_L41 = haven::labelled(as.integer(temp_numeric_values_L41), labels = temp_label_map_L41)
 rm(temp_source_vector_L41, temp_unique_labels_L41, temp_numeric_values_L41, temp_label_map_L41)
 data[['group_code_num']] = stata_tmp_encoded_full_L41
@@ -5019,7 +5016,7 @@ temp_unique_labels_L41 = base::sort(base::unique(stats::na.omit(temp_source_vect
 
 temp_numeric_values_L41 = base::match(temp_source_vector_L41, temp_unique_labels_L41)
 
-temp_label_map_L41 = if (length(temp_unique_labels_L41) > 0) stats::setNames(seq_along(temp_unique_labels_L41), temp_unique_labels_L41) else stats::setNames(numeric(0), character(0))
+temp_label_map_L41 = if (length(temp_unique_labels_L41) > 0) stats::setNames(seq_along(temp_unique_labels_L41), as.character(temp_unique_labels_L41)) else stats::setNames(numeric(0), character(0))
 
 stata_tmp_encoded_full_L41 = haven::labelled(as.integer(temp_numeric_values_L41), labels = temp_label_map_L41)
 
@@ -5031,10 +5028,10 @@ rm(stata_tmp_encoded_full_L41)
 
  42 do:  label define group_label_map 1 "alpha" 2 "beta" 3 "gamma" 4 "unknown", replace
  42 r:  if (!exists('stata2r_env$label_defs')) stata2r_env$label_defs = list()
-stata2r_env$label_defs$`group_label_map` = c("alpha" = 1, "beta" = 2, "gamma" = 3, "unknown" = 4) 
+stata2r_env$label_defs$`group_label_map` = c("alpha" = as.numeric(1), "beta" = as.numeric(2), "gamma" = as.numeric(3), "unknown" = as.numeric(4)) 
 if (!exists('stata2r_env$label_defs')) stata2r_env$label_defs = list()
 
-stata2r_env$label_defs$`group_label_map` = c("alpha" = 1, "beta" = 2, "gamma" = 3, "unknown" = 4)
+stata2r_env$label_defs$`group_label_map` = c("alpha" = as.numeric(1), "beta" = as.numeric(2), "gamma" = as.numeric(3), "unknown" = as.numeric(4))
 
  43 do:  label values group_code_num group_label_map
  43 r:  if (!exists('stata2r_env$label_defs')) stata2r_env$label_defs = list()
@@ -5198,7 +5195,7 @@ tibble [50 × 41] (S3: tbl_df/tbl/data.frame)
   ..- attr(*, "format.stata")= chr "%9.0g"
  $ int_value1                : num [1:50] 73 NA 52 29 44 NA 41 20 31 70 ...
  $ rounded_value1            : num [1:50] 73.9 NA 52.8 29.8 44.2 NA 41.7 20 31.9 70.1 ...
- $ random_uniform_draw       : num [1:50] 0.00279 0.83131 0.46071 0.67091 0.1942 ...
+ $ random_uniform_draw       : num [1:50] 0.709 0.662 0.309 0.214 0.614 ...
  $ id_plus_value2            : num [1:50] 5 5 NA NA 8 8 10 14 15 NA ...
  $ group_clean               : chr [1:50] "gamma" "gamma" "beta" "beta" ...
  $ group_abbr                : chr [1:50] "gam" "gam" "bet" "bet" ...

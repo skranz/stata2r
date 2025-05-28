@@ -194,7 +194,7 @@ rm(stata_tmp_is_duplicate_L20, stata_tmp_satisfies_cond_L20)
 temp_source_vector_L21 = data[['group']]
 temp_unique_labels_L21 = base::sort(base::unique(stats::na.omit(temp_source_vector_L21)))
 temp_numeric_values_L21 = base::match(temp_source_vector_L21, temp_unique_labels_L21)
-temp_label_map_L21 = if (length(temp_unique_labels_L21) > 0) stats::setNames(seq_along(temp_unique_labels_L21), temp_unique_labels_L21) else stats::setNames(numeric(0), character(0))
+temp_label_map_L21 = if (length(temp_unique_labels_L21) > 0) stats::setNames(seq_along(temp_unique_labels_L21), as.character(temp_unique_labels_L21)) else stats::setNames(numeric(0), character(0))
 stata_tmp_encoded_full_L21 = haven::labelled(as.integer(temp_numeric_values_L21), labels = temp_label_map_L21)
 rm(temp_source_vector_L21, temp_unique_labels_L21, temp_numeric_values_L21, temp_label_map_L21)
 data[['group_code']] = stata_tmp_encoded_full_L21
@@ -207,7 +207,7 @@ temp_unique_labels_L21 = base::sort(base::unique(stats::na.omit(temp_source_vect
 
 temp_numeric_values_L21 = base::match(temp_source_vector_L21, temp_unique_labels_L21)
 
-temp_label_map_L21 = if (length(temp_unique_labels_L21) > 0) stats::setNames(seq_along(temp_unique_labels_L21), temp_unique_labels_L21) else stats::setNames(numeric(0), character(0))
+temp_label_map_L21 = if (length(temp_unique_labels_L21) > 0) stats::setNames(seq_along(temp_unique_labels_L21), as.character(temp_unique_labels_L21)) else stats::setNames(numeric(0), character(0))
 
 stata_tmp_encoded_full_L21 = haven::labelled(as.integer(temp_numeric_values_L21), labels = temp_label_map_L21)
 
@@ -672,7 +672,7 @@ data = data %>%
 temp_source_vector_L41 = data[['group_clean']]
 temp_unique_labels_L41 = base::sort(base::unique(stats::na.omit(temp_source_vector_L41)))
 temp_numeric_values_L41 = base::match(temp_source_vector_L41, temp_unique_labels_L41)
-temp_label_map_L41 = if (length(temp_unique_labels_L41) > 0) stats::setNames(seq_along(temp_unique_labels_L41), temp_unique_labels_L41) else stats::setNames(numeric(0), character(0))
+temp_label_map_L41 = if (length(temp_unique_labels_L41) > 0) stats::setNames(seq_along(temp_unique_labels_L41), as.character(temp_unique_labels_L41)) else stats::setNames(numeric(0), character(0))
 stata_tmp_encoded_full_L41 = haven::labelled(as.integer(temp_numeric_values_L41), labels = temp_label_map_L41)
 rm(temp_source_vector_L41, temp_unique_labels_L41, temp_numeric_values_L41, temp_label_map_L41)
 data[['group_code_num']] = stata_tmp_encoded_full_L41
@@ -685,7 +685,7 @@ temp_unique_labels_L41 = base::sort(base::unique(stats::na.omit(temp_source_vect
 
 temp_numeric_values_L41 = base::match(temp_source_vector_L41, temp_unique_labels_L41)
 
-temp_label_map_L41 = if (length(temp_unique_labels_L41) > 0) stats::setNames(seq_along(temp_unique_labels_L41), temp_unique_labels_L41) else stats::setNames(numeric(0), character(0))
+temp_label_map_L41 = if (length(temp_unique_labels_L41) > 0) stats::setNames(seq_along(temp_unique_labels_L41), as.character(temp_unique_labels_L41)) else stats::setNames(numeric(0), character(0))
 
 stata_tmp_encoded_full_L41 = haven::labelled(as.integer(temp_numeric_values_L41), labels = temp_label_map_L41)
 
@@ -697,10 +697,10 @@ rm(stata_tmp_encoded_full_L41)
 
  42 do:  label define group_label_map 1 "alpha" 2 "beta" 3 "gamma" 4 "unknown", replace
  42 r:  if (!exists('stata2r_env$label_defs')) stata2r_env$label_defs = list()
-stata2r_env$label_defs$`group_label_map` = c("alpha" = 1, "beta" = 2, "gamma" = 3, "unknown" = 4) 
+stata2r_env$label_defs$`group_label_map` = c("alpha" = as.numeric(1), "beta" = as.numeric(2), "gamma" = as.numeric(3), "unknown" = as.numeric(4)) 
 if (!exists('stata2r_env$label_defs')) stata2r_env$label_defs = list()
 
-stata2r_env$label_defs$`group_label_map` = c("alpha" = 1, "beta" = 2, "gamma" = 3, "unknown" = 4)
+stata2r_env$label_defs$`group_label_map` = c("alpha" = as.numeric(1), "beta" = as.numeric(2), "gamma" = as.numeric(3), "unknown" = as.numeric(4))
 
  43 do:  label values group_code_num group_label_map
  43 r:  if (!exists('stata2r_env$label_defs')) stata2r_env$label_defs = list()
@@ -864,7 +864,7 @@ tibble [50 × 41] (S3: tbl_df/tbl/data.frame)
   ..- attr(*, "format.stata")= chr "%9.0g"
  $ int_value1                : num [1:50] 73 NA 52 29 44 NA 41 20 31 70 ...
  $ rounded_value1            : num [1:50] 73.9 NA 52.8 29.8 44.2 NA 41.7 20 31.9 70.1 ...
- $ random_uniform_draw       : num [1:50] 0.00279 0.83131 0.46071 0.67091 0.1942 ...
+ $ random_uniform_draw       : num [1:50] 0.709 0.662 0.309 0.214 0.614 ...
  $ id_plus_value2            : num [1:50] 5 5 NA NA 8 8 10 14 15 NA ...
  $ group_clean               : chr [1:50] "gamma" "gamma" "beta" "beta" ...
  $ group_abbr                : chr [1:50] "gam" "gam" "bet" "bet" ...

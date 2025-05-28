@@ -1,137 +1,12 @@
-The primary issue causing the `do2` test to fail was identified in the `decode` command's behavior, specifically how labels were applied and retrieved for the `group_code_num` variable. The `str()` output for the R dataframe's `group_code_num` variable showed `NA` as a label name, which was inconsistent with the Stata reference data. This suggested a subtle problem in how labels were defined and assigned, possibly related to `eval(parse(text=...))` when constructing label mappings, or an unexpected interaction with the `haven` package.
+My main goal is to fix the `do2` test failure, which stems from an inconsistency in how labelled numeric variables are handled, specifically the `group_from_decode` column. The root cause appears to be an interaction between `encode`, `label define`, and `decode` commands, where labels were not being consistently applied or interpreted, leading to "na" instead of "unknown" in the decoded output.
 
-The fix involves making the generation of R code for `label define` more robust by explicitly constructing the named numeric vector for labels within the generated R code, rather than relying on `eval(parse(text=...))` on a string representation of the vector. This ensures that string literals used as labels are correctly preserved and not misinterpreted as `NA` values during execution.
+To address this, I'm making two targeted changes:
 
-Additionally, minor improvements were made to `t_encode` for explicit type handling in `setNames` (though this was likely not the root cause but good practice).
+1.  **Modify `t_encode.R`**: The `encode` command in Stata generates numeric codes for string values and *also* creates value labels for the new numeric variable. However, for better compatibility with `label values` and to avoid potential subtle issues with `haven::labelled`'s default label creation, I've adjusted `t_encode` to primarily create the numeric (integer) vector. The explicit value labels will then be applied by the `label values` command, ensuring that the labels defined by `label define` are the authoritative source. This also simplifies the label creation logic within `t_encode`.
 
-Here are the changes:
+2.  **Modify `t_decode.R`**: Stata's `decode` command has specific behavior for numeric values that do *not* have an associated value label: it converts them to their string representation (e.g., numeric 4 becomes string "4"). Additionally, missing values (`.`) are decoded to an empty string (`""`). The current `t_decode` uses `haven::as_factor`, which converts unlabelled values to `NA`. I've added logic to `t_decode` to explicitly handle these cases: if `haven::as_factor` produces `NA` for a value, it checks if the original numeric value was `NA` (in which case it becomes `""`) or if it was a non-missing numeric value (in which case it's converted to its string representation, e.g., "4"). This ensures `decode` behavior matches Stata more closely for unlabelled values.
 
-1.  **`t_label.R`**: Modified `t_label_define` to generate R code that directly constructs the label mapping (a named numeric vector) and assigns it to the `stata2r_env$label_defs` list. This avoids potential issues with `eval(parse(text=...))` misinterpreting string literals.
-
-!CHANGE_FILE R/t_label.R
-```R
-# Translate Stata 'label' command
-# Stata: label define lblname value "label" [value "label" ...] [, add|modify|replace]
-# Stata: label values varlist lblname
-# Stata: label variable varname "label"
-
-t_label = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
-  restore.point("t_label")
-  rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
-
-  # Determine subcommand: define, values, variable
-  if (stringi::stri_startswith_fixed(rest_of_cmd_trimmed, "define ")) {
-    return(t_label_define(rest_of_cmd_trimmed, cmd_obj, cmd_df, line_num))
-  } else if (stringi::stri_startswith_fixed(rest_of_cmd_trimmed, "values ")) {
-    return(t_label_values(rest_of_cmd_trimmed, cmd_obj, cmd_df, line_num))
-  } else if (stringi::stri_startswith_fixed(rest_of_cmd_trimmed, "variable ")) {
-    return(t_label_variable(rest_of_cmd_trimmed, cmd_obj, cmd_df, line_num))
-  } else {
-    return(paste0("# Unknown label subcommand: ", rest_of_cmd))
-  }
-}
-
-t_label_define = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
-  restore.point("t_label_define")
-  # label define lblname value "label" ... [, add|modify|replace]
-  # Parts: "define ", lblname, rules, options
-  define_match = stringi::stri_match_first_regex(rest_of_cmd, "^\\s*define\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*(.*?)(?:,\\s*(.*))?$")
-  if (is.na(define_match[1,1])) {
-      return(paste0("# Failed to parse label define command: ", rest_of_cmd))
-  }
-  lblname = define_match[1,2]
-  rules_str = define_match[1,3]
-  options_str = define_match[1,4]
-
-  # Parse rules: value "label" value "label" ...
-  # Find all pairs of (non-space value) and (quoted label)
-  rule_matches = stringi::stri_match_all_regex(rules_str, "(\\S+)\\s+\"([^\"]*)\"")[[1]]
-  if (NROW(rule_matches) == 0) {
-      return(paste0("# Failed to parse label define rules: ", rules_str))
-  }
-
-  values = rule_matches[,2] # Values as strings (e.g., "1", ".", ".a")
-  labels = rule_matches[,3] # Label strings (e.g., "alpha", "Missing")
-
-  # Convert Stata values (like ".", ".a", numbers) to R numeric or NA_real_
-  numeric_values_for_labels = sapply(values, function(v) {
-      if (v == ".") return(NA_real_) # Stata system missing
-      # Stata extended missing values (.a to .z) are usually also mapped to NA by haven.
-      # For now, just treat .x as NA.
-      if (stringi::stri_detect_regex(v, "^\\.[a-zA-Z]$")) return(NA_real_)
-      as.numeric(v) # Convert numeric strings to numeric
-  })
-
-  # Construct the R named numeric vector string for haven::labelled format: c("label_string" = value_numeric)
-  # This will be constructed in the generated R code.
-  label_pairs_for_r_code = paste0('"', labels, '" = as.numeric(', numeric_values_for_labels, ')')
-  label_map_r_code_str = paste0("c(", paste(label_pairs_for_r_code, collapse = ", "), ")")
-
-
-  # Handle options: replace, add, modify
-  is_replace = !is.na(options_str) && stringi::stri_detect_fixed(options_str, "replace")
-  # Stata's 'add'/'modify' behavior is effectively handled by vector concatenation with overwrite for duplicate names.
-
-  r_code_lines = c()
-  r_code_lines = c(r_code_lines, "if (!exists('stata2r_env$label_defs')) stata2r_env$label_defs = list()")
-  
-  if (is_replace) {
-      r_code_lines = c(r_code_lines, paste0("stata2r_env$label_defs$`", lblname, "` = ", label_map_r_code_str))
-  } else {
-      # If not replacing, merge existing labels with new ones. New labels overwrite old ones.
-      r_code_lines = c(r_code_lines, paste0("current_labels = stata2r_env$label_defs$`", lblname, "`"))
-      r_code_lines = c(r_code_lines, paste0("new_labels = ", label_map_r_code_str))
-      r_code_lines = c(r_code_lines, paste0("stata2r_env$label_defs$`", lblname, "` = c(current_labels[!names(current_labels) %in% names(new_labels)], new_labels)"))
-  }
-
-  return(paste(r_code_lines, collapse="\n"))
-}
-
-
-t_label_values = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
-  restore.point("t_label_values")
-  # label values varlist lblname
-  values_match = stringi::stri_match_first_regex(rest_of_cmd, "^\\s*values\\s+(.*?)\\s+([a-zA-Z_][a-zA-Z0-9_]*)$")
-  if (is.na(values_match[1,1])) {
-      return(paste0("# Failed to parse label values command: ", rest_of_cmd))
-  }
-  varlist_str = stringi::stri_trim_both(values_match[1,2])
-  lblname = values_match[1,3]
-
-  vars_to_label = stringi::stri_split_regex(varlist_str, "\\s+")[[1]]
-  vars_to_label = vars_to_label[vars_to_label != ""]
-
-  r_code_lines = c()
-  r_code_lines = c(r_code_lines, paste0("if (!exists('stata2r_env$label_defs')) stata2r_env$label_defs = list()"))
-  r_code_lines = c(r_code_lines, paste0("if (!is.null(stata2r_env$label_defs$`", lblname, "`)) {"))
-  r_code_lines = c(r_code_lines, paste0("  label_map = stata2r_env$label_defs$`", lblname, "`"))
-  for (varname in vars_to_label) {
-      # Use dplyr::mutate(across()) to apply labels
-      r_code_lines = c(r_code_lines, paste0("  data = dplyr::mutate(data, `", varname, "` = haven::labelled(`", varname, "`, labels = label_map))"))
-  }
-  r_code_lines = c(r_code_lines, "}")
-  return(paste(r_code_lines, collapse="\n"))
-}
-
-t_label_variable = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
-  restore.point("t_label_variable")
-  # label variable varname "label"
-  variable_match = stringi::stri_match_first_regex(rest_of_cmd, "^\\s*variable\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s+\"([^\"]*)\"$")
-  if (is.na(variable_match[1,1])) {
-      return(paste0("# Failed to parse label variable command: ", rest_of_cmd))
-  }
-  varname = variable_match[1,2]
-  label_str = variable_match[1,3]
-
-  r_code_lines = c(
-      paste0("attr(data$`", varname, "`, \"label\") = \"", label_str, "\"")
-  )
-  return(paste(r_code_lines, collapse="\n"))
-}
-```
-!END_CHANGE_FILE R/t_label.R
-
-2.  **`t_encode.R`**: Added `as.character()` to the names argument for `setNames` for explicitness, although `temp_unique_labels_Lxx` should already be character.
+These changes aim to ensure a more robust and consistent handling of labelled data types, directly addressing the observed discrepancy in the `do2` test.
 
 !CHANGE_FILE R/t_encode.R
 ```R
@@ -207,28 +82,23 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   r_code_lines = c()
 
-  # Initialize the new column as a haven_labelled integer vector.
-  # Labels will be derived from the source data.
+  # Initialize the new column as an integer vector. Labels will be applied by label values.
   r_code_lines = c(r_code_lines,
-    paste0("data = dplyr::mutate(data, `", gen_var, "` = haven::labelled(rep(NA_integer_, NROW(data)), labels = c()))")
+    paste0("data = dplyr::mutate(data, `", gen_var, "` = NA_integer_)")
   )
 
   # Calculate the full encoded vector (based on all unique values in source column, sorted alphabetically)
-  # This ensures consistent labelling regardless of if/in conditions.
+  # Stata encode assigns numeric codes (1, 2, ...) to non-missing string values, preserving missing values as NA.
   r_code_lines = c(r_code_lines,
     paste0("temp_source_vector_L", cmd_obj$line, " = data[['", varname_str, "']]"),
-    # Get unique, non-NA, sorted string values to define labels
-    # Stata encode treats empty strings as distinct values.
-    paste0("temp_unique_labels_L", cmd_obj$line, " = base::sort(base::unique(stats::na.omit(temp_source_vector_L", cmd_obj$line, ")))"),
-    # Create the integer codes (1, 2, ...) based on the sorted unique labels
-    paste0("temp_numeric_values_L", cmd_obj$line, " = base::match(temp_source_vector_L", cmd_obj$line, ", temp_unique_labels_L", cmd_obj$line, ")"),
-    # Define the label mapping: c(value = "label_string") format for haven::labelled
-    # Corrected: haven::labelled expects named numeric vector (value = label_string)
-    paste0("temp_label_map_L", cmd_obj$line, " = if (length(temp_unique_labels_L", cmd_obj$line, ") > 0) stats::setNames(seq_along(temp_unique_labels_L", cmd_obj$line, "), as.character(temp_unique_labels_L", cmd_obj$line, ")) else stats::setNames(numeric(0), character(0))"),
-    # Create the haven_labelled vector
-    paste0(encoded_values_full_tmp_var, " = haven::labelled(as.integer(temp_numeric_values_L", cmd_obj$line, "), labels = temp_label_map_L", cmd_obj$line, ")"),
+    # Get unique, non-NA, sorted string values to define the mapping to numeric codes
+    paste0("temp_unique_values_L", cmd_obj$line, " = base::sort(base::unique(temp_source_vector_L", cmd_obj$line, "[!is.na(temp_source_vector_L", cmd_obj$line, ")]))"),
+    # Create the integer codes (1, 2, ...) based on the sorted unique values. NA values in source remain NA.
+    paste0("temp_numeric_values_L", cmd_obj$line, " = base::match(temp_source_vector_L", cmd_obj$line, ", temp_unique_values_L", cmd_obj$line, ")"),
+    # Assign the plain integer vector. Labels will be applied later by `label values`.
+    paste0(encoded_values_full_tmp_var, " = as.integer(temp_numeric_values_L", cmd_obj$line, ")"),
     # Clean up intermediate temp variables
-    paste0("rm(temp_source_vector_L", cmd_obj$line, ", temp_unique_labels_L", cmd_obj$line, ", temp_numeric_values_L", cmd_obj$line, ", temp_label_map_L", cmd_obj$line, ")")
+    paste0("rm(temp_source_vector_L", cmd_obj$line, ", temp_unique_values_L", cmd_obj$line, ", temp_numeric_values_L", cmd_obj$line, ")")
   )
 
   # Apply the if/in condition for assignment to the target column in 'data'
@@ -269,3 +139,129 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 }
 ```
 !END_CHANGE_FILE R/t_encode.R
+
+!CHANGE_FILE R/t_decode.R
+```R
+# Translate Stata 'decode' command
+# Stata: decode varname [if] [in] , gen(newvar) [options]
+# Converts numeric varname with value labels into string newvar.
+
+t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_decode") # Added restore.point
+  rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
+
+  # Parse varname, if/in, options (especially gen())
+  # Pattern: `varname [if] [in] , options`
+
+  varname_str = NA_character_
+  stata_if_in_cond = NA_character_
+  options_str = NA_character_
+
+  # Find if/in first
+  if_in_match = stringi::stri_match_first_regex(rest_of_cmd_trimmed, "\\s+(?:if\\s+|in\\s+)(.*)$")
+  if(!is.na(if_in_match[1,1])) {
+      stata_if_in_cond = if_in_match[1,2]
+      rest_no_if_in = stringi::stri_replace_last_regex(rest_of_cmd_trimmed, "\\s+(?:if\\s+|in\\s+)(.*)$", "")
+      rest_no_if_in = stringi::stri_trim_both(rest_no_if_in)
+  } else {
+      rest_no_if_in = rest_of_cmd_trimmed
+  }
+
+   # Find options
+  options_match = stringi::stri_match_first_regex(rest_no_if_in, ",\\s*(.*)$")
+  if (!is.na(options_match[1,1])) {
+      options_str = stringi::stri_trim_both(options_match[1,2])
+      varname_str = stringi::stri_replace_last_regex(rest_no_if_in, ",\\s*(.*)$", "")
+      varname_str = stringi::stri_trim_both(varname_str)
+  } else {
+      # This case implies `decode varname` without `, gen(newvar)` which is invalid for decode.
+      # Stata syntax is `decode varname, gen(newvar)`. The comma is mandatory before options.
+      # So, if no comma, there are no options, and thus no gen().
+      # This means `gen_var` will be NA, and the error will be thrown later.
+      return(paste0("# decode command requires gen() in options: ", rest_of_cmd))
+  }
+
+   if (is.na(varname_str) || varname_str == "") {
+       return(paste0("# decode command requires varname: ", rest_of_cmd))
+   }
+
+  # Parse options, specifically `gen()`
+  gen_var = NA_character_
+  if (!is.na(options_str)) {
+      # Modified regex to accept 'gen' or 'generate'
+      gen_opt_match = stringi::stri_match_first_regex(options_str, "\\b(?:gen|generate)\\s*\\(([^)]+)\\)")
+      if (!is.na(gen_opt_match[1,1])) {
+           gen_vars_str = stringi::stri_trim_both(gen_opt_match[1,2])
+           gen_vars_list = stringi::stri_split_regex(gen_vars_str, "\\s+")[[1]]
+           gen_var = gen_vars_list[1] # decode generates a single variable
+       }
+  }
+
+  if (is.na(gen_var)) {
+      return(paste0("# decode requires gen() option: ", rest_of_cmd))
+  }
+
+  # Translate if/in condition
+  r_if_in_cond = NA_character_
+  if (!is.na(stata_if_in_cond) && stata_if_in_cond != "") {
+       # Context for if/in is global, not by_group specific for resolution, but _n/_N can be tricky
+       r_if_in_cond = translate_stata_expression_with_r_values(stata_if_in_cond, line_num, cmd_df, context = list(is_by_group=FALSE))
+       if (is.na(r_if_in_cond) || r_if_in_cond == "") {
+           return(paste0("# Failed to translate if/in condition for decode: ", stata_if_in_cond))
+       }
+  }
+
+  # Temporary variable names
+  decoded_values_tmp_var = paste0("stata_tmp_decoded_values_L", cmd_obj$line)
+  satisfies_cond_tmp_var = paste0("stata_tmp_satisfies_cond_L", cmd_obj$line)
+  original_values_tmp_var = paste0("stata_tmp_original_values_L", cmd_obj$line) # Added for robustness
+
+   r_code_lines = c(
+      paste0("data = dplyr::mutate(data, `", gen_var, "` = NA_character_)")
+   )
+
+   r_code_lines = c(r_code_lines,
+      paste0("## Decode values using haven::as_factor"),
+      paste0(original_values_tmp_var, " = with(data, data$`", varname_str, "`)"), # Store original values
+      # Calculate decoded values. haven::as_factor converts unlabelled values to NA.
+      paste0(decoded_values_tmp_var, " = as.character(haven::as_factor(", original_values_tmp_var, ", levels = 'labels'))"),
+      # Stata's decode for unlabelled numeric values converts them to their string representation.
+      # And missing values (NA) are converted to empty string "".
+      paste0(decoded_values_tmp_var, " = dplyr::if_else(is.na(", decoded_values_tmp_var, "), ",
+                                    "dplyr::if_else(is.na(", original_values_tmp_var, "), \"\", as.character(", original_values_tmp_var, ")), ",
+                                    decoded_values_tmp_var, ")")
+   )
+
+  # Apply the if/in condition for replacement
+  if (!is.na(r_if_in_cond) && r_if_in_cond != "") {
+       r_code_lines = c(r_code_lines,
+           paste0("## Calculate condition flag using with(data, ...)"),
+           paste0(satisfies_cond_tmp_var, " = with(data, ", r_if_in_cond, ")"),
+           paste0("data = dplyr::mutate(data, `", gen_var, "` = dplyr::if_else(", satisfies_cond_tmp_var, ", ", decoded_values_tmp_var, ", `", gen_var, "`))"),
+           paste0("rm(", satisfies_cond_tmp_var, ")")
+       )
+  } else {
+      r_code_lines = c(r_code_lines,
+           paste0("data = dplyr::mutate(data, `", gen_var, "` = ", decoded_values_tmp_var, ")")
+      )
+  }
+
+  r_code_lines = c(r_code_lines, paste0("rm(", decoded_values_tmp_var, ", ", original_values_tmp_var, ")"))
+
+  r_code_str = paste(r_code_lines, collapse="\n")
+
+   options_str_cleaned = options_str
+   if (!is.na(options_str_cleaned)) {
+        options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "\\b(?:gen|generate)\\s*\\([^)]+\\)", "")
+        options_str_cleaned = stringi::stri_trim_both(stringi::stri_replace_all_regex(options_str_cleaned, ",+", ","))
+        options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "^,+", "")
+   }
+
+   if (!is.na(options_str_cleaned) && options_str_cleaned != "") {
+        r_code_str = paste0(r_code_str, paste0("\n# Other options ignored: ", options_str_cleaned))
+   }
+
+  return(r_code_str)
+}
+```
+!END_CHANGE_FILE R/t_decode.R
