@@ -1,4 +1,4 @@
-The issue stems from a subtle interaction with how column names are referenced within `dplyr::mutate` and `stringi::stri_paste` in the `t_egen` function for the `concat` command. By explicitly referencing columns using `data[['column_name']]` instead of backticks, we ensure that the variables are accessed directly from the `data` dataframe, preventing any unintended evaluation or coercion that might lead to the `TRUE` suffix.
+The main fix addresses the `egen concat()` command translation in `t_egen.R`. The previous implementation of `stringi::stri_paste` with `na_empty = TRUE` was leading to an unexpected concatenation of the boolean `TRUE` string in the output. The updated logic explicitly handles missing values by replacing `NA`s with empty strings *before* concatenation, ensuring correct Stata-like behavior for `concat()` where missing values are treated as empty strings unless all arguments are missing (in which case the result is missing).
 
 !CHANGE_FILE R/t_egen.R
 ```R
@@ -198,20 +198,26 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       return(paste0("# egen concat() requires variables to concatenate."))
     }
 
-    # Construct the arguments for stri_paste, ensuring explicit character conversion
-    # Use data[['var_name']] for explicit column access to avoid subtle evaluation issues.
-    stri_paste_args = paste0("as.character(data[['", vars_to_concat_list, "']])", collapse = ", ")
-    
+    # Stata: If all variables in varlist are missing, newvar is missing. Otherwise, missing values are treated as empty strings.
+    # Approach:
+    # 1. Check if all input variables for a row are NA. If so, result is NA.
+    # 2. Otherwise, for each variable, replace NA with "" and then concatenate.
+
     # Expression to check if all relevant variables in a row are NA.
     # Use data[['var_name']] for explicit column access.
-    all_vars_na_check = paste0("(", paste0("is.na(data[['", vars_to_concat_list, "']])", collapse = " & "), ")")
+    all_vars_na_check_list = paste0("is.na(data[['", vars_to_concat_list, "']])")
+    all_vars_na_check_expr = paste0("(", paste0(all_vars_na_check_list, collapse = " & "), ")")
+
+    # Arguments for stri_paste, with NAs replaced by empty strings
+    stri_paste_args_with_na_empty = paste0("dplyr::if_else(is.na(as.character(data[['", vars_to_concat_list, "']])), \"\", as.character(data[['", vars_to_concat_list, "']]))", collapse = ", ")
 
     # Expression for the actual concatenation
-    concat_part = paste0("stringi::stri_paste(", stri_paste_args, ", sep = '', na_empty = TRUE)")
+    # Use na_empty = FALSE (default) because NAs are already handled.
+    concat_result_expr = paste0("stringi::stri_paste(", stri_paste_args_with_na_empty, ", sep = '')")
 
     # Combine using if_else to handle the all-NA case (Stata concat(.,.) returns . (missing))
-    calc_expr = paste0("dplyr::if_else(", all_vars_na_check, ", NA_character_, ", concat_part, ")")
-    
+    calc_expr = paste0("dplyr::if_else(", all_vars_na_check_expr, ", NA_character_, ", concat_result_expr, ")")
+
     is_row_function = TRUE # Concatenation is inherently row-wise.
   } else {
     return(paste0("# Egen function '", egen_func_name, "' not yet implemented."))
