@@ -223,7 +223,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     # Stata's `bysort` sorts by all variables in `varlist` (group + sort).
     sort_vars_for_arrange = unique(c(group_vars_list_bare, cmd_obj$by_sort_vars))
     sort_vars_for_arrange = sort_vars_for_arrange[!is.na(sort_vars_for_arrange) & sort_vars_for_arrange != ""]
-  } else if (egen_func_name %in% c("rank", "group", "tag")) {
+  } else if (egen_func_name %in% c("rank", "group", "tag")) { # Added "rank" here
     # If not by-prefix, but it's a function sensitive to order (rank, group, tag)
     # and has a by() option, or implicit grouping through function args.
     # The `by()` option variables are already in `group_vars_list_bare`.
@@ -267,9 +267,9 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     pipe_elements = c(pipe_elements, "dplyr::ungroup()")
   }
 
-  # For `group` and `tag` functions, restore original order IF an initial arrange was done.
+  # For `group`, `tag`, and `rank` functions, restore original order IF an initial arrange was done.
   # This is crucial for matching Stata's behavior of not changing overall order unless explicitly sorted later.
-  if (egen_func_name %in% c("group", "tag") && arrange_call_str != "" && !is_row_function) {
+  if (egen_func_name %in% c("group", "tag", "rank") && arrange_call_str != "" && !is_row_function) { # Added "rank" here
     pipe_elements = c(pipe_elements, "dplyr::arrange(stata2r_original_order_idx)")
   }
 
@@ -292,5 +292,4 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
-
 
