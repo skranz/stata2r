@@ -299,7 +299,6 @@ compare_df = function(df1, df2,
   out
 }
 
-
 ```
 ### END OF FILE: aic_do_test.R
 
@@ -2175,11 +2174,11 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       # Replace NA values with Inf to rank them highest.
       # Note: r_egen_args_conditional already applies if/in conditions, yielding NA for rows not meeting condition.
       # These NAs should also be treated as largest for ranking due to fieldstrustmissings.
-      val_for_ranking = paste0("dplyr::if_else(is.na(", r_egen_args_conditional, "), Inf, ", r_egen_args_conditional, ")")
-      calc_expr = paste0("base::rank(", val_for_ranking, ", ties.method = 'average', na.last = 'keep')") # Added na.last = 'keep'
+      val_for_ranking = paste0("as.numeric(dplyr::if_else(is.na(", r_egen_args_conditional, "), Inf, ", r_egen_args_conditional, "))")
+      calc_expr = paste0("as.numeric(base::rank(", val_for_ranking, ", ties.method = 'average', na.last = 'keep'))")
     } else {
       # Default Stata rank: NAs get NA ranks, and uses 'average' method for ties.
-      calc_expr = paste0("base::rank(", r_egen_args_conditional, ", ties.method = 'average', na.last = 'keep')")
+      calc_expr = paste0("as.numeric(base::rank(", r_egen_args_conditional, ", ties.method = 'average', na.last = 'keep'))")
     }
   } else if (egen_func_name == "median" || egen_func_name == "p50") {
     calc_expr = paste0("stats::median(", r_egen_args_conditional, ", na.rm = TRUE)")
@@ -3905,13 +3904,13 @@ data = data %>%
  12 r:  data = dplyr::arrange(data, !!!dplyr::syms(c("group")))
 data = data %>% 
   dplyr::group_by(!!!dplyr::syms(c("group"))) %>% 
-  dplyr::mutate(`rank_i` = base::rank(i, ties.method = 'average', na.last = 'keep')) %>% 
+  dplyr::mutate(`rank_i` = as.numeric(base::rank(i, ties.method = 'average', na.last = 'keep'))) %>% 
   dplyr::ungroup() 
 data = dplyr::arrange(data, !!!dplyr::syms(c("group")))
 
 data = data %>% 
   dplyr::group_by(!!!dplyr::syms(c("group"))) %>% 
-  dplyr::mutate(`rank_i` = base::rank(i, ties.method = 'average', na.last = 'keep')) %>% 
+  dplyr::mutate(`rank_i` = as.numeric(base::rank(i, ties.method = 'average', na.last = 'keep'))) %>% 
   dplyr::ungroup()
 
  13 do:  gen flag = (i>20) if group=="A"
@@ -4340,13 +4339,13 @@ data = data %>%
  23 r:  data = data %>% 
   dplyr::arrange(!!!dplyr::syms(c("group_clean", "value1"))) %>% 
   dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
-  dplyr::mutate(`rank_value1_in_group` = base::rank(dplyr::if_else(is.na(value1), Inf, value1), ties.method = 'average', na.last = 'keep')) %>% 
+  dplyr::mutate(`rank_value1_in_group` = as.numeric(base::rank(as.numeric(dplyr::if_else(is.na(value1), Inf, value1)), ties.method = 'average', na.last = 'keep'))) %>% 
   dplyr::ungroup() %>% 
   dplyr::arrange(stata2r_original_order_idx) 
 data = data %>% 
   dplyr::arrange(!!!dplyr::syms(c("group_clean", "value1"))) %>% 
   dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
-  dplyr::mutate(`rank_value1_in_group` = base::rank(dplyr::if_else(is.na(value1), Inf, value1), ties.method = 'average', na.last = 'keep')) %>% 
+  dplyr::mutate(`rank_value1_in_group` = as.numeric(base::rank(as.numeric(dplyr::if_else(is.na(value1), Inf, value1)), ties.method = 'average', na.last = 'keep'))) %>% 
   dplyr::ungroup() %>% 
   dplyr::arrange(stata2r_original_order_idx)
 
@@ -4442,7 +4441,7 @@ tibble [50 × 26] (S3: tbl_df/tbl/data.frame)
   ..- attr(*, "format.stata")= chr "%9.0g"
  $ int_value1                : num [1:50] 73 NA 52 29 44 NA 41 20 31 70 ...
  $ rounded_value1            : num [1:50] 73.9 NA 52.8 29.8 44.2 NA 41.7 20 31.9 70.1 ...
- $ random_uniform_draw       : num [1:50] 0.962 0.13 0.684 0.718 0.905 ...
+ $ random_uniform_draw       : num [1:50] 0.324 0.551 0.624 0.345 0.941 ...
  $ id_plus_value2            : num [1:50] 5 5 NA NA 8 8 10 14 15 NA ...
  $ group_clean               : chr [1:50] "gamma" "gamma" "beta" "beta" ...
  $ group_abbr                : chr [1:50] "gam" "gam" "bet" "bet" ...
