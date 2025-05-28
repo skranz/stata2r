@@ -91,6 +91,12 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   temp_using_data_var = paste0("stata_tmp_using_data_L", line_num)
   r_code_lines = c(r_code_lines, paste0(temp_using_data_var, " = haven::read_dta(", using_source_r_expr, ")"))
 
+  # Strip haven attributes from both master and using dataframes before joining
+  # This can help avoid issues with dplyr operations on labelled columns.
+  # Stata merge operates on underlying values, not labels.
+  r_code_lines = c(r_code_lines, paste0("data = stata2r::sfun_strip_stata_attributes(data)"))
+  r_code_lines = c(r_code_lines, paste0(temp_using_data_var, " = stata2r::sfun_strip_stata_attributes(", temp_using_data_var, ")"))
+
   # For 1:1 merge, check for unique keys in both master and using datasets to replicate Stata's strictness
   if (merge_type == "1:1") {
       # Use dplyr::select to get the key columns as a tibble before passing to base::duplicated
@@ -101,6 +107,7 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
 
   # Ensure merge keys are plain numeric for robustness against haven-specific types
+  # This section remains, as it explicitly casts to numeric. stripping attributes doesn't guarantee numeric.
   r_code_lines = c(r_code_lines,
       paste0("data = dplyr::mutate(data, ", paste0("`", vars_to_merge_on, "` = as.numeric(`", vars_to_merge_on, "`)", collapse = ", "), ")"),
       paste0(temp_using_data_var, " = dplyr::mutate(", temp_using_data_var, ", ", paste0("`", vars_to_merge_on, "` = as.numeric(`", vars_to_merge_on, "`)", collapse = ", "), ")")
