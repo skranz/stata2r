@@ -94,8 +94,8 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Strip haven attributes from both master and using dataframes before joining
   # This can help avoid issues with dplyr operations on labelled columns.
   # Stata merge operates on underlying values, not labels.
-  r_code_lines = c(r_code_lines, paste0("data = stata2r::sfun_strip_stata_attributes(data)"))
-  r_code_lines = c(r_code_lines, paste0(temp_using_data_var, " = stata2r::sfun_strip_stata_attributes(", temp_using_data_var, ")"))
+  r_code_lines = c(r_code_lines, paste0("data = sfun_strip_stata_attributes(data)"))
+  r_code_lines = c(r_code_lines, paste0(temp_using_data_var, " = sfun_strip_stata_attributes(", temp_using_data_var, ")"))
 
   # For 1:1 merge, check for unique keys in both master and using datasets to replicate Stata's strictness
   if (merge_type == "1:1") {
@@ -173,4 +173,5 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 

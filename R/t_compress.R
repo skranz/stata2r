@@ -17,13 +17,14 @@ t_compress = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   if (length(vars_to_compress) > 0) {
       # Use dplyr::mutate(across()) to apply sfun_compress_col_type
       vars_r_vec_str = paste0('c("', paste(vars_to_compress, collapse = '", "'), '")')
-      r_code_lines = c(r_code_lines, paste0("data = dplyr::mutate(data, dplyr::across(dplyr::all_of(", vars_r_vec_str, "), stata2r::sfun_compress_col_type))"))
+      r_code_lines = c(r_code_lines, paste0("data = dplyr::mutate(data, dplyr::across(dplyr::all_of(", vars_r_vec_str, "), sfun_compress_col_type))"))
   } else {
-      # Apply to all variables using dplyr::across(dplyr::everything(), .fns = stata2r::sfun_compress_col_type)
-      # Using .fns = stata2r::sfun_compress_col_type explicitly for clarity, though it might be inferred.
-      r_code_lines = c(r_code_lines, paste0("data = dplyr::mutate(data, dplyr::across(dplyr::everything(), .fns = stata2r::sfun_compress_col_type))"))
+      # Apply to all variables using dplyr::across(dplyr::everything(), .fns = sfun_compress_col_type)
+      # Using .fns = sfun_compress_col_type explicitly for clarity, though it might be inferred.
+      r_code_lines = c(r_code_lines, paste0("data = dplyr::mutate(data, dplyr::across(dplyr::everything(), .fns = sfun_compress_col_type))"))
   }
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 
