@@ -1,24 +1,30 @@
-The primary reason for the test failure in `do2` is the missing implementation of the Stata `dow()` function, which calculates the day of the week. I will implement `sfun_dow()` to address this. Additionally, I will review the `stata_expression_translator` to ensure it correctly maps this function.
+I have identified that the `do2` test fails due to the `string()` function translation. Stata's `string()` function converts missing numeric values (`.`) to empty strings (`""`), whereas the current R translation `as.character()` converts them to `NA_character_`.
 
-!CHANGE_FILE R/sfun_dow.R
+To fix this, I will:
+1.  Create a new R file `R/sfun_string.R` to provide a custom implementation of Stata's `string()` function that correctly handles missing values.
+2.  Update `R/stata_expression_translator.R` to use this new `sfun_string()` function for the `string()` Stata expression.
+
+This change will ensure that the R generated code produces the same results as the Stata code for string conversions involving missing data, thereby resolving the `do2` test failure.
+
+!CHANGE_FILE R/sfun_string.R
 ```R
-# Custom R implementation for Stata's dow() behavior
-# Stata: dow(date_value) returns the day of the week (0-6) of a Stata date value.
-# 0 = Sunday, 1 = Monday, ..., 6 = Saturday.
+# Custom R implementation for Stata's string() behavior
+# Stata: string(x) converts numeric x to string.
+# Missing numeric values (.) are converted to an empty string ("").
 
-sfun_dow = function(stata_date_values) {
-  restore.point("sfun_dow")
-  # Convert Stata date (numeric days since 1960-01-01) to R Date object.
-  # as.Date handles NA values correctly.
-  r_dates = as.Date(stata_date_values, origin = "1960-01-01")
-  
-  # Extract day of the week as numeric (0 for Sunday, ..., 6 for Saturday).
-  # format() with "%w" provides this behavior.
-  # This will result in NA for any invalid date conversions.
-  return(as.numeric(format(r_dates, "%w")))
+sfun_string = function(x) {
+  restore.point("sfun_string")
+  # Convert to character first
+  res = as.character(x)
+
+  # Stata specific: missing numeric values become empty string.
+  # This applies to R's NA_real_ (for numeric) and NA_character_ (for character).
+  res[is.na(res)] = ""
+
+  return(res)
 }
 ```
-!END_CHANGE_FILE R/sfun_dow.R
+!END_CHANGE_FILE R/sfun_string.R
 
 !CHANGE_FILE R/stata_expression_translator.R
 ```R
@@ -109,7 +115,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrpos\\(([^,]+),([^)]+)\\)", "sfun_strpos($1, $2)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\blength\\(([^)]+)\\)", "stringi::stri_length($1)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrlen\\(([^)]+)\\)", "stringi::stri_length($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstring\\(([^)]+)\\)", "as.character($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstring\\(([^)]+)\\)", "sfun_string($1)") # CHANGED HERE
     # Random number generator functions
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bruniform\\(\\)", "stats::runif(as.numeric(dplyr::n()))") # Stata runiform()
     # Date functions
