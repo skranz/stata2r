@@ -32,7 +32,7 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       # Ensure group_vars_list is clean (no NA or empty strings)
       group_vars_list = group_vars_list[!is.na(group_vars_list) & group_vars_list != ""]
       if (length(group_vars_list) > 0) { # Ensure group_vars_list is not empty before forming string
-        group_vars_r_vec_str = paste0('dplyr::all_of(c("', paste0(group_vars_list, collapse='", "'), '"))')
+        group_vars_r_vec_str = paste0('!!!dplyr::syms(c("', paste0(group_vars_list, collapse='", "'), '"))')
       }
     }
 
@@ -47,7 +47,7 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       all_sort_vars = c(if(length(group_vars_list)>0) group_vars_list else character(0), sort_vars_list)
       all_sort_vars = all_sort_vars[!is.na(all_sort_vars) & all_sort_vars != ""] # Final clean
       if (length(all_sort_vars) > 0) {
-        arrange_call = paste0("data = dplyr::arrange(data, dplyr::across(dplyr::all_of(c(", paste0('"', all_sort_vars, '"', collapse = ", "), "))))")
+        arrange_call = paste0("data = dplyr::arrange(data, !!!dplyr::syms(c(", paste0('"', all_sort_vars, '"', collapse = ", "), ")))")
       }
     }
   }
@@ -98,5 +98,4 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
-
 

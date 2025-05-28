@@ -47,4 +47,3 @@ t_preserve_restore = function(cmd_obj, type = "preserve") { # line_num implicitl
   return(paste(r_code_lines, collapse = "\n"))
 }
 
-

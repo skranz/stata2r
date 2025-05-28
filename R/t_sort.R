@@ -17,9 +17,9 @@ t_sort = function(rest_of_cmd, cmd_obj, cmd_df, line_num, type = "sort") {
 
   if (type == "sort") {
     # Plain sort is ascending for all variables
-    # Using dplyr::arrange with dplyr::across(dplyr::all_of(...)) for consistency and robustness
-    sort_vars_r = paste0('dplyr::all_of(c("', paste(vars, collapse='", "'), '"))')
-    r_code_str = paste0("data = dplyr::arrange(data, dplyr::across(", sort_vars_r, "))")
+    # Using dplyr::arrange with !!!dplyr::syms for consistency and robustness
+    sort_vars_r = paste0('!!!dplyr::syms(c("', paste(vars, collapse='", "'), '"))')
+    r_code_str = paste0("data = dplyr::arrange(data, ", sort_vars_r, ")")
 
   } else if (type == "gsort") {
     # gsort allows specifying ascending (+) or descending (-) for each variable
@@ -31,12 +31,12 @@ t_sort = function(rest_of_cmd, cmd_obj, cmd_df, line_num, type = "sort") {
       var_spec = vars[i]
       if (stringi::stri_startswith_fixed(var_spec, "-")) {
         var_name = stringi::stri_sub(var_spec, 2)
-        arrange_expressions[i] = paste0("dplyr::desc(", var_name, ")")
+        arrange_expressions[i] = paste0("dplyr::desc(!!!dplyr::syms(\"", var_name, "\"))")
       } else if (stringi::stri_startswith_fixed(var_spec, "+")) {
         var_name = stringi::stri_sub(var_spec, 2)
-        arrange_expressions[i] = var_name
+        arrange_expressions[i] = paste0("!!!dplyr::syms(\"", var_name, "\")")
       } else {
-        arrange_expressions[i] = var_spec
+        arrange_expressions[i] = paste0("!!!dplyr::syms(\"", var_spec, "\")")
       }
     }
     r_code_str = paste0("data = dplyr::arrange(data, ", paste(arrange_expressions, collapse = ", "), ")")
@@ -46,5 +46,4 @@ t_sort = function(rest_of_cmd, cmd_obj, cmd_df, line_num, type = "sort") {
 
   return(r_code_str)
 }
-
 

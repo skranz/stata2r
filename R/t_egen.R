@@ -137,7 +137,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       by_vars_list_unquoted = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
       by_vars_list_unquoted = by_vars_list_unquoted[!is.na(by_vars_list_unquoted) & by_vars_list_unquoted != ""] # Modified filter
       if (length(by_vars_list_unquoted) > 0) { # Ensure by_vars_list_unquoted is not empty
-        by_vars_for_group_by = paste0('dplyr::all_of(c("', paste0(by_vars_list_unquoted, collapse='", "'), '"))')
+        by_vars_for_group_by = paste0('!!!dplyr::syms(c("', paste0(by_vars_list_unquoted, collapse='", "'), '"))')
       }
     }
 
@@ -164,7 +164,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       by_vars_list_unquoted = stringi::stri_split_regex(stringi::stri_trim_both(by_opt_match[1,2]), "\\s+")[[1]]
       by_vars_list_unquoted = by_vars_list_unquoted[!is.na(by_vars_list_unquoted) & by_vars_list_unquoted != ""] # Modified filter
       if (length(by_vars_list_unquoted) > 0) { # Ensure by_vars_list_unquoted is not empty
-        by_vars_for_group_by = paste0('dplyr::all_of(c("', paste0(by_vars_list_unquoted, collapse='", "'), '"))')
+        by_vars_for_group_by = paste0('!!!dplyr::syms(c("', paste0(by_vars_list_unquoted, collapse='", "'), '"))')
       }
     }
   }
@@ -211,7 +211,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     combined_grouping_vars = combined_grouping_vars[!is.na(combined_grouping_vars) & combined_grouping_vars != ""] # Final clean
 
     if (length(combined_grouping_vars) > 0) {
-      by_vars_for_group_by = paste0('dplyr::all_of(c("', paste0(combined_grouping_vars, collapse='", "'), '"))')
+      by_vars_for_group_by = paste0('!!!dplyr::syms(c("', paste0(combined_grouping_vars, collapse='", "'), '"))')
     } else {
       by_vars_for_group_by = NULL # No grouping if no vars for group/tag
     }
@@ -254,7 +254,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   if ((egen_func_name == "group" || egen_func_name == "tag") && !is.null(by_vars_for_group_by) && !is_row_function) {
     # For group/tag, we need to sort to ensure consistent IDs and restore order
-    arrange_vars_str = paste0('dplyr::all_of(c("', paste0(combined_grouping_vars, collapse = '", "'), '"))')
+    arrange_vars_str = paste0('!!!dplyr::syms(c("', paste0(combined_grouping_vars, collapse = '", "'), '"))')
     
     pipe_elements = c(pipe_elements,
                         paste0("dplyr::arrange(", arrange_vars_str, ")"),
@@ -293,5 +293,4 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
-
 
