@@ -120,7 +120,8 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
 
   # Always remove the temporary indicator column
-  r_code_lines = c(r_code_lines, paste0("data = dplyr::select(data, -`", indicator_col_name, "`)"))
+  # Use dplyr::any_of to prevent error if column somehow not created (e.g. older dplyr or unexpected join result)
+  r_code_lines = c(r_code_lines, paste0("data = dplyr::select(data, -dplyr::any_of('", indicator_col_name, "'))"))
 
   # Clean up temporary variables
   r_code_lines = c(r_code_lines, paste0("rm(", temp_using_data_var, ", common_cols, common_cols_not_by)"))
