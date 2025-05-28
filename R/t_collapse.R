@@ -25,7 +25,9 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Parse aggregate definitions: "(stat) var [name=expr ...] (stat) var [name=expr ...] ..."
   # Updated regex to correctly capture expressions for source and target variables.
-  aggregate_matches = stringi::stri_match_all_regex(aggregate_part, "\\(([a-zA-Z_][a-zA-Z0-9_]*)\\)\\s*([^,=]+?)(?:\\s*=\\s*([^,=]+?))?")[[1]]
+  # Changed `([^,=]+?)` to `([a-zA-Z_][a-zA-Z0-9_.]*)` for the variable name part (G2)
+  # Changed `([^,=]+?)` to `(.*?)` for the expression part (G3) to be more general
+  aggregate_matches = stringi::stri_match_all_regex(aggregate_part, "\\(([a-zA-Z_][a-zA-Z0-9_]*)\\)\\s*([a-zA-Z_][a-zA-Z0-9_.]*)(?:\\s*=\\s*(.*?))?")[[1]]
 
   if (NROW(aggregate_matches) == 0) {
     return(paste0("# Failed to parse collapse aggregate definitions: ", aggregate_part))
@@ -160,5 +162,4 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
-
 
