@@ -1,11 +1,10 @@
-The primary issue identified in the test results for `do2` is the failure to find the `year` function, leading to `Error: Problem with mutate() column obs_year. ✖ could not find function "year"`. This occurs when translating the Stata `year()` function.
+Here are the changes to address the reported test failures and improve consistency:
 
-Stata's `year()` function extracts the year from a Stata date (which is a numeric value representing days since 1960-01-01). In R, the `collapse` package provides `fyear()` which can extract the year from numeric dates, but it assumes the R epoch (days since 1970-01-01). To correctly translate Stata's date values, an offset of 3652 days (number of days between 1960-01-01 and 1970-01-01) must be applied.
-
-The fix involves modifying the `translate_stata_expression_to_r` function in `stata_expression_translator.R` to replace `year(X)` with `collapse::fyear(X - 3652)`.
+1.  **Correct `year()` function translation:** The `collapse::fyear` function is not exported. The `year()` function in Stata, when applied to a numeric Stata date, should be translated to R code that converts the numeric Stata date (days since 1960-01-01) back to an R `Date` object and then extracts the year.
+2.  **Mark `format` command as non-data-manipulating:** The Stata `format` command only affects display, not the underlying data. It should be explicitly marked as a non-data-manipulating command so that it is ignored during translation, rather than being translated to a comment.
 
 !CHANGE_FILE stata_expression_translator.R
-```R
+```
 # Stata Expression Translator
 
 # Placeholder for Stata results (r() and e() values)
@@ -99,7 +98,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     # Date functions
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bdate\\(([^,]+),([^,]+),([^)]+)\\)", "sfun_stata_date($1, $2, $3)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bdate\\(([^,]+),([^)]+)\\)", "sfun_stata_date($1, $2)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\byear\\(([^)]+)\\)", "collapse::fyear($1 - 3652)") # Stata date epoch is 1960-01-01, collapse::fyear assumes 1970-01-01
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\byear\\(([^)]+)\\)", "as.numeric(format(as.Date($1, origin = '1960-01-01'), '%Y'))") # Stata date epoch is 1960-01-01
   }
 
   # Step 6: Translate Stata '+' operator to sfun_stata_add for polymorphic behavior
@@ -144,3 +143,74 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 }
 ```
 !END_CHANGE_FILE stata_expression_translator.R
+
+!CHANGE_FILE mark_data_manip_cmd.R
+```
+mark_data_manip_cmd = function(cmd_df) {
+  restore.point("mark_data_manip_cmd")
+  # Determine commands that actually can transform the Stata data
+  # set or generate scalars/temp files that will be used in later
+  # commands that change the data set.
+
+  if (NROW(cmd_df) == 0) {
+    cmd_df$do_translate = logical(0)
+    return(cmd_df)
+  }
+
+  cmd_df$do_translate = rep(FALSE, NROW(cmd_df))
+
+  # Simple case: command is in stata_data_manip_cmds list
+  cmd_df$do_translate = cmd_df$stata_cmd %in% stata_data_manip_cmds
+
+  # Special handling for commands like `summarize`
+  # If `summarize` produces `r()` results, and a later command uses them,
+  # then `summarize` should be translated.
+  # For a first pass, mark all `summarize` as TRUE if it's in stata_data_manip_cmds.
+  # A more sophisticated approach would involve checking for subsequent `r()` usage.
+
+  # For commands like `tempfile`, they don't change `data` but set up for later changes.
+  # These are already in `stata_data_manip_cmds`.
+
+  # Commands that are definitely not data manipulation (e.g. `list`, `display` for scalars)
+  # `display` can be used to show `r()` results. If those results are not part of data manip chain, ignore.
+  # Non-data modifying commands or pure display commands.
+  # These are marked FALSE even if they slip through the stata_data_manip_cmds list logic.
+  non_manip_display_cmds = c("list", "display", "describe", "help", "about", "query", "set more off", "set rmsg on", "format") # etc.
+  cmd_df$do_translate[cmd_df$stata_cmd %in% non_manip_display_cmds] = FALSE
+
+  # If stata_cmd is NA (e.g. empty line or parse error), don't translate
+  cmd_df$do_translate[is.na(cmd_df$stata_cmd)] = FALSE
+
+  # `clear` as a command clears memory, can be translated to `rm(list=ls())` or `data = NULL`
+  # but `use "file", clear` is different. `clear` option is handled by `t_use`.
+  # if `clear` is a standalone command and `stata_cmd` becomes "clear"
+  if ("clear" %in% cmd_df$stata_cmd) {
+      cmd_df$do_translate[cmd_df$stata_cmd == "clear" & is.na(cmd_df$rest_of_cmd)] = TRUE # standalone clear
+  }
+
+  # Ensure 'save' is always translated as it creates a file.
+  # This is a defensive fix if the general logic for `stata_data_manip_cmds` somehow fails for 'save'.
+  cmd_df$do_translate[cmd_df$stata_cmd == "save"] = TRUE
+
+  return(cmd_df)
+}
+```
+!END_CHANGE_FILE mark_data_manip_cmd.R
+
+!CHANGE_FILE t_format.R
+```
+# Translate Stata 'format' command
+# Stata: format varname %fmt
+# This command only affects display, not the underlying data.
+
+t_format = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
+  restore.point("t_format")
+  # Stata's `format` command only affects how data is displayed, not its underlying values or type.
+  # It is now marked as `do_translate = FALSE` in `mark_data_manip_cmd.R`.
+  # This function should ideally not be called if `do_translate` is FALSE.
+  # Returning a comment as a fallback, though it should be skipped earlier.
+  return(paste0("# Stata format command '", cmd_obj$stata_cmd_original, " ", rest_of_cmd, "' ignored for data transformation (already marked as non-data-manipulating)."))
+}
+
+```
+!END_CHANGE_FILE t_format.R
