@@ -2,22 +2,36 @@ sfun_strip_stata_attributes = function(x) {
   restore.point("sfun_strip_stata_attributes")
   # For data frames, apply to each column. For vectors, strip attributes directly.
   if (is.data.frame(x)) {
+    # Apply recursively to each column, ensuring it stays a data.frame/tibble
     x[] = lapply(x, sfun_strip_stata_attributes)
     return(x)
   } else {
-    # For haven_labelled, it's better to convert to base type (numeric, character, factor)
+    # Handle individual vectors (columns)
     if (inherits(x, "haven_labelled")) {
-      # This effectively zaps all haven-specific attributes and converts to base R type
-      # If it's a numeric variable with labels, it remains numeric. If it was string, it remains string.
+      # Convert haven_labelled to its underlying base type (numeric, character, or factor if labels imply factors)
       x = haven::zap_labels(x)
       x = haven::zap_formats(x)
       x = haven::zap_missing(x)
     }
-    # For any other generic attributes, remove them.
-    # Keep 'names' attribute for vectors (column names), if present, as it's fundamental.
-    attr_names = setdiff(names(attributes(x)), "names")
-    if (length(attr_names) > 0) {
-      attributes(x)[attr_names] = NULL
+    
+    # Explicitly cast to base R types to ensure no problematic attributes remain
+    # This also handles cases where a variable might have been an R factor or other
+    # specific class that Stata doesn't have a direct equivalent for.
+    if (is.numeric(x)) {
+      x = as.numeric(x)
+    } else if (is.character(x)) {
+      x = as.character(x)
+    } else if (is.logical(x)) {
+      x = as.logical(x)
+    } else if (is.factor(x)) {
+      # Convert factors to character for consistency with Stata strings.
+      # Stata doesn't have factors, string conversion is the closest equivalent.
+      x = as.character(x)
+    }
+    # For any other generic attributes, remove them, but keep 'names'.
+    attr_names_to_remove = setdiff(names(attributes(x)), "names")
+    if (length(attr_names_to_remove) > 0) {
+      attributes(x)[attr_names_to_remove] = NULL
     }
     return(x)
   }

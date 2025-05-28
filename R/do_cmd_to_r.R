@@ -65,7 +65,8 @@ do_cmd_to_r = function(cmd_obj, line, cmd_df) { # Corrected signature: added cmd
       "preserve" = t_preserve_restore(cmd_obj, type = "preserve"),
       "restore" = t_preserve_restore(cmd_obj, type = "restore"),
       "format" = t_format(rest_of_cmd_clean, cmd_obj, cmd_df, line),
-      "label" = t_label(rest_of_cmd_clean, cmd_obj, cmd_df, line), # NEW: Added label command
+      "label" = t_label(rest_of_cmd_clean, cmd_obj, cmd_df, line),
+      "compress" = t_compress(rest_of_cmd_clean, cmd_obj, cmd_df, line), # NEW: Added compress command
       # Add more commands here...
       # Fallback for unhandled but translatable commands:
       paste0("# Stata command '", cmd_obj$stata_cmd_original, " ", rest_of_cmd_clean, "' not yet fully translated.")
