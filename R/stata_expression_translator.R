@@ -17,10 +17,10 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   r_expr = stata_expr
 
-  # Step 1: Handle Stata missing value literal '.' (MOVED AND REFINED)
-  # This must happen early to prevent interference with decimal numbers.
-  # Use negative lookbehind/lookahead to match a dot ONLY if it's not part of a number.
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![0-9])\\.(?![0-9])", "NA_real_")
+  # Step 1: Handle Stata missing value literals '.', '.a', ..., '.z'
+  # This must happen early to prevent interference with decimal numbers or variable names.
+  # Regex matches '.' or '.a' to '.z' only when not part of a number or a variable name.
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![0-9a-zA-Z_])\\.[a-zA-Z]?(?![0-9a-zA-Z_])", "NA_real_")
 
   # Step 2: Handle r() values using the mapping.
   # This ensures that r() values are replaced by their corresponding R variable names
@@ -137,4 +137,5 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   return(r_expr)
 }
+
 

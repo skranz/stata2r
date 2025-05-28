@@ -78,6 +78,30 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       new_vars = vars_to_recode
   }
 
+  # Determine if the target variable(s) should be string type
+  any_rule_implies_string = FALSE
+  for (rule_raw in recode_rules_raw) {
+      rule_str_trimmed = stringi::stri_trim_both(rule_raw)
+      parts_eq = stringi::stri_split_fixed(rule_str_trimmed, "=", n=2)[[1]]
+      if (length(parts_eq) != 2) next # Skip malformed rules
+      new_part_raw = stringi::stri_trim_both(parts_eq[2])
+
+      # A rule implies string type if:
+      # 1. The new value is a string literal (e.g., "new_string_value").
+      # 2. The new value is a numeric value with an attached string label (e.g., 1 "label").
+      if ( (stringi::stri_startswith_fixed(new_part_raw, '"') && stringi::stri_endswith_fixed(new_part_raw, '"')) ||
+           (stringi::stri_startswith_fixed(new_part_raw, "'") && stringi::stri_endswith_fixed(new_part_raw, "'")) ) {
+          any_rule_implies_string = TRUE
+          break
+      }
+      # Check for 'value "label"' syntax
+      label_match = stringi::stri_match_first_regex(new_part_raw, "^\\s*(-?\\d*\\.?\\d+e?-?\\d*|-?\\.\\w?|\\S+)\\s+(?:\"([^\"]*)\"|'([^']*)')\\s*$")
+      if (!is.na(label_match[1,1])) {
+          any_rule_implies_string = TRUE
+          break
+      }
+  }
+
 
   # Translate the if/in condition for subsetting
   r_subset_cond = NA_character_
@@ -102,7 +126,7 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # old_value can be: single value, range (val1/val2, val1 thru val2), list (val1 val2), else, missing (.)
   # new_value can be: single value, copy (use original value), missing (.)
 
-  translate_recode_rule = function(rule_str, source_var_r) {
+  translate_recode_rule = function(rule_str, source_var_r, target_is_string) {
       rule_str = stringi::stri_trim_both(rule_str)
       parts_eq = stringi::stri_split_fixed(rule_str, "=", n=2)[[1]]
       if (length(parts_eq) != 2) {
@@ -115,20 +139,22 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       r_condition = ""
       if (old_part_raw == "else") {
           r_condition = "TRUE" # This rule is the fallback
-      } else if (old_part_raw == ".") {
+      } else if (old_part_raw == "missing") {
            r_condition = paste0("is.na(", source_var_r, ")") # Missing value rule
+      } else if (old_part_raw == "nonmissing") {
+           r_condition = paste0("!is.na(", source_var_r, ")") # Non-missing value rule
       } else if (grepl("\\s+thru\\s+", old_part_raw)) {
            # Range: val1 thru val2
            range_parts = stringi::stri_split_regex(old_part_raw, "\\s+thru\\s+", n=2)[[1]]
-           val1 = translate_stata_expression_to_r(stringi::stri_trim_both(range_parts[1])) # Translate value (e.g. string "A" or number)
-           val2 = translate_stata_expression_to_r(stringi::stri_trim_both(range_parts[2]))
+           val1 = translate_stata_expression_to_r(stringi::stri_trim_both(range_parts[1]), context=list(is_by_group=FALSE))
+           val2 = translate_stata_expression_to_r(stringi::stri_trim_both(range_parts[2]), context=list(is_by_group=FALSE))
            if (is.na(val1) || is.na(val2)) return(paste0("## Error translating range values in rule: ", rule_str))
            r_condition = paste0(source_var_r, " >= ", val1, " & ", source_var_r, " <= ", val2)
       } else if (grepl("/", old_part_raw)) {
           # Range: val1/val2
            range_parts = stringi::stri_split_regex(old_part_raw, "/", n=2)[[1]]
-           val1 = translate_stata_expression_to_r(stringi::stri_trim_both(range_parts[1])) # Translate value
-           val2 = translate_stata_expression_to_r(stringi::stri_trim_both(range_parts[2]))
+           val1 = translate_stata_expression_to_r(stringi::stri_trim_both(range_parts[1]), context=list(is_by_group=FALSE))
+           val2 = translate_stata_expression_to_r(stringi::stri_trim_both(range_parts[2]), context=list(is_by_group=FALSE))
            if (is.na(val1) || is.na(val2)) return(paste0("## Error translating range values in rule: ", rule_str))
            r_condition = paste0(source_var_r, " >= ", val1, " & ", source_var_r, " <= ", val2) # Stata / is inclusive range
       }
@@ -137,9 +163,11 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
           old_values = stringi::stri_split_regex(old_part_raw, "\\s+")[[1]]
           old_values = old_values[old_values != ""]
           r_values = sapply(old_values, function(val) {
-               if (val == ".") return("NA") # Stata missing symbol
-               translate_stata_expression_to_r(val) # Translate value (e.g. "5", `"string"`)
+               # Use translate_stata_expression_to_r for each value in the list
+               translate_stata_expression_to_r(val, context=list(is_by_group=FALSE))
           })
+          r_values = r_values[!is.na(r_values)] # Filter out any NA from translation for safety
+          if (length(r_values) == 0) return(paste0("## Error translating old values in rule: ", rule_str))
           r_condition = paste0(source_var_r, " %in% c(", paste(r_values, collapse = ", "), ")")
       }
 
@@ -148,10 +176,24 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       r_new_value = ""
       if (new_part_raw == "copy") {
           r_new_value = source_var_r # Use the original variable value
-      } else if (new_part_raw == ".") {
-          r_new_value = "NA" # R missing
       } else {
-           r_new_value = translate_stata_expression_to_r(new_part_raw) # Translate the new value
+          # Check for numeric value with optional label, e.g., '1 "Very Low"'
+          label_match = stringi::stri_match_first_regex(new_part_raw, "^\\s*(-?\\d*\\.?\\d+e?-?\\d*|-?\\.\\w?|\\S+)\\s+(?:\"([^\"]*)\"|'([^']*)')\\s*$")
+          if (!is.na(label_match[1,1])) {
+              # It's a "value label" syntax
+              string_label_part = ifelse(!is.na(label_match[1,3]), label_match[1,3], label_match[1,4])
+              numeric_val_part = stringi::stri_trim_both(label_match[1,2])
+
+              if (target_is_string) {
+                  r_new_value = quote_for_r_literal(string_label_part) # Return the label as a string literal
+              } else {
+                  # If target is numeric, return the numeric value, translated
+                  r_new_value = translate_stata_expression_to_r(numeric_val_part, context=list(is_by_group=FALSE))
+              }
+          } else {
+              # It's a plain expression or literal (numeric or string)
+              r_new_value = translate_stata_expression_to_r(new_part_raw, context=list(is_by_group=FALSE))
+          }
       }
 
       return(paste0(r_condition, " ~ ", r_new_value))
@@ -165,7 +207,7 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       source_var_r = old_var # R variable name for the source column
 
       # Translate all rules for this variable
-      r_rules = sapply(recode_rules_raw, translate_recode_rule, source_var_r = source_var_r)
+      r_rules = sapply(recode_rules_raw, translate_recode_rule, source_var_r = source_var_r, target_is_string = any_rule_implies_string)
 
       # Combine rules into a case_when statement
       case_when_expr = paste0("dplyr::case_when(\n    ", paste(r_rules, collapse = ",\n    "), "\n  )")
@@ -202,4 +244,5 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
+
 
