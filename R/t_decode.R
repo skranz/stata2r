@@ -80,7 +80,8 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       paste0("## Decode values using haven::as_factor"),
       paste0(original_values_tmp_var, " = with(data, data$`", varname_str, "`)"), # Store original values
       # Calculate decoded values. haven::as_factor converts unlabelled values to NA.
-      paste0(decoded_values_tmp_var, " = as.character(haven::as_factor(", original_values_tmp_var, ", levels = 'labels'))"),
+      # Corrected: removed `levels = 'labels'`
+      paste0(decoded_values_tmp_var, " = as.character(haven::as_factor(", original_values_tmp_var, "))"),
       # Stata's decode for unlabelled numeric values converts them to their string representation.
       # And missing values (NA) are converted to empty string "".
       paste0(decoded_values_tmp_var, " = dplyr::if_else(is.na(", decoded_values_tmp_var, "), ",
@@ -114,7 +115,7 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
    }
 
    if (!is.na(options_str_cleaned) && options_str_cleaned != "") {
-        r_code_str = paste0(r_code_str, paste0("\n# Other options ignored: ", options_str_cleaned))
+        r_code_str = paste0(r_code_str, paste0(" # Other options ignored: ", options_str_cleaned))
    }
 
   return(r_code_str)
