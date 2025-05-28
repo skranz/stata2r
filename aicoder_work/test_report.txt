@@ -374,6 +374,7 @@ stata_tmp_using_data_L28 = sfun_normalize_string_nas(stata_tmp_using_data_L28)
 stata_tmp_master_data_L28 = data
 stata_tmp_master_data_L28 = sfun_normalize_string_nas(stata_tmp_master_data_L28)
 data = dplyr::bind_rows(stata_tmp_master_data_L28, stata_tmp_using_data_L28)
+data = sfun_normalize_string_nas(data)
 rm(stata_tmp_using_data_L28, stata_tmp_master_data_L28) 
 stata_tmp_using_data_L28 = haven::read_dta(R_tempfile_L24_t1_path)
 
@@ -384,6 +385,8 @@ stata_tmp_master_data_L28 = data
 stata_tmp_master_data_L28 = sfun_normalize_string_nas(stata_tmp_master_data_L28)
 
 data = dplyr::bind_rows(stata_tmp_master_data_L28, stata_tmp_using_data_L28)
+
+data = sfun_normalize_string_nas(data)
 
 rm(stata_tmp_using_data_L28, stata_tmp_master_data_L28)
 
@@ -1102,6 +1105,7 @@ stata_tmp_master_data_L71 = sfun_normalize_string_nas(stata_tmp_master_data_L71)
 stata_tmp_master_data_L71 = dplyr::mutate(stata_tmp_master_data_L71, `appended_flag` = 0L)
 stata_tmp_using_data_L71 = dplyr::mutate(stata_tmp_using_data_L71, `appended_flag` = 1L)
 data = dplyr::bind_rows(stata_tmp_master_data_L71, stata_tmp_using_data_L71)
+data = sfun_normalize_string_nas(data)
 rm(stata_tmp_using_data_L71, stata_tmp_master_data_L71) 
 stata_tmp_using_data_L71 = haven::read_dta(file.path(stata2r_env$working_dir, "append_data.dta"))
 
@@ -1117,101 +1121,57 @@ stata_tmp_using_data_L71 = dplyr::mutate(stata_tmp_using_data_L71, `appended_fla
 
 data = dplyr::bind_rows(stata_tmp_master_data_L71, stata_tmp_using_data_L71)
 
+data = sfun_normalize_string_nas(data)
+
 rm(stata_tmp_using_data_L71, stata_tmp_master_data_L71)
 
-Error: After Stata line  71 , R data set differs from Stata reference.
+ 72 do:  preserve
+ 72 r:  if (!exists('stata_data_preserve_stack_G')) stata_data_preserve_stack_G = list() # Global stack for preserve/restore
+stata_data_preserve_stack_G = c(list(data), stata_data_preserve_stack_G)
+# Preserved data state from Stata line: 72 
+if (!exists('stata_data_preserve_stack_G')) stata_data_preserve_stack_G = list() # Global stack for preserve/restore
 
-Data set from Stata (do_df):
-tibble [63 × 20] (S3: tbl_df/tbl/data.frame)
- $ id                   : num [1:63] 1 3 4 5 7 8 9 10 11 14 ...
-  ..- attr(*, "label")= chr "id"
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ orig_group_name      : chr [1:63] " Gamma" "Beta" "Beta" " Gamma" ...
-  ..- attr(*, "label")= chr "group_orig"
-  ..- attr(*, "format.stata")= chr "%6s"
- $ group_clean          : chr [1:63] "gamma" "beta" "beta" "gamma" ...
-  ..- attr(*, "format.stata")= chr "%9s"
- $ log_val1             : num [1:63] 4.3 3.97 3.39 3.79 3.73 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ value1               : num [1:63] 77.6 50.1 28.3 42 65.6 ...
-  ..- attr(*, "label")= chr "value1"
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ value2               : num [1:63] 4 NA 10 3 3 6 6 8 6 6 ...
-  ..- attr(*, "label")= chr "value2"
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ num_val_from_str     : num [1:63] 166 101 136 162 112 141 160 169 137 198 ...
-  ..- attr(*, "label")= chr "num_str"
-  ..- attr(*, "format.stata")= chr "%10.0g"
- $ value2_squared       : num [1:63] 16 NA 100 9 9 36 36 64 36 36 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ mean_overall_value1  : num [1:63] 66.8 66.8 66.8 66.8 66.8 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ total_value2_by_group: num [1:63] 49 86 86 49 71 71 86 49 86 71 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ obs_date             : Date[1:63], format: "2020-09-21" "2022-02-09" ...
- $ group_code_num       : dbl+lbl [1:63]  3,  2,  2,  3,  1,  1,  2,  3,  2,  1,  4,  1,  2,  2...
-   ..@ label       : chr "Numeric code for cleaned group"
-   ..@ format.stata: chr "%8.0g"
-   ..@ labels      : Named num [1:4] 1 2 3 4
-   .. ..- attr(*, "names")= chr [1:4] "alpha" "beta" "gamma" "unknown"
- $ value2_cat_str       : dbl+lbl [1:63]     2, NA(a),     3,     2,     2,     3,     3,     3...
-   ..@ label       : chr "RECODE of value2 (value2)"
-   ..@ format.stata: chr "%9.0g"
-   ..@ labels      : Named num [1:3] 1 2 3
-   .. ..- attr(*, "names")= chr [1:3] "Very Low" "Low-Mid" "High"
- $ high_value1_indicator: num [1:63] 1 0 0 0 0 0 0 1 0 1 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ observation_seq_num  : num [1:63] 14 21 34 26 18 33 32 16 23 15 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ total_obs_count      : num [1:63] 36 36 36 36 36 36 36 36 36 36 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ extra_info_val       : num [1:63] NA NA NA NA NA NA NA NA NA NA ...
-  ..- attr(*, "label")= chr "extra_info_val"
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ extra_cat_code       : chr [1:63] "" "" "" "" ...
-  ..- attr(*, "label")= chr "category_code"
-  ..- attr(*, "format.stata")= chr "%2s"
- $ appended_flag        : dbl+lbl [1:63] 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ...
-   ..@ label       : chr "Dataset source"
-   ..@ format.stata: chr "%18.0g"
-   ..@ labels      : Named num [1:2] 0 1
-   .. ..- attr(*, "names")= chr [1:2] "Master" "Appended dataset 1"
- $ group_orig           : chr [1:63] "" "" "" "" ...
-  ..- attr(*, "label")= chr "group_orig"
-  ..- attr(*, "format.stata")= chr "%7s"
- - attr(*, "label")= chr "Written by R."
-NULL
+stata_data_preserve_stack_G = c(list(data), stata_data_preserve_stack_G)
 
-Data set from R (r_df):
-tibble [63 × 21] (S3: tbl_df/tbl/data.frame)
- $ id                        : num [1:63] 1 3 4 5 7 8 9 10 11 14 ...
- $ orig_group_name           : chr [1:63] " Gamma" "Beta" "Beta" " Gamma" ...
- $ group_clean               : chr [1:63] "gamma" "beta" "beta" "gamma" ...
- $ log_val1                  : num [1:63] 4.3 3.97 3.39 3.79 3.73 ...
- $ value1                    : num [1:63] 77.6 50.1 28.3 42 65.6 ...
- $ value2                    : num [1:63] 4 NA 10 3 3 6 6 8 6 6 ...
- $ value2_squared            : num [1:63] 16 NA 100 9 9 36 36 64 36 36 ...
- $ obs_date                  : num [1:63] 22179 22685 22420 22164 22113 ...
- $ num_val_from_str          : num [1:63] 166 101 136 162 112 141 160 169 137 198 ...
- $ value2_cat_str            : num [1:63] 2 NA 3 2 2 3 3 3 3 3 ...
- $ mean_overall_value1       : num [1:63] 66.8 66.8 66.8 66.8 66.8 ...
- $ total_value2_by_group     : num [1:63] 49 86 86 49 71 71 86 49 86 71 ...
- $ group_code_num            : num [1:63] 3 2 2 3 1 1 2 3 2 1 ...
- $ high_value1_indicator     : num [1:63] 1 0 0 0 0 0 0 1 0 1 ...
- $ observation_seq_num       : num [1:63] 14 21 34 26 18 33 32 16 23 15 ...
- $ total_obs_count           : num [1:63] 36 36 36 36 36 36 36 36 36 36 ...
- $ stata2r_original_order_idx: num [1:63] 14 21 34 26 18 33 32 16 23 15 ...
- $ extra_info_val            : num [1:63] NA NA NA NA NA NA NA NA NA NA ...
- $ extra_cat_code            : chr [1:63] "" "" "" "" ...
- $ appended_flag             : int [1:63] 0 0 0 0 0 0 0 0 0 0 ...
- $ group_orig                : chr [1:63] NA NA NA NA ...
-NULL
+# Preserved data state from Stata line: 72
 
-Differences:List of 2
- $ identical     : logi FALSE
- $ value_mismatch:'data.frame':	20 obs. of  4 variables:
-  ..$ row      : int [1:20] 54 55 56 57 58 54 55 56 57 58 ...
-  ..$ column   : chr [1:20] "orig_group_name" "orig_group_name" "orig_group_name" "orig_group_name" ...
-  ..$ df1_value: chr [1:20] "" "" "" "" ...
-  ..$ df2_value: chr [1:20] NA NA NA NA ...
-NULL
+ 73 do:  keep if id <= 20 & !missing(value1) & !missing(value2) & !missing(group_code_num)
+ 73 r:  data = dplyr::filter(data, dplyr::coalesce(id <= 20 & !sfun_missing(value1) & !sfun_missing(value2) & !sfun_missing(group_code_num), FALSE)) 
+data = dplyr::filter(data, dplyr::coalesce(id <= 20 & !sfun_missing(value1) & !sfun_missing(value2) & !sfun_missing(group_code_num), FALSE))
+
+ 74 do:  drop if missing(id)
+ 74 r:  data = dplyr::filter(data, !dplyr::coalesce(sfun_missing(id), FALSE)) 
+data = dplyr::filter(data, !dplyr::coalesce(sfun_missing(id), FALSE))
+
+ 75 do:  bysort id group_code_num: gen time_var_for_reshape = 100 + _n
+ 75 r:  data = dplyr::arrange(data, !!!dplyr::syms(c("id", "group_code_num")))
+data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("id", "group_code_num"))) %>% 
+  dplyr::mutate(`time_var_for_reshape` = sfun_stata_add(100, as.numeric)(dplyr::row_number())) %>% 
+  dplyr::ungroup() 
+data = dplyr::arrange(data, !!!dplyr::syms(c("id", "group_code_num")))
+
+data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("id", "group_code_num"))) %>% 
+  dplyr::mutate(`time_var_for_reshape` = sfun_stata_add(100, as.numeric)(dplyr::row_number())) %>% 
+  dplyr::ungroup()
+
+Error: Problem with `mutate()` column `time_var_for_reshape`.
+ℹ `time_var_for_reshape = sfun_stata_add(100, as.numeric)(dplyr::row_number())`.
+✖ cannot coerce type 'builtin' to vector of type 'character'
+ℹ The error occurred in group 1: id = 1, group_code_num = 3.
+Caused by error in `as.character()`:
+! cannot coerce type 'builtin' to vector of type 'character'
+Error executing R code for Stata line  75 :  data = dplyr::arrange(data, !!!dplyr::syms(c("id", "group_code_num")))
+
+data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("id", "group_code_num"))) %>% 
+  dplyr::mutate(`time_var_for_reshape` = sfun_stata_add(100, as.numeric)(dplyr::row_number())) %>% 
+  dplyr::ungroup()
+
+Error: Problem with `mutate()` column `time_var_for_reshape`.
+ℹ `time_var_for_reshape = sfun_stata_add(100, as.numeric)(dplyr::row_number())`.
+✖ cannot coerce type 'builtin' to vector of type 'character'
+ℹ The error occurred in group 1: id = 1, group_code_num = 3.
+Caused by error in `as.character()`:
+! cannot coerce type 'builtin' to vector of type 'character' 
