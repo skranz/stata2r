@@ -3689,6 +3689,10 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       r_new_value = ""
       if (new_part_raw == "copy") {
           r_new_value = source_var_r # Use the original variable value
+          # If target is string but source is not, need to convert source to string
+          if (target_is_string) {
+            r_new_value = paste0("as.character(", r_new_value, ")")
+          }
       } else {
           # Check for numeric value with optional label, e.g., '1 "Very Low"'
           label_match = stringi::stri_match_first_regex(new_part_raw, "^\\s*(-?\\d*\\.?\\d+e?-?\\d*|-?\\.\\w?|\\S+)\\s+(?:\"([^\"]*)\"|'([^']*)')\\s*$")
@@ -3706,15 +3710,15 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
           } else {
               # It's a plain expression or literal (numeric or string)
               r_new_value = translate_stata_expression_to_r(new_part_raw, context=list(is_by_group=FALSE))
-          }
-      }
-
-      # Final adjustment for NA type based on target_is_string
-      if (target_is_string) {
-          # If the target is a string, any NA result should be NA_character_
-          # This covers cases like `missing = .` or `else = .` when the variable is string
-          if (r_new_value == "NA_real_") { # Check if the string literal "NA_real_" was produced
-              r_new_value = "NA_character_"
+              # If target is string, ensure the expression result is cast to string
+              if (target_is_string) {
+                  if (r_new_value == "NA_real_") {
+                      r_new_value = "NA_character_" # Stata recode for missing value maps to missing
+                  } else if (!stringi::stri_startswith_fixed(r_new_value, '"') && !stringi::stri_startswith_fixed(r_new_value, "'")) {
+                      # Only wrap in as.character() if it's not already a quoted string
+                      r_new_value = paste0("as.character(", r_new_value, ")")
+                  }
+              }
           }
       }
 
