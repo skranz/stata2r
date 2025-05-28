@@ -1543,7 +1543,6 @@ is_stata_expr_string_type = function(stata_expr) {
   FALSE
 }
 
-
 ```
 ### END OF FILE: stata_type_utils.R
 
@@ -1601,7 +1600,6 @@ t_append = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   return(r_code_str)
 }
-
 
 ```
 ### END OF FILE: t_append.R
@@ -1772,7 +1770,6 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   return(r_code_str)
 }
 
-
 ```
 ### END OF FILE: t_collapse.R
 
@@ -1902,7 +1899,6 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
-
 
 ```
 ### END OF FILE: t_decode.R
@@ -2056,7 +2052,6 @@ t_destring = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   return(r_code_str)
 }
 
-
 ```
 ### END OF FILE: t_destring.R
 
@@ -2204,7 +2199,7 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
           paste0(is_duplicate_tmp_var, " = ", is_duplicate_expr),
           paste0("## Calculate condition flag"),
           paste0(satisfies_cond_tmp_var, " = ", cond_vector_expr_with_data),
-          paste0("data = dplyr::filter(data, !(", is_duplicate_tmp_var, " & ", satisfies_cond_tmp_var, "))"),
+          paste0("data = dplyr::filter(data, !(stata_tmp_is_duplicate_L", cmd_obj$line, " & stata_tmp_satisfies_cond_L", cmd_obj$line, "))"),
           paste0("rm(", is_duplicate_tmp_var, ", ", satisfies_cond_tmp_var, ")")
       )
 
@@ -2286,7 +2281,6 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   return(r_code_str)
 }
 
-
 ```
 ### END OF FILE: t_duplicates.R
 
@@ -2303,7 +2297,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Remove type prefix if any (byte, int, long, float, double, str#, etc.)
   # Pattern: ^\s*(byte|int|long|float|double|str\\d+)\\s+
-  rest_of_cmd_no_type = stringi::stri_replace_first_regex(rest_of_cmd, "^\\s*(?:byte|int|long|float|double|str\\d+)\\s+", "")
+  rest_of_cmd_no_type = stringi::stri_replace_first_regex(rest_of_cmd, "^\\s*(?:byte|int|long|float|double|str\\d+|strL)\\s+", "")
 
   # Re-parse rest_of_cmd_no_type looking for `newvar = fcn(args) [if cond] [, options]`
   # Split at the first `=`. Left is `newvar`. Right is `fcn(args) [if cond] [, options]`
@@ -2505,10 +2499,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
     # Expression for the actual concatenation
     # Use na_empty = FALSE (default) because NAs are already handled.
-    concat_result_expr = paste0("stringi::stri_paste(", stri_paste_args_with_na_empty, ", sep = '')")
-
-    # Combine using if_else to handle the all-NA case (Stata concat(.,.) returns . (missing))
-    calc_expr = paste0("dplyr::if_else(", all_vars_na_check_expr, ", NA_character_, ", concat_result_expr, ")")
+    calc_expr = paste0("dplyr::if_else(", all_vars_na_check_expr, ", NA_character_, stringi::stri_paste(", stri_paste_args_with_na_empty, ", sep = ''))")
 
     is_row_function = TRUE # Concatenation is inherently row-wise.
   } else {
@@ -2623,7 +2614,6 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
-
 
 ```
 ### END OF FILE: t_egen.R
@@ -2761,7 +2751,6 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
-
 
 ```
 ### END OF FILE: t_encode.R
@@ -3035,7 +3024,6 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
-
 
 ```
 ### END OF FILE: t_generate.R
@@ -3369,6 +3357,21 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   temp_using_data_var = paste0("stata_tmp_using_data_L", line_num)
   r_code_lines = c(r_code_lines, paste0(temp_using_data_var, " = haven::read_dta(", using_source_r_expr, ")"))
 
+  # For 1:1 merge, check for unique keys in both master and using datasets to replicate Stata's strictness
+  if (merge_type == "1:1") {
+      r_code_lines = c(r_code_lines,
+          paste0("if (any(duplicated(data[[", vars_to_merge_on_r_vec_str, ", drop=FALSE]]))) { stop('Merge 1:1 failed: Duplicate keys found in master dataset (data).') }"),
+          paste0("if (any(duplicated(", temp_using_data_var, "[[", vars_to_merge_on_r_vec_str, ", drop=FALSE]]))) { stop('Merge 1:1 failed: Duplicate keys found in using dataset (', ", using_source_r_expr, ", ').') }")
+      )
+  }
+
+  # Ensure merge keys are plain numeric for robustness against haven-specific types
+  r_code_lines = c(r_code_lines,
+      paste0("data = dplyr::mutate(data, ", paste0("`", vars_to_merge_on, "` = as.numeric(`", vars_to_merge_on, "`)", collapse = ", "), ")"),
+      paste0(temp_using_data_var, " = dplyr::mutate(", temp_using_data_var, ", ", paste0("`", vars_to_merge_on, "` = as.numeric(`", vars_to_merge_on, "`)", collapse = ", "), ")")
+  )
+
+
   # Identify common columns that are NOT merge keys
   r_code_lines = c(r_code_lines,
     paste0("common_cols = intersect(names(data), names(", temp_using_data_var, "))"),
@@ -3428,7 +3431,6 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
-
 
 ```
 ### END OF FILE: t_merge.R
@@ -3640,27 +3642,30 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
           target_var_will_be_string_in_R = TRUE
           # If any rule implies string, the whole var becomes string. Labels are not applicable.
           target_var_is_numeric_with_labels = FALSE
-          break 
+          # No need to process further rules for labels if it's already determined to be a string target
+          # break # Don't break immediately, still need to parse all rules to build case_when
       }
 
       # Check for 'value "label"' syntax
       label_match = stringi::stri_match_first_regex(new_part_raw, "^\\s*([^\\s]+)\\s+(?:\"([^\"]*)\"|'([^']*)')\\s*$")
       if (!is.na(label_match[1,1])) {
-          target_var_is_numeric_with_labels = TRUE
-          numeric_val_part = stringi::stri_trim_both(label_match[1,2])
-          string_label_part = ifelse(!is.na(label_match[1,3]), label_match[1,3], label_match[1,4])
+          # If we already determined it's a string target, don't try to collect labels.
+          if (!target_var_will_be_string_in_R) {
+              target_var_is_numeric_with_labels = TRUE
+              numeric_val_part = stringi::stri_trim_both(label_match[1,2])
+              string_label_part = ifelse(!is.na(label_match[1,3]), label_match[1,3], label_match[1,4])
 
-          # Convert numeric value to R numeric (handling Stata's missing values)
-          r_numeric_val = NA_real_
-          if (numeric_val_part == ".") r_numeric_val = NA_real_
-          else if (stringi::stri_detect_regex(numeric_val_part, "^\\.[a-zA-Z]$")) r_numeric_val = NA_real_
-          else r_numeric_val = as.numeric(numeric_val_part)
+              # Convert numeric value to R numeric (handling Stata's missing values)
+              r_numeric_val = NA_real_
+              if (numeric_val_part == ".") r_numeric_val = NA_real_
+              else if (stringi::stri_detect_regex(numeric_val_part, "^\\.[a-zA-Z]$")) r_numeric_val = NA_real_
+              else r_numeric_val = as.numeric(numeric_val_part)
 
-          if (!is.na(r_numeric_val)) {
-            # Collect label: key is numeric value, value is label string
-            # This is for haven::labelled(..., labels = c(num_val = "label_str"))
-            # For haven, labels are names, values are the actual codes. So we store label=value.
-            collected_labels_temp[[string_label_part]] = r_numeric_val
+              if (!is.na(r_numeric_val)) {
+                # Collect label: key is numeric value, value is label string
+                # For haven, labels are names, values are the actual codes. So we store label=value.
+                collected_labels_temp[[string_label_part]] = r_numeric_val
+              }
           }
       }
   }
@@ -3675,6 +3680,7 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       # Convert to a data.frame for easier manipulation and duplicate handling
       # If a label is reused for different values, haven::labelled will just use it.
       # If a value is given multiple labels, the last one for that value applies.
+      
       temp_df_labels = data.frame(
           label = names(collected_labels_temp),
           value = unlist(collected_labels_temp, use.names = FALSE),
@@ -3882,7 +3888,6 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   return(r_code_str)
 }
 
-
 ```
 ### END OF FILE: t_recode.R
 
@@ -4010,6 +4015,16 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   if (!target_var_will_be_string && stringi::stri_detect_regex(stata_expr, "==|!=|~=|<=|>=|<|>|&|\\|")) {
     calculated_value_expr = paste0("as.numeric(", r_expr, ")")
   }
+  # If target is string, ensure the expression result is cast to string and NA_real_ becomes ""
+  if (target_var_will_be_string) {
+      if (calculated_value_expr == "NA_real_") {
+          calculated_value_expr = '""' # Stata replace for missing numeric to empty string for string variables
+      } else if (!stringi::stri_startswith_fixed(calculated_value_expr, '"') && !stringi::stri_startswith_fixed(calculated_value_expr, "'")) {
+          # Only wrap in as.character() if it's not already a quoted string
+          calculated_value_expr = paste0("as.character(", calculated_value_expr, ")")
+      }
+  }
+
 
   # For 'replace' command, if condition is FALSE or NA, the value should be left unchanged.
   # Use dplyr::coalesce(condition, FALSE) to treat NA condition as FALSE.
@@ -4041,7 +4056,6 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
-
 
 ```
 ### END OF FILE: t_replace.R
@@ -4818,6 +4832,8 @@ data = dplyr::filter(data, group_code==1)
 
  27 do:  merge 1:m group_code using "`t1'", keep(match master) nogenerate
  27 r:  stata_tmp_using_data_L27 = haven::read_dta(R_tempfile_L24_t1_path)
+data = dplyr::mutate(data, `group_code` = as.numeric(`group_code`))
+stata_tmp_using_data_L27 = dplyr::mutate(stata_tmp_using_data_L27, `group_code` = as.numeric(`group_code`))
 common_cols = intersect(names(data), names(stata_tmp_using_data_L27))
 common_cols_not_by = setdiff(common_cols, c("group_code"))
 if (length(common_cols_not_by) > 0) { stata_tmp_using_data_L27 = dplyr::select(stata_tmp_using_data_L27, -dplyr::all_of(common_cols_not_by)) }
@@ -4827,6 +4843,10 @@ data = dplyr::select(data, -dplyr::any_of('stata_merge_indicator_L27'))
 rm(stata_tmp_using_data_L27, common_cols, common_cols_not_by)
 # Stata merge type: 1:m, keep(master), nogenerate 
 stata_tmp_using_data_L27 = haven::read_dta(R_tempfile_L24_t1_path)
+
+data = dplyr::mutate(data, `group_code` = as.numeric(`group_code`))
+
+stata_tmp_using_data_L27 = dplyr::mutate(stata_tmp_using_data_L27, `group_code` = as.numeric(`group_code`))
 
 common_cols = intersect(names(data), names(stata_tmp_using_data_L27))
 
@@ -5033,9 +5053,9 @@ data = data %>%
 
  15 do:  replace contact_info = subinstr(contact_info, "beta", "delta", 1) if strpos(contact_info, "beta") > 0
  15 r:  data = data %>% 
-  dplyr::mutate(`contact_info` = dplyr::if_else(dplyr::coalesce(sfun_strpos(contact_info,  "beta") > 0, FALSE), sfun_subinstr(contact_info,  "beta",  "delta",  1), data$`contact_info`)) 
+  dplyr::mutate(`contact_info` = dplyr::if_else(dplyr::coalesce(sfun_strpos(contact_info,  "beta") > 0, FALSE), as.character(sfun_subinstr(contact_info,  "beta",  "delta",  1)), data$`contact_info`)) 
 data = data %>% 
-  dplyr::mutate(`contact_info` = dplyr::if_else(dplyr::coalesce(sfun_strpos(contact_info,  "beta") > 0, FALSE), sfun_subinstr(contact_info,  "beta",  "delta",  1), data$`contact_info`))
+  dplyr::mutate(`contact_info` = dplyr::if_else(dplyr::coalesce(sfun_strpos(contact_info,  "beta") > 0, FALSE), as.character(sfun_subinstr(contact_info,  "beta",  "delta",  1)), data$`contact_info`))
 
  16 do:  egen mean_overall_value1 = mean(value1)
  16 r:  data = data %>% 
@@ -5456,6 +5476,10 @@ data = dplyr::arrange(data, !!!dplyr::syms(c("id")))
 
  70 do:  merge 1:1 id using "extra_data_temp.dta", nogen
  70 r:  stata_tmp_using_data_L70 = haven::read_dta(file.path(stata2r_env$working_dir, "extra_data_temp.dta"))
+if (any(duplicated(data[[c("id"), drop=FALSE]]))) { stop('Merge 1:1 failed: Duplicate keys found in master dataset (data).') }
+if (any(duplicated(stata_tmp_using_data_L70[[c("id"), drop=FALSE]]))) { stop('Merge 1:1 failed: Duplicate keys found in using dataset (', file.path(stata2r_env$working_dir, "extra_data_temp.dta"), ').') }
+data = dplyr::mutate(data, `id` = as.numeric(`id`))
+stata_tmp_using_data_L70 = dplyr::mutate(stata_tmp_using_data_L70, `id` = as.numeric(`id`))
 common_cols = intersect(names(data), names(stata_tmp_using_data_L70))
 common_cols_not_by = setdiff(common_cols, c("id"))
 if (length(common_cols_not_by) > 0) { stata_tmp_using_data_L70 = dplyr::select(stata_tmp_using_data_L70, -dplyr::all_of(common_cols_not_by)) }
@@ -5465,6 +5489,16 @@ data = dplyr::select(data, -dplyr::any_of('stata_merge_indicator_L70'))
 rm(stata_tmp_using_data_L70, common_cols, common_cols_not_by)
 # Stata merge type: 1:1, keep(match master), nogenerate 
 stata_tmp_using_data_L70 = haven::read_dta(file.path(stata2r_env$working_dir, "extra_data_temp.dta"))
+
+if (any(duplicated(data[[c("id"), drop=FALSE]]))) { stop('Merge 1:1 failed: Duplicate keys found in master dataset (data).') }
+
+Warning: Extra arguments ignored.
+if (any(duplicated(stata_tmp_using_data_L70[[c("id"), drop=FALSE]]))) { stop('Merge 1:1 failed: Duplicate keys found in using dataset (', file.path(stata2r_env$working_dir, "extra_data_temp.dta"), ').') }
+
+Warning: Extra arguments ignored.
+data = dplyr::mutate(data, `id` = as.numeric(`id`))
+
+stata_tmp_using_data_L70 = dplyr::mutate(stata_tmp_using_data_L70, `id` = as.numeric(`id`))
 
 common_cols = intersect(names(data), names(stata_tmp_using_data_L70))
 

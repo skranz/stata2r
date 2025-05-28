@@ -257,6 +257,8 @@ data = dplyr::filter(data, group_code==1)
 
  27 do:  merge 1:m group_code using "`t1'", keep(match master) nogenerate
  27 r:  stata_tmp_using_data_L27 = haven::read_dta(R_tempfile_L24_t1_path)
+data = dplyr::mutate(data, `group_code` = as.numeric(`group_code`))
+stata_tmp_using_data_L27 = dplyr::mutate(stata_tmp_using_data_L27, `group_code` = as.numeric(`group_code`))
 common_cols = intersect(names(data), names(stata_tmp_using_data_L27))
 common_cols_not_by = setdiff(common_cols, c("group_code"))
 if (length(common_cols_not_by) > 0) { stata_tmp_using_data_L27 = dplyr::select(stata_tmp_using_data_L27, -dplyr::all_of(common_cols_not_by)) }
@@ -266,6 +268,10 @@ data = dplyr::select(data, -dplyr::any_of('stata_merge_indicator_L27'))
 rm(stata_tmp_using_data_L27, common_cols, common_cols_not_by)
 # Stata merge type: 1:m, keep(master), nogenerate 
 stata_tmp_using_data_L27 = haven::read_dta(R_tempfile_L24_t1_path)
+
+data = dplyr::mutate(data, `group_code` = as.numeric(`group_code`))
+
+stata_tmp_using_data_L27 = dplyr::mutate(stata_tmp_using_data_L27, `group_code` = as.numeric(`group_code`))
 
 common_cols = intersect(names(data), names(stata_tmp_using_data_L27))
 
@@ -472,9 +478,9 @@ data = data %>%
 
  15 do:  replace contact_info = subinstr(contact_info, "beta", "delta", 1) if strpos(contact_info, "beta") > 0
  15 r:  data = data %>% 
-  dplyr::mutate(`contact_info` = dplyr::if_else(dplyr::coalesce(sfun_strpos(contact_info,  "beta") > 0, FALSE), sfun_subinstr(contact_info,  "beta",  "delta",  1), data$`contact_info`)) 
+  dplyr::mutate(`contact_info` = dplyr::if_else(dplyr::coalesce(sfun_strpos(contact_info,  "beta") > 0, FALSE), as.character(sfun_subinstr(contact_info,  "beta",  "delta",  1)), data$`contact_info`)) 
 data = data %>% 
-  dplyr::mutate(`contact_info` = dplyr::if_else(dplyr::coalesce(sfun_strpos(contact_info,  "beta") > 0, FALSE), sfun_subinstr(contact_info,  "beta",  "delta",  1), data$`contact_info`))
+  dplyr::mutate(`contact_info` = dplyr::if_else(dplyr::coalesce(sfun_strpos(contact_info,  "beta") > 0, FALSE), as.character(sfun_subinstr(contact_info,  "beta",  "delta",  1)), data$`contact_info`))
 
  16 do:  egen mean_overall_value1 = mean(value1)
  16 r:  data = data %>% 
@@ -895,6 +901,10 @@ data = dplyr::arrange(data, !!!dplyr::syms(c("id")))
 
  70 do:  merge 1:1 id using "extra_data_temp.dta", nogen
  70 r:  stata_tmp_using_data_L70 = haven::read_dta(file.path(stata2r_env$working_dir, "extra_data_temp.dta"))
+if (any(duplicated(data[[c("id"), drop=FALSE]]))) { stop('Merge 1:1 failed: Duplicate keys found in master dataset (data).') }
+if (any(duplicated(stata_tmp_using_data_L70[[c("id"), drop=FALSE]]))) { stop('Merge 1:1 failed: Duplicate keys found in using dataset (', file.path(stata2r_env$working_dir, "extra_data_temp.dta"), ').') }
+data = dplyr::mutate(data, `id` = as.numeric(`id`))
+stata_tmp_using_data_L70 = dplyr::mutate(stata_tmp_using_data_L70, `id` = as.numeric(`id`))
 common_cols = intersect(names(data), names(stata_tmp_using_data_L70))
 common_cols_not_by = setdiff(common_cols, c("id"))
 if (length(common_cols_not_by) > 0) { stata_tmp_using_data_L70 = dplyr::select(stata_tmp_using_data_L70, -dplyr::all_of(common_cols_not_by)) }
@@ -904,6 +914,16 @@ data = dplyr::select(data, -dplyr::any_of('stata_merge_indicator_L70'))
 rm(stata_tmp_using_data_L70, common_cols, common_cols_not_by)
 # Stata merge type: 1:1, keep(match master), nogenerate 
 stata_tmp_using_data_L70 = haven::read_dta(file.path(stata2r_env$working_dir, "extra_data_temp.dta"))
+
+if (any(duplicated(data[[c("id"), drop=FALSE]]))) { stop('Merge 1:1 failed: Duplicate keys found in master dataset (data).') }
+
+Warning: Extra arguments ignored.
+if (any(duplicated(stata_tmp_using_data_L70[[c("id"), drop=FALSE]]))) { stop('Merge 1:1 failed: Duplicate keys found in using dataset (', file.path(stata2r_env$working_dir, "extra_data_temp.dta"), ').') }
+
+Warning: Extra arguments ignored.
+data = dplyr::mutate(data, `id` = as.numeric(`id`))
+
+stata_tmp_using_data_L70 = dplyr::mutate(stata_tmp_using_data_L70, `id` = as.numeric(`id`))
 
 common_cols = intersect(names(data), names(stata_tmp_using_data_L70))
 
