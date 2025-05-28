@@ -64,7 +64,8 @@ do_cmd_to_r = function(cmd_obj, line, cmd_df) { # Corrected signature: added cmd
       "destring" = t_destring(rest_of_cmd_clean, cmd_obj, cmd_df, line),
       "preserve" = t_preserve_restore(cmd_obj, type = "preserve"),
       "restore" = t_preserve_restore(cmd_obj, type = "restore"),
-      "format" = t_format(rest_of_cmd_clean, cmd_obj, cmd_df, line), # NEW: Added format command
+      "format" = t_format(rest_of_cmd_clean, cmd_obj, cmd_df, line),
+      "label" = t_label(rest_of_cmd_clean, cmd_obj, cmd_df, line), # NEW: Added label command
       # Add more commands here...
       # Fallback for unhandled but translatable commands:
       paste0("# Stata command '", cmd_obj$stata_cmd_original, " ", rest_of_cmd_clean, "' not yet fully translated.")
@@ -85,4 +86,5 @@ do_cmd_to_r = function(cmd_obj, line, cmd_df) { # Corrected signature: added cmd
   r_obj = data.frame(line=line, r_code = res$r_code, do_code = cmd_obj$do_code, stata_translation_error = res$stata_translation_error, stringsAsFactors = FALSE)
   return(r_obj)
 }
+
 
