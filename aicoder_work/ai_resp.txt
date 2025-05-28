@@ -1,11 +1,30 @@
-The main issue identified from the test results is the failure of the `append` command, specifically regarding the `generate()` option and the inconsistent handling of missing string values (empty strings in Stata vs. `NA` in R).
+The primary issue observed in the `do2` test failure stems from a discrepancy in how missing string values (`NA` in R vs. `""` in Stata) are handled, particularly after `append` operations. While `sfun_normalize_string_nas` is designed to convert `NA` to `""` for character columns, its application after `dplyr::bind_rows` in `t_append` was missing, and the `dplyr::across` usage in `sfun_normalize_string_nas` might be less robust than a direct loop for certain edge cases or R versions.
 
-My changes address these points:
-1.  **`t_append.R`**: Modified to correctly parse and implement the `generate(newvar)` option, creating a new variable that indicates the source of the observations (0 for master, 1 for appended).
-2.  **`sfun_normalize_string_nas.R`**: Introduced a new helper function `sfun_normalize_string_nas` that converts `NA_character_` values in a data frame's character columns to empty strings (`""`), aligning with Stata's behavior for missing strings.
-3.  **`t_use.R` and `t_merge.R`**: Integrated `sfun_normalize_string_nas` to ensure that data loaded by `use` or joined by `merge` consistently represents Stata's empty string missing values as empty strings in R, rather than `NA`. This should resolve the `value_mismatch` for character columns.
+My changes address this by:
+1.  **Refactoring `sfun_normalize_string_nas`**: Switched from `dplyr::across` to a direct base R loop for iterating through character columns and replacing `NA` with `""`. This ensures more consistent behavior regardless of potential `dplyr` or attribute interactions.
+2.  **Correcting `t_append`**: Added a call to `sfun_normalize_string_nas` immediately after `dplyr::bind_rows` within the `t_append` function. This ensures that any `NA` values introduced during the row binding (e.g., for columns existing in one dataset but not the other) are correctly converted to empty strings (`""`) to match Stata's behavior.
 
-These changes are designed to be general and not specific to the failing test case, providing a more accurate translation of Stata's data handling logic.
+These changes are general and do not introduce hacks specific to the failing test case, aligning with the project's goal of robust Stata-to-R translation.
+
+!CHANGE_FILE R/sfun_normalize_string_nas.R
+```R
+# Custom R implementation to normalize string NAs to empty strings ""
+# This is to match Stata's behavior where missing string values are empty strings.
+
+sfun_normalize_string_nas = function(df) {
+  restore.point("sfun_normalize_string_nas")
+  # Iterate over columns and apply conversion for character columns
+  for (col_name in names(df)) {
+    if (is.character(df[[col_name]])) {
+      # Use base R for assignment to ensure robustness
+      df[[col_name]][is.na(df[[col_name]])] = ""
+    }
+  }
+  return(df)
+}
+
+```
+!END_CHANGE_FILE R/sfun_normalize_string_nas.R
 
 !CHANGE_FILE R/t_append.R
 ```R
@@ -63,6 +82,8 @@ t_append = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   # Perform bind_rows
   r_code_lines = c(r_code_lines, paste0("data = dplyr::bind_rows(", temp_master_data_var, ", ", temp_using_data_var, ")"))
+  # Ensure NAs in newly created character columns are converted to "" after bind_rows
+  r_code_lines = c(r_code_lines, paste0("data = sfun_normalize_string_nas(data)"))
 
   # Clean up temporary variables
   r_code_lines = c(r_code_lines, paste0("rm(", temp_using_data_var, ", ", temp_master_data_var, ")"))
@@ -82,289 +103,6 @@ t_append = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   return(r_code_str)
 }
+
 ```
 !END_CHANGE_FILE R/t_append.R
-
-!CHANGE_FILE R/sfun_normalize_string_nas.R
-```R
-# Custom R implementation to normalize string NAs to empty strings ""
-# This is to match Stata's behavior where missing string values are empty strings.
-
-sfun_normalize_string_nas = function(df) {
-  restore.point("sfun_normalize_string_nas")
-  # Apply to each character column
-  df = dplyr::mutate(df, dplyr::across(where(is.character), ~dplyr::if_else(is.na(.), "", .)))
-  return(df)
-}
-```
-!END_CHANGE_FILE R/sfun_normalize_string_nas.R
-
-!CHANGE_FILE R/t_use.R
-```R
-t_use = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
-  restore.point("t_use")
-  # Example: use "filename.dta", clear
-  #          use "`macroname'", clear
-
-  parts = stringi::stri_match_first_regex(rest_of_cmd, "^\\s*(\"[^\"]+\"|`[^']+'|[^,\\s]+)\\s*(?:,\\s*(clear))?")
-  # Group 1: filename (quoted or macro or unquoted literal)
-  # Group 2: clear (optional)
-
-  if (is.na(parts[1,1])) {
-    return(paste0("# Failed to parse use command: ", rest_of_cmd))
-  }
-
-  raw_filename_token = parts[1,2]
-  clear_opt = parts[1,3] # NA if not present, "clear" if present
-
-  # Stata 'use filename' defaults to look in current working directory.
-  # The 'working_dir' in stata2r_env represents this.
-  # 'data_dir' is primarily for reference comparison files, or when explicitly specified via `using`.
-  filename_r_expr = resolve_stata_filename(raw_filename_token, cmd_df, line_num, default_base_dir_var = "working_dir")
-
-  r_code = paste0("data = haven::read_dta(", filename_r_expr, ")")
-
-  # Normalize string NAs to empty strings ""
-  r_code = paste0(r_code, " %>% \n  sfun_normalize_string_nas()")
-
-  # Add a column to preserve the original row order, for use in `egen group()`/`tag()`
-  r_code = paste0(r_code, " %>%\n  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number())")
-
-  # `clear` option in Stata allows overwriting. R `read_dta` just overwrites.
-  # So no special handling needed for `clear` in R code.
-  # Using haven::read_dta
-  # Assuming Stata .dta files. If other types, logic needs extension.
-
-  # Add a comment about 'clear' if it was used
-  if (!is.na(clear_opt)) {
-    r_code = paste0(r_code, " # 'clear' was used")
-  }
-
-  return(r_code)
-}
-```
-!END_CHANGE_FILE R/t_use.R
-
-!CHANGE_FILE R/t_merge.R
-```R
-# Translate Stata 'merge' command
-# Stata: merge 1:1 varlist using filename [, options]
-# Stata: merge 1:m varlist using filename [, options]
-# Stata: merge m:1 varlist using filename [, options]
-# Stata: merge m:m varlist using filename [, options]
-# Options: keep(match master using all) nogenerate
-
-t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
-  restore.point("t_merge") # Added restore.point
-  rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
-
-  # Define a temporary indicator column name for dplyr::join
-  indicator_col_name = paste0("stata_merge_indicator_L", line_num)
-
-  # Parse merge type (1:1, 1:m, m:1, m:m), varlist, `using filename`, and options
-  merge_match = stringi::stri_match_first_regex(rest_of_cmd_trimmed, "^\\s*([1m]:[1m])\\s+(.*?)\\s+using\\s+(\"[^\"]+\"|`[^']+'|[^,\\s]+)(?:,\\s*(.*))?$")
-  merge_type = NA_character_
-  varlist_str = NA_character_
-  raw_filename_token = NA_character_
-  options_str = NA_character_
-
-
-  if (is.na(merge_match[1,1])) {
-      # Check for older syntax without type: `merge varlist using filename` (defaults to 1:1)
-      merge_match_old = stringi::stri_match_first_regex(rest_of_cmd_trimmed, "^\\s*(.*?)\\s+using\\s+(\"[^\"]+\"|`[^']+'|[^,\\s]+)(?:,\\s*(.*))?$")
-      if (!is.na(merge_match_old[1,1])) {
-           merge_type = "1:1" # Assume 1:1 if type not specified
-           varlist_str = stringi::stri_trim_both(merge_match_old[1,2])
-           raw_filename_token = stringi::stri_trim_both(merge_match_old[1,3])
-           options_str = stringi::stri_trim_both(merge_match_old[1,4])
-      } else {
-           return(paste0("# Failed to parse merge command: ", rest_of_cmd))
-      }
-  } else {
-      merge_type = merge_match[1,2]
-      varlist_str = stringi::stri_trim_both(merge_match[1,3])
-      raw_filename_token = stringi::stri_trim_both(merge_match[1,4])
-      options_str = stringi::stri_trim_both(merge_match[1,5]) # NA if no options
-  }
-
-  vars_to_merge_on = stringi::stri_split_regex(varlist_str, "\\s+")[[1]]
-  vars_to_merge_on = vars_to_merge_on[vars_to_merge_on != ""]
-  if (length(vars_to_merge_on) == 0) {
-       return(paste0("# merge command requires varlist: ", rest_of_cmd))
-  }
-  # For dplyr::join, by argument can be a character vector of column names
-  vars_to_merge_on_r_vec_str = paste0('c("', paste(vars_to_merge_on, collapse = '", "'), '")')
-
-  using_source_r_expr = resolve_stata_filename(raw_filename_token, cmd_df, line_num, default_base_dir_var = "working_dir")
-
-  # Determine if nogenerate option is present (for comments later)
-  has_nogenerate = !is.na(options_str) && stringi::stri_detect_regex(options_str, "\\bno(?:generate|gen)\\b")
-  
-  # Determine keep_spec_for_comment based on parsing `options_str` in `t_merge` scope
-  # This variable should be initialized to a default that reflects Stata's behavior for the given merge type.
-  initial_keep_spec = NA_character_
-  if (merge_type %in% c("1:1", "1:m", "m:1")) {
-      initial_keep_spec = "match master"
-  } else if (merge_type == "m:m") {
-      initial_keep_spec = "match master using"
-  }
-
-  keep_spec_for_comment = initial_keep_spec # Default if no keep() specified
-  actual_keep_spec_from_options = NA_character_ # What was explicitly written in options_str
-
-  if (!is.na(options_str)) {
-      keep_opt_match = stringi::stri_match_first_regex(options_str, "\\bkeep\\s*\\(([^)]+)\\)")
-      if (!is.na(keep_opt_match[1,1])) {
-          actual_keep_spec_from_options = stringi::stri_trim_both(keep_opt_match[1,2])
-          keep_spec_for_comment = actual_keep_spec_from_options # Use actual option for comment
-      }
-  }
-
-  # --- Start building R code lines ---
-  r_code_lines = c()
-  temp_using_data_var = paste0("stata_tmp_using_data_L", line_num)
-
-  # Read using data
-  r_code_lines = c(r_code_lines, paste0(temp_using_data_var, " = haven::read_dta(", using_source_r_expr, ")"))
-
-  # Strip haven attributes from both master and using dataframes before joining
-  # And normalize string NAs
-  r_code_lines = c(r_code_lines, paste0("data = sfun_strip_stata_attributes(data)"))
-  r_code_lines = c(r_code_lines, paste0("data = sfun_normalize_string_nas(data)")) # Added
-  r_code_lines = c(r_code_lines, paste0(temp_using_data_var, " = sfun_strip_stata_attributes(", temp_using_data_var, ")"))
-  r_code_lines = c(r_code_lines, paste0(temp_using_data_var, " = sfun_normalize_string_nas(", temp_using_data_var, ")")) # Added
-
-  # Ensure merge keys are plain numeric for robustness against haven-specific types
-  r_code_lines = c(r_code_lines,
-      paste0("data = dplyr::mutate(data, ", paste0("`", vars_to_merge_on, "` = as.numeric(`", vars_to_merge_on, "`)", collapse = ", "), ")"),
-      paste0(temp_using_data_var, " = dplyr::mutate(", temp_using_data_var, ", ", paste0("`", vars_to_merge_on, "` = as.numeric(`", vars_to_merge_on, "`)", collapse = ", "), ")")
-  )
-
-  # Initialize variables for join type and merge indicator mapping in the *generated R code*
-  join_type_var_in_r = paste0("join_type_r_func_L", line_num)
-  stata_merge_map_left_only_var_in_r = paste0("stata_merge_map_left_only_L", line_num)
-  stata_merge_map_right_only_var_in_r = paste0("stata_merge_map_right_only_L", line_num)
-  stata_merge_map_both_var_in_r = paste0("stata_merge_map_both_L", line_num)
-
-  # New temp vars for package and function name resolution in generated R code
-  pkg_name_in_r_code = paste0("pkg_name_L", line_num)
-  fun_name_in_r_code = paste0("fun_name_L", line_num)
-  merge_fun_obj_in_r_code = paste0("merge_fun_obj_L", line_num)
-
-
-  # Default join type based on Stata's merge type.
-  # Note: For `merge 1:1`, the provided test data reference is known to expect `full_join` behavior.
-  r_code_lines = c(r_code_lines, paste0(join_type_var_in_r, " = switch('", merge_type, "', "))
-  r_code_lines = c(r_code_lines, paste0("  '1:1' = 'dplyr::full_join', # HACK: Deviates from Stata doc to match test data'"))
-  r_code_lines = c(r_code_lines, paste0("  '1:m' = 'dplyr::left_join',"))
-  r_code_lines = c(r_code_lines, paste0("  'm:1' = 'dplyr::right_join',"))
-  r_code_lines = c(r_code_lines, paste0("  'm:m' = 'dplyr::inner_join'"))
-  r_code_lines = c(r_code_lines, paste0(")"))
-
-  r_code_lines = c(r_code_lines, paste0(stata_merge_map_left_only_var_in_r, " = 1L"))
-  r_code_lines = c(r_code_lines, paste0(stata_merge_map_right_only_var_in_r, " = 2L"))
-  r_code_lines = c(r_code_lines, paste0(stata_merge_map_both_var_in_r, " = 3L"))
-  
-  # Logic for `keep()` option (converted to generated R code)
-  if (!is.na(actual_keep_spec_from_options)) {
-      r_code_lines = c(r_code_lines, paste0("if (grepl(\"\\\\ball\\\\b\", \"", actual_keep_spec_from_options, "\")) {"))
-      r_code_lines = c(r_code_lines, paste0("  ", join_type_var_in_r, " = \"dplyr::full_join\""))
-      r_code_lines = c(r_code_lines, paste0("} else if (grepl(\"\\\\bmaster\\\\b\", \"", actual_keep_spec_from_options, "\")) {"))
-      r_code_lines = c(r_code_lines, paste0("  ", join_type_var_in_r, " = \"dplyr::left_join\""))
-      r_code_lines = c(r_code_lines, paste0("} else if (grepl(\"\\\\busing\\\\b\", \"", actual_keep_spec_from_options, "\")) {"))
-      r_code_lines = c(r_code_lines, paste0("  ", join_type_var_in_r, " = \"dplyr::right_join\""))
-      r_code_lines = c(r_code_lines, paste0("} else if (grepl(\"\\\\bmatch\\\\b\", \"", actual_keep_spec_from_options, "\")) {"))
-      r_code_lines = c(r_code_lines, paste0("  ", join_type_var_in_r, " = \"dplyr::inner_join\""))
-      r_code_lines = c(r_code_lines, "}")
-  }
-
-  # Logic for 1:1 merge strictness (moved to generated R code)
-  # This part performs Stata's duplicate key checks for 1:1 merge.
-  if (merge_type == "1:1") {
-      r_code_lines = c(r_code_lines,
-          paste0("if (any(base::duplicated(dplyr::select(data, dplyr::all_of(", vars_to_merge_on_r_vec_str, "))))) { stop('Merge 1:1 failed: Duplicate keys found in master dataset (data).') }"),
-          paste0("if (any(base::duplicated(dplyr::select(", temp_using_data_var, ", dplyr::all_of(", vars_to_merge_on_r_vec_str, "))))) { stop('Merge 1:1 failed: Duplicate keys found in using dataset (', ", using_source_r_expr, ", ').') }")
-      )
-  }
-
-  # Identify common columns that are NOT merge keys
-  r_code_lines = c(r_code_lines,
-    paste0("common_cols = intersect(names(data), names(", temp_using_data_var, "))"),
-    paste0("common_cols_not_by = setdiff(common_cols, ", vars_to_merge_on_r_vec_str, ")")
-  )
-
-  # Conditional dropping of columns from the using dataset
-  # Stata's merge logic: if a variable exists in both, the master's version is kept.
-  # So, columns in `using` data that conflict with `master` data should be dropped from `using` before join.
-  r_code_lines = c(r_code_lines,
-    paste0("if (length(common_cols_not_by) > 0) { ", temp_using_data_var, " = dplyr::select(", temp_using_data_var, ", -dplyr::all_of(common_cols_not_by)) }")
-  )
-
-  # NEW: Resolve function using get and asNamespace before do.call
-  r_code_lines = c(r_code_lines,
-    paste0("parts_fun_split = stringi::stri_split_fixed(", join_type_var_in_r, ", \"::\", n=2)[[1]]"),
-    paste0(pkg_name_in_r_code, " = parts_fun_split[1]"),
-    paste0(fun_name_in_r_code, " = parts_fun_split[2]"),
-    paste0(merge_fun_obj_in_r_code, " = get(", fun_name_in_r_code, ", envir = asNamespace(", pkg_name_in_r_code, "))")
-  )
-
-  # Perform the join with indicator
-  r_code_lines = c(r_code_lines,
-    paste0("data = do.call(", merge_fun_obj_in_r_code, ", list(data, ", temp_using_data_var, ", by = ", vars_to_merge_on_r_vec_str, ", indicator = \"", indicator_col_name, "\"))")
-  )
-
-  # NEW: Post-merge processing for string NAs to empty strings
-  # This part is now handled by sfun_normalize_string_nas after `read_dta` and `strip_stata_attributes`.
-  # The `dplyr::join` might reintroduce NAs in character columns if they are not matched,
-  # so this is still needed to ensure consistency.
-  r_code_lines = c(r_code_lines, paste0("data = sfun_normalize_string_nas(data)"))
-
-
-  # Generate _merge variable unless nogenerate option is present
-  if (!has_nogenerate) {
-      r_code_lines = c(r_code_lines,
-          paste0("data = dplyr::mutate(data, `_merge` = dplyr::case_when("),
-          paste0("  `", indicator_col_name, "` == \"left_only\" ~ as.integer(", stata_merge_map_left_only_var_in_r, "),"),
-          paste0("  `", indicator_col_name, "` == \"right_only\" ~ as.integer(", stata_merge_map_right_only_var_in_r, "),"),
-          paste0("  `", indicator_col_name, "` == \"both\" ~ as.integer(", stata_merge_map_both_var_in_r, "),"),
-          paste0("  TRUE ~ NA_integer_"),
-          paste0("))")
-      )
-  } else {
-    r_code_lines = c(r_code_lines, paste0(" # _merge variable was not generated due to 'nogenerate' option."))
-  }
-
-  # Always remove the temporary indicator column
-  r_code_lines = c(r_code_lines, paste0("data = dplyr::select(data, -dplyr::any_of('", indicator_col_name, "'))"))
-
-  # Clean up temporary variables
-  r_code_lines = c(r_code_lines, paste0("rm(", temp_using_data_var, ", common_cols, common_cols_not_by, parts_fun_split)"))
-  
-  # Clean up the new temporary variables created for the generated R code
-  r_code_lines = c(r_code_lines, paste0("rm(", join_type_var_in_r, ", ", stata_merge_map_left_only_var_in_r, ", ", stata_merge_map_right_only_var_in_r, ", ", stata_merge_map_both_var_in_r, ")"))
-  # NEW: Clean up the new temp vars
-  r_code_lines = c(r_code_lines, paste0("rm(", pkg_name_in_r_code, ", ", fun_name_in_r_code, ", ", merge_fun_obj_in_r_code, ")"))
-
-
-  # Add comment about options
-  merge_comment_line = paste0("# Stata merge type: ", merge_type, ", keep(", keep_spec_for_comment, ")")
-  if (has_nogenerate) {
-    merge_comment_line = paste0(merge_comment_line, ", nogenerate")
-  }
-  r_code_lines = c(r_code_lines, merge_comment_line)
-
-  options_str_cleaned = options_str
-  if (!is.na(options_str_cleaned)) {
-      options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "\\bkeep\\s*\\([^)]+\\)", "")
-      options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "\\bno(?:generate|gen)\\b", "")
-      options_str_cleaned = stringi::stri_trim_both(stringi::stri_replace_all_regex(options_str_cleaned, ",+", ","))
-      options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "^,+", "")
-  }
-  if (!is.na(options_str_cleaned) && options_str_cleaned != "") {
-       r_code_lines = c(r_code_lines, paste0(" # Other options ignored: ", options_str_cleaned))
-  }
-
-  return(paste(r_code_lines, collapse="\n"))
-}
-```
-!END_CHANGE_FILE R/t_merge.R
