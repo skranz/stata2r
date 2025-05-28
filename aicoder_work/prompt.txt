@@ -918,6 +918,29 @@ sfun_stata_round = function(x, unit = 1) {
 
 -----------------------------------------------------------
 
+### FILE: sfun_string.R
+```
+# Custom R implementation for Stata's string() behavior
+# Stata: string(x) converts numeric x to string.
+# Missing numeric values (.) are converted to an empty string ("").
+
+sfun_string = function(x) {
+  restore.point("sfun_string")
+  # Convert to character first
+  res = as.character(x)
+
+  # Stata specific: missing numeric values become empty string.
+  # This applies to R's NA_real_ (for numeric) and NA_character_ (for character).
+  res[is.na(res)] = ""
+
+  return(res)
+}
+
+```
+### END OF FILE: sfun_string.R
+
+-----------------------------------------------------------
+
 ### FILE: sfun_strip_stata_attributes.R
 ```
 sfun_strip_stata_attributes = function(x) {
@@ -1398,7 +1421,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrpos\\(([^,]+),([^)]+)\\)", "sfun_strpos($1, $2)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\blength\\(([^)]+)\\)", "stringi::stri_length($1)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrlen\\(([^)]+)\\)", "stringi::stri_length($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstring\\(([^)]+)\\)", "as.character($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstring\\(([^)]+)\\)", "sfun_string($1)") # CHANGED HERE
     # Random number generator functions
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bruniform\\(\\)", "stats::runif(as.numeric(dplyr::n()))") # Stata runiform()
     # Date functions
@@ -4801,9 +4824,9 @@ See problems(...) for more details.
 
  40 do:  gen mixed_var_as_str = string(mixed_val_num) if !missing(mixed_val_num)
  40 r:  data = data %>% 
-  dplyr::mutate(`mixed_var_as_str` = dplyr::if_else(dplyr::coalesce(!sfun_missing(mixed_val_num), FALSE), as.character(mixed_val_num), NA_character_)) 
+  dplyr::mutate(`mixed_var_as_str` = dplyr::if_else(dplyr::coalesce(!sfun_missing(mixed_val_num), FALSE), sfun_string(mixed_val_num), NA_character_)) 
 data = data %>% 
-  dplyr::mutate(`mixed_var_as_str` = dplyr::if_else(dplyr::coalesce(!sfun_missing(mixed_val_num), FALSE), as.character(mixed_val_num), NA_character_))
+  dplyr::mutate(`mixed_var_as_str` = dplyr::if_else(dplyr::coalesce(!sfun_missing(mixed_val_num), FALSE), sfun_string(mixed_val_num), NA_character_))
 
 Error: After Stata line  40 , R data set differs from Stata reference.
 
@@ -4926,7 +4949,7 @@ tibble [50 × 39] (S3: tbl_df/tbl/data.frame)
   ..- attr(*, "format.stata")= chr "%9.0g"
  $ int_value1                : num [1:50] 73 NA 52 29 44 NA 41 20 31 70 ...
  $ rounded_value1            : num [1:50] 73.9 NA 52.8 29.8 44.2 NA 41.7 20 31.9 70.1 ...
- $ random_uniform_draw       : num [1:50] 0.6439 0.112 0.0749 0.2931 0.8285 ...
+ $ random_uniform_draw       : num [1:50] 0.8623 0.0497 0.4264 0.6187 0.3187 ...
  $ id_plus_value2            : num [1:50] 5 5 NA NA 8 8 10 14 15 NA ...
  $ group_clean               : chr [1:50] "gamma" "gamma" "beta" "beta" ...
  $ group_abbr                : chr [1:50] "gam" "gam" "bet" "bet" ...
