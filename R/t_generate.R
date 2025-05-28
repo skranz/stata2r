@@ -37,7 +37,7 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       group_vars_list = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
       group_vars_list = group_vars_list[group_vars_list != ""]
       if (length(group_vars_list) > 0) { # Ensure group_vars_list is not empty before forming string
-        group_vars_r_vec_str = paste0('c("', paste0(group_vars_list, collapse='", "'), '")')
+        group_vars_r_vec_str = paste0('dplyr::all_of(c("', paste0(group_vars_list, collapse='", "'), '"))')
       }
     }
 
@@ -51,7 +51,7 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     if (length(sort_vars_list) > 0) {
       all_sort_vars = c(if(length(group_vars_list)>0) group_vars_list else character(0), sort_vars_list)
       all_sort_vars_str = paste(all_sort_vars, collapse = ", ")
-      arrange_call = paste0("data = dplyr::arrange(data, ", all_sort_vars_str, ")")
+      arrange_call = paste0("data = dplyr::arrange(data, dplyr::across(dplyr::all_of(c(", paste0('"', all_sort_vars, '"', collapse = ", "), "))))")
     }
   }
 
@@ -95,12 +95,12 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Add grouping and mutate steps
   if (!is.null(group_vars_r_vec_str)) { # Check if group_vars_r_vec_str is not NULL
-      r_code_lines = c(r_code_lines, paste0("  dplyr::group_by(dplyr::across(", group_vars_r_vec_str, ")) %>%"))
-      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", new_var, " = ", calc_expr, ") %>%"))
+      r_code_lines = c(r_code_lines, paste0("  dplyr::group_by(", group_vars_r_vec_str, ") %>%"))
+      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(`", new_var, "` = ", calc_expr, ") %>%"))
       r_code_lines = c(r_code_lines, "  dplyr::ungroup()")
   } else {
       # If not grouped, just add the mutate step directly to the pipe chain
-      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", new_var, " = ", calc_expr, ")"))
+      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(`", new_var, "` = ", calc_expr, ")"))
   }
 
 

@@ -93,7 +93,7 @@ t_destring = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
       # Calculate destrung values
       # Using readr::parse_number
-      destrung_value_expr = paste0("readr::parse_number(as.character(data$", source_var_r, "))")
+      destrung_value_expr = paste0("readr::parse_number(as.character(data$`", source_var_r, "`))")
       # as.character needed in case the variable is factor/labelled etc.
 
       # Apply the if/in condition for replacement
@@ -101,7 +101,7 @@ t_destring = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
           # For rows meeting condition, use destrung value. Otherwise, keep original (or NA if new var).
            if (is_replace) {
                # Replace in place: use destrung if condition, old value otherwise
-               final_value_expr = paste0("dplyr::if_else(dplyr::coalesce(", r_if_in_cond, ", FALSE), ", destrung_value_expr, ", data$", source_var_r, ")")
+               final_value_expr = paste0("dplyr::if_else(dplyr::coalesce(", r_if_in_cond, ", FALSE), ", destrung_value_expr, ", data$`", source_var_r, "`)")
            } else {
                # Generate new var: use destrung if condition, NA otherwise
                final_value_expr = paste0("dplyr::if_else(dplyr::coalesce(", r_if_in_cond, ", FALSE), ", destrung_value_expr, ", NA_real_)") # Assuming numeric result
@@ -111,7 +111,7 @@ t_destring = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
            final_value_expr = destrung_value_expr
       }
 
-      mutate_exprs[k] = paste0(new_var, " = ", final_value_expr)
+      mutate_exprs[k] = paste0("`", new_var, "` = ", final_value_expr)
   }
 
    # Combine mutate expressions
@@ -142,5 +142,4 @@ t_destring = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
-
 

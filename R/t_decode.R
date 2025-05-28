@@ -72,13 +72,13 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   satisfies_cond_tmp_var = paste0("stata_tmp_satisfies_cond_L", cmd_obj$line)
 
    r_code_lines = c(
-      paste0("data = dplyr::mutate(data, ", gen_var, " = NA_character_)")
+      paste0("data = dplyr::mutate(data, `", gen_var, "` = NA_character_)")
    )
 
    r_code_lines = c(r_code_lines,
       paste0("## Decode values using haven::as_factor"),
       # Calculate decoded values using with(data, ...) to ensure varname_str is found
-      paste0(decoded_values_tmp_var, " = with(data, as.character(haven::as_factor(data$", varname_str, ", levels = 'labels')))")
+      paste0(decoded_values_tmp_var, " = with(data, as.character(haven::as_factor(data$`", varname_str, "`, levels = 'labels')))")
    )
 
   # Apply the if/in condition for replacement
@@ -86,12 +86,12 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
        r_code_lines = c(r_code_lines,
            paste0("## Calculate condition flag using with(data, ...)"),
            paste0(satisfies_cond_tmp_var, " = with(data, ", r_if_in_cond, ")"),
-           paste0("data = dplyr::mutate(data, ", gen_var, " = dplyr::if_else(", satisfies_cond_tmp_var, ", ", decoded_values_tmp_var, ", ", gen_var, "))"),
+           paste0("data = dplyr::mutate(data, `", gen_var, "` = dplyr::if_else(", satisfies_cond_tmp_var, ", ", decoded_values_tmp_var, ", `", gen_var, "`))"),
            paste0("rm(", satisfies_cond_tmp_var, ")")
        )
   } else {
       r_code_lines = c(r_code_lines,
-           paste0("data = dplyr::mutate(data, ", gen_var, " = ", decoded_values_tmp_var, ")")
+           paste0("data = dplyr::mutate(data, `", gen_var, "` = ", decoded_values_tmp_var, ")")
       )
   }
 
@@ -112,5 +112,4 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
-
 

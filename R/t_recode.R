@@ -176,13 +176,13 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
           # Stata's `if` condition treats missing as FALSE, so use coalesce.
           final_value_expr = paste0("dplyr::if_else(dplyr::coalesce(", r_subset_cond, ", FALSE),\n",
                                     "    ", case_when_expr, ",\n",
-                                    "    data$", source_var_r, ")") # Keep original value if condition not met.
+                                    "    data$`", source_var_r, "`)") # Keep original value if condition not met.
       } else {
           final_value_expr = case_when_expr
       }
 
 
-      mutate_exprs[k] = paste0(new_var, " = ", final_value_expr)
+      mutate_exprs[k] = paste0("`", new_var, "` = ", final_value_expr)
   }
 
   # Combine mutate expressions
@@ -202,5 +202,4 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
-
 

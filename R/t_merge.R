@@ -106,12 +106,12 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Generate _merge variable unless nogenerate option is present
   if (!has_nogenerate) {
       r_code_lines = c(r_code_lines,
-          paste0("data = dplyr::mutate(data, _merge = dplyr::case_when("),
-          paste0("  ", indicator_col_name, " == \"left_only\" ~ 1L,"),
-          paste0("  ", indicator_col_name, " == \"right_only\" ~ 2L,"),
-          paste0("  ", indicator_col_name, " == \"both\" ~ 3L,"),
+          paste0("data = dplyr::mutate(data, `_merge` = dplyr::case_when("),
+          paste0("  `", indicator_col_name, "` == \"left_only\" ~ 1L,"),
+          paste0("  `", indicator_col_name, "` == \"right_only\" ~ 2L,"),
+          paste0("  `", indicator_col_name, "` == \"both\" ~ 3L,"),
           paste0("  TRUE ~ NA_integer_ # Should not happen if join is successful, but for safety"),
-          paste0(")) %>% dplyr::select(-", indicator_col_name, ")") # Remove temporary indicator column
+          paste0(")) %>% dplyr::select(-`", indicator_col_name, "`)") # Remove temporary indicator column
       )
   } else {
     r_code_lines = c(r_code_lines, paste0(" # _merge variable was not generated due to 'nogenerate' option."))
@@ -141,5 +141,4 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
-
 

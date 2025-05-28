@@ -137,7 +137,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       by_vars_list_unquoted = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
       by_vars_list_unquoted = by_vars_list_unquoted[by_vars_list_unquoted != ""]
       if (length(by_vars_list_unquoted) > 0) { # Ensure by_vars_list_unquoted is not empty
-        by_vars_for_group_by = paste0('c("', paste0(by_vars_list_unquoted, collapse='", "'), '")')
+        by_vars_for_group_by = paste0('dplyr::all_of(c("', paste0(by_vars_list_unquoted, collapse='", "'), '"))')
       }
     }
 
@@ -164,7 +164,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       by_vars_list_unquoted = stringi::stri_split_regex(stringi::stri_trim_both(by_opt_match[1,2]), "\\s+")[[1]]
       by_vars_list_unquoted = by_vars_list_unquoted[by_vars_list_unquoted != ""]
       if (length(by_vars_list_unquoted) > 0) { # Ensure by_vars_list_unquoted is not empty
-        by_vars_for_group_by = paste0('c("', paste0(by_vars_list_unquoted, collapse='", "'), '")')
+        by_vars_for_group_by = paste0('dplyr::all_of(c("', paste0(by_vars_list_unquoted, collapse='", "'), '"))')
       }
     }
   }
@@ -211,7 +211,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     combined_grouping_vars = combined_grouping_vars[combined_grouping_vars != ""]
 
     if (length(combined_grouping_vars) > 0) {
-      by_vars_for_group_by = paste0('c("', paste0(combined_grouping_vars, collapse='", "'), '")')
+      by_vars_for_group_by = paste0('dplyr::all_of(c("', paste0(combined_grouping_vars, collapse='", "'), '"))')
     } else {
       by_vars_for_group_by = NULL # No grouping if no vars for group/tag
     }
@@ -228,25 +228,25 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   } else if (egen_func_name == "rowtotal") {
     vars_for_rowop_list = stringi::stri_split_regex(r_egen_args, "\\s+")[[1]] # Use non-conditional args here
     vars_for_rowop_list = vars_for_rowop_list[vars_for_rowop_list != ""]
-    vars_for_rowop_r_vec_str = paste0('c("', paste(vars_for_rowop_list, collapse='", "'), '")')
+    vars_for_rowop_r_vec_str = paste0('dplyr::all_of(c("', paste(vars_for_rowop_list, collapse='", "'), '"))')
 
     # Stata rowtotal treats NA as 0 *before* summing.
     # Using rowSums on a selection of columns after replacing NA with 0.
-    calc_expr = paste0("rowSums(tidyr::replace_na(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(", vars_for_rowop_r_vec_str, ")), 0), na.rm = FALSE)") # na.rm=FALSE because we replaced NA with 0
+    calc_expr = paste0("rowSums(tidyr::replace_na(dplyr::select(dplyr::cur_data_all(), ", vars_for_rowop_r_vec_str, "), 0), na.rm = FALSE)") # na.rm=FALSE because we replaced NA with 0
     is_row_function = TRUE; by_vars_for_group_by = NULL # Row functions don't use grouping in the same way
   } else if (egen_func_name == "rowmean") {
     vars_for_rowop_list = stringi::stri_split_regex(r_egen_args, "\\s+")[[1]] # Use non-conditional args here
     vars_for_rowop_list = vars_for_rowop_list[vars_for_rowop_list != ""]
-    vars_for_rowop_r_vec_str = paste0('c("', paste(vars_for_rowop_list, collapse='", "'), '")')
+    vars_for_rowop_r_vec_str = paste0('dplyr::all_of(c("', paste(vars_for_rowop_list, collapse='", "'), '"))')
 
-    calc_expr = paste0("rowMeans(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(", vars_for_rowop_r_vec_str, ")), na.rm = TRUE)")
+    calc_expr = paste0("rowMeans(dplyr::select(dplyr::cur_data_all(), ", vars_for_rowop_r_vec_str, "), na.rm = TRUE)")
     is_row_function = TRUE; by_vars_for_group_by = NULL
   } else {
     return(paste0("# Egen function '", egen_func_name, "' not yet implemented."))
   }
 
   # Combine into a mutate statement
-  full_mutate_expr = paste0(new_var, " = ", calc_expr)
+  full_mutate_expr = paste0("`", new_var, "` = ", calc_expr)
 
   # Build the R command string using pipes
   r_code_lines = c("data = data %>%") # Start with data and the first pipe
@@ -254,15 +254,15 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   if ((egen_func_name == "group" || egen_func_name == "tag") && !is.null(by_vars_for_group_by) && !is_row_function) {
     # For group/tag, we need to sort to ensure consistent IDs and restore order
     r_code_lines = c(r_code_lines,
-                        paste0("  dplyr::arrange(dplyr::across(", by_vars_for_group_by, ")) %>%"),
-                        paste0("  dplyr::group_by(dplyr::across(", by_vars_for_group_by, ")) %>%"),
+                        paste0("  dplyr::arrange(", paste0(by_vars_list_unquoted, collapse = ", "), ") %>%"), # arrange takes bare names
+                        paste0("  dplyr::group_by(", by_vars_for_group_by, ") %>%"),
                         "  dplyr::mutate(", full_mutate_expr, ") %>%",
                         "  dplyr::ungroup() %>%",
                         "  dplyr::arrange(stata2r_original_order_idx)")
   } else if (!is.null(by_vars_for_group_by) && !is_row_function) {
     # For other grouped egen functions (mean, sd, etc. with by-prefix or by-option)
     r_code_lines = c(r_code_lines,
-                        paste0("  dplyr::group_by(dplyr::across(", by_vars_for_group_by, ")) %>%"),
+                        paste0("  dplyr::group_by(", by_vars_for_group_by, ") %>%"),
                         "  dplyr::mutate(", full_mutate_expr, ") %>%",
                         "  dplyr::ungroup()")
   } else {

@@ -74,7 +74,7 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Initialize the new column as a haven_labelled integer vector.
   # Labels will be derived from the source data.
   r_code_lines = c(r_code_lines,
-    paste0("data = dplyr::mutate(data, ", gen_var, " = haven::labelled(rep(NA_integer_, NROW(data)), labels = c()))")
+    paste0("data = dplyr::mutate(data, `", gen_var, "` = haven::labelled(rep(NA_integer_, NROW(data)), labels = c()))")
   )
 
   # Calculate the full encoded vector (based on all unique values in source column, sorted alphabetically)
@@ -128,5 +128,4 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
-
 
