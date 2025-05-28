@@ -31,8 +31,12 @@ example = function() {
       cat("\nAll tests ok!")
       break
     }
-    undebug(aic_make_prompt_stata2r)
+    #undebug(aic_make_prompt_stata2r)
     aic = aic_make_prompt_stata2r(aic)
+
+    if (!stri_detect_fixed(aic$prompt, "TEST RESULT")) {
+      stop("aic$prompt does not show test results!")
+    }
     aic = aic_run_gemini(aic,model = "gemini-2.5-flash-preview-05-20")
     aic = aic_changes_stata2r(aic)
     Sys.sleep(5)
