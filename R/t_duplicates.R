@@ -120,8 +120,6 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
           # The if_else condition itself must treat any NA as FALSE for Stata compatibility.
           paste0("data = dplyr::mutate(data, ", gen_var, " = dplyr::if_else(dplyr::coalesce(", is_first_tmp_var, ", FALSE) & ", satisfies_cond_tmp_var, ", 1, 0))"),
           paste0("rm(", is_first_tmp_var, ", ", satisfies_cond_tmp_var, ")")
-          # Removed sfun_strip_stata_attributes call as per instruction in sfun_strip_stata_attributes.R
-          # paste0("data$", gen_var, " = sfun_strip_stata_attributes(data$", gen_var, ")")
        )
 
   } else if (subcommand == "list") {

@@ -140,13 +140,6 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
 
 
-  # Apply Stata-like numeric output rounding and attribute stripping for newly created variables
-  # Removed sfun_strip_stata_attributes calls as per instruction in sfun_strip_stata_attributes.R
-  # for (new_var in new_vars_created) {
-  #   r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_strip_stata_attributes(data$", new_var, ")"))
-  # }
-
-
   r_code_str = paste(r_code_lines, collapse="\n")
 
   # Add comment about options if any were present but not handled (excluding by)

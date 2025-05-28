@@ -101,9 +101,6 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
 
 
-  # Removed sfun_strip_stata_attributes call as per instruction in sfun_strip_stata_attributes.R
-  # r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_strip_stata_attributes(data$", new_var, ")"))
-
   return(paste(r_code_lines, collapse="\n"))
 }
 

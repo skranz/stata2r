@@ -120,11 +120,6 @@ t_destring = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Build the final R code using dplyr::mutate
   r_code_lines = c(paste0("data = dplyr::mutate(data, ", mutate_exprs_str, ")")) # Changed to dplyr::mutate
 
-  # Removed sfun_strip_stata_attributes call as per instruction in sfun_strip_stata_attributes.R
-  # for (new_var in new_vars) {
-  #     r_code_lines = c(r_code_lines, paste0("data$", new_var, " = sfun_strip_stata_attributes(data$", new_var, ")"))
-  # }
-
 
   r_code_str = paste(r_code_lines, collapse="\n")
 
