@@ -1330,7 +1330,6 @@ t_append = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   return(r_code_str)
 }
 
-
 ```
 ### END OF FILE: t_append.R
 
@@ -1588,13 +1587,13 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   satisfies_cond_tmp_var = paste0("stata_tmp_satisfies_cond_L", cmd_obj$line)
 
    r_code_lines = c(
-      paste0("data = dplyr::mutate(data, ", gen_var, " = NA_character_)")
+      paste0("data = dplyr::mutate(data, `", gen_var, "` = NA_character_)")
    )
 
    r_code_lines = c(r_code_lines,
       paste0("## Decode values using haven::as_factor"),
       # Calculate decoded values using with(data, ...) to ensure varname_str is found
-      paste0(decoded_values_tmp_var, " = with(data, as.character(haven::as_factor(data$", varname_str, ", levels = 'labels')))")
+      paste0(decoded_values_tmp_var, " = with(data, as.character(haven::as_factor(data$`", varname_str, "`, levels = 'labels')))")
    )
 
   # Apply the if/in condition for replacement
@@ -1602,12 +1601,12 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
        r_code_lines = c(r_code_lines,
            paste0("## Calculate condition flag using with(data, ...)"),
            paste0(satisfies_cond_tmp_var, " = with(data, ", r_if_in_cond, ")"),
-           paste0("data = dplyr::mutate(data, ", gen_var, " = dplyr::if_else(", satisfies_cond_tmp_var, ", ", decoded_values_tmp_var, ", ", gen_var, "))"),
+           paste0("data = dplyr::mutate(data, `", gen_var, "` = dplyr::if_else(", satisfies_cond_tmp_var, ", ", decoded_values_tmp_var, ", `", gen_var, "`))"),
            paste0("rm(", satisfies_cond_tmp_var, ")")
        )
   } else {
       r_code_lines = c(r_code_lines,
-           paste0("data = dplyr::mutate(data, ", gen_var, " = ", decoded_values_tmp_var, ")")
+           paste0("data = dplyr::mutate(data, `", gen_var, "` = ", decoded_values_tmp_var, ")")
       )
   }
 
@@ -1628,7 +1627,6 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
-
 
 ```
 ### END OF FILE: t_decode.R
@@ -1732,7 +1730,7 @@ t_destring = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
       # Calculate destrung values
       # Using readr::parse_number
-      destrung_value_expr = paste0("readr::parse_number(as.character(data$", source_var_r, "))")
+      destrung_value_expr = paste0("readr::parse_number(as.character(data$`", source_var_r, "`))")
       # as.character needed in case the variable is factor/labelled etc.
 
       # Apply the if/in condition for replacement
@@ -1740,7 +1738,7 @@ t_destring = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
           # For rows meeting condition, use destrung value. Otherwise, keep original (or NA if new var).
            if (is_replace) {
                # Replace in place: use destrung if condition, old value otherwise
-               final_value_expr = paste0("dplyr::if_else(dplyr::coalesce(", r_if_in_cond, ", FALSE), ", destrung_value_expr, ", data$", source_var_r, ")")
+               final_value_expr = paste0("dplyr::if_else(dplyr::coalesce(", r_if_in_cond, ", FALSE), ", destrung_value_expr, ", data$`", source_var_r, "`)")
            } else {
                # Generate new var: use destrung if condition, NA otherwise
                final_value_expr = paste0("dplyr::if_else(dplyr::coalesce(", r_if_in_cond, ", FALSE), ", destrung_value_expr, ", NA_real_)") # Assuming numeric result
@@ -1750,7 +1748,7 @@ t_destring = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
            final_value_expr = destrung_value_expr
       }
 
-      mutate_exprs[k] = paste0(new_var, " = ", final_value_expr)
+      mutate_exprs[k] = paste0("`", new_var, "` = ", final_value_expr)
   }
 
    # Combine mutate expressions
@@ -1781,7 +1779,6 @@ t_destring = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
-
 
 ```
 ### END OF FILE: t_destring.R
@@ -1966,7 +1963,7 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
           paste0("## Calculate condition flag, treating NA as FALSE"),
           paste0(satisfies_cond_tmp_var, " = ", cond_vector_expr_with_data),
           # The if_else condition itself must treat any NA as FALSE for Stata compatibility.
-          paste0("data = dplyr::mutate(data, ", gen_var, " = dplyr::if_else(dplyr::coalesce(", is_first_tmp_var, ", FALSE) & ", satisfies_cond_tmp_var, ", 1, 0))"),
+          paste0("data = dplyr::mutate(data, `", gen_var, "` = dplyr::if_else(dplyr::coalesce(", is_first_tmp_var, ", FALSE) & ", satisfies_cond_tmp_var, ", 1, 0))"),
           paste0("rm(", is_first_tmp_var, ", ", satisfies_cond_tmp_var, ")")
        )
 
@@ -2011,7 +2008,6 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   return(r_code_str)
 }
-
 
 ```
 ### END OF FILE: t_duplicates.R
@@ -2159,7 +2155,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       by_vars_list_unquoted = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
       by_vars_list_unquoted = by_vars_list_unquoted[by_vars_list_unquoted != ""]
       if (length(by_vars_list_unquoted) > 0) { # Ensure by_vars_list_unquoted is not empty
-        by_vars_for_group_by = paste0('c("', paste0(by_vars_list_unquoted, collapse='", "'), '")')
+        by_vars_for_group_by = paste0('dplyr::all_of(c("', paste0(by_vars_list_unquoted, collapse='", "'), '"))')
       }
     }
 
@@ -2186,7 +2182,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       by_vars_list_unquoted = stringi::stri_split_regex(stringi::stri_trim_both(by_opt_match[1,2]), "\\s+")[[1]]
       by_vars_list_unquoted = by_vars_list_unquoted[by_vars_list_unquoted != ""]
       if (length(by_vars_list_unquoted) > 0) { # Ensure by_vars_list_unquoted is not empty
-        by_vars_for_group_by = paste0('c("', paste0(by_vars_list_unquoted, collapse='", "'), '")')
+        by_vars_for_group_by = paste0('dplyr::all_of(c("', paste0(by_vars_list_unquoted, collapse='", "'), '"))')
       }
     }
   }
@@ -2233,7 +2229,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     combined_grouping_vars = combined_grouping_vars[combined_grouping_vars != ""]
 
     if (length(combined_grouping_vars) > 0) {
-      by_vars_for_group_by = paste0('c("', paste0(combined_grouping_vars, collapse='", "'), '")')
+      by_vars_for_group_by = paste0('dplyr::all_of(c("', paste0(combined_grouping_vars, collapse='", "'), '"))')
     } else {
       by_vars_for_group_by = NULL # No grouping if no vars for group/tag
     }
@@ -2250,25 +2246,25 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   } else if (egen_func_name == "rowtotal") {
     vars_for_rowop_list = stringi::stri_split_regex(r_egen_args, "\\s+")[[1]] # Use non-conditional args here
     vars_for_rowop_list = vars_for_rowop_list[vars_for_rowop_list != ""]
-    vars_for_rowop_r_vec_str = paste0('c("', paste(vars_for_rowop_list, collapse='", "'), '")')
+    vars_for_rowop_r_vec_str = paste0('dplyr::all_of(c("', paste(vars_for_rowop_list, collapse='", "'), '"))')
 
     # Stata rowtotal treats NA as 0 *before* summing.
     # Using rowSums on a selection of columns after replacing NA with 0.
-    calc_expr = paste0("rowSums(tidyr::replace_na(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(", vars_for_rowop_r_vec_str, ")), 0), na.rm = FALSE)") # na.rm=FALSE because we replaced NA with 0
+    calc_expr = paste0("rowSums(tidyr::replace_na(dplyr::select(dplyr::cur_data_all(), ", vars_for_rowop_r_vec_str, "), 0), na.rm = FALSE)") # na.rm=FALSE because we replaced NA with 0
     is_row_function = TRUE; by_vars_for_group_by = NULL # Row functions don't use grouping in the same way
   } else if (egen_func_name == "rowmean") {
     vars_for_rowop_list = stringi::stri_split_regex(r_egen_args, "\\s+")[[1]] # Use non-conditional args here
     vars_for_rowop_list = vars_for_rowop_list[vars_for_rowop_list != ""]
-    vars_for_rowop_r_vec_str = paste0('c("', paste(vars_for_rowop_list, collapse='", "'), '")')
+    vars_for_rowop_r_vec_str = paste0('dplyr::all_of(c("', paste(vars_for_rowop_list, collapse='", "'), '"))')
 
-    calc_expr = paste0("rowMeans(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(", vars_for_rowop_r_vec_str, ")), na.rm = TRUE)")
+    calc_expr = paste0("rowMeans(dplyr::select(dplyr::cur_data_all(), ", vars_for_rowop_r_vec_str, "), na.rm = TRUE)")
     is_row_function = TRUE; by_vars_for_group_by = NULL
   } else {
     return(paste0("# Egen function '", egen_func_name, "' not yet implemented."))
   }
 
   # Combine into a mutate statement
-  full_mutate_expr = paste0(new_var, " = ", calc_expr)
+  full_mutate_expr = paste0("`", new_var, "` = ", calc_expr)
 
   # Build the R command string using pipes
   r_code_lines = c("data = data %>%") # Start with data and the first pipe
@@ -2276,15 +2272,15 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   if ((egen_func_name == "group" || egen_func_name == "tag") && !is.null(by_vars_for_group_by) && !is_row_function) {
     # For group/tag, we need to sort to ensure consistent IDs and restore order
     r_code_lines = c(r_code_lines,
-                        paste0("  dplyr::arrange(dplyr::across(", by_vars_for_group_by, ")) %>%"),
-                        paste0("  dplyr::group_by(dplyr::across(", by_vars_for_group_by, ")) %>%"),
+                        paste0("  dplyr::arrange(", paste0(by_vars_list_unquoted, collapse = ", "), ") %>%"), # arrange takes bare names
+                        paste0("  dplyr::group_by(", by_vars_for_group_by, ") %>%"),
                         "  dplyr::mutate(", full_mutate_expr, ") %>%",
                         "  dplyr::ungroup() %>%",
                         "  dplyr::arrange(stata2r_original_order_idx)")
   } else if (!is.null(by_vars_for_group_by) && !is_row_function) {
     # For other grouped egen functions (mean, sd, etc. with by-prefix or by-option)
     r_code_lines = c(r_code_lines,
-                        paste0("  dplyr::group_by(dplyr::across(", by_vars_for_group_by, ")) %>%"),
+                        paste0("  dplyr::group_by(", by_vars_for_group_by, ") %>%"),
                         "  dplyr::mutate(", full_mutate_expr, ") %>%",
                         "  dplyr::ungroup()")
   } else {
@@ -2394,7 +2390,7 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Initialize the new column as a haven_labelled integer vector.
   # Labels will be derived from the source data.
   r_code_lines = c(r_code_lines,
-    paste0("data = dplyr::mutate(data, ", gen_var, " = haven::labelled(rep(NA_integer_, NROW(data)), labels = c()))")
+    paste0("data = dplyr::mutate(data, `", gen_var, "` = haven::labelled(rep(NA_integer_, NROW(data)), labels = c()))")
   )
 
   # Calculate the full encoded vector (based on all unique values in source column, sorted alphabetically)
@@ -2448,7 +2444,6 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
-
 
 ```
 ### END OF FILE: t_encode.R
@@ -2574,7 +2569,6 @@ t_expand = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   return(r_code_str)
 }
 
-
 ```
 ### END OF FILE: t_expand.R
 
@@ -2621,7 +2615,7 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       group_vars_list = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
       group_vars_list = group_vars_list[group_vars_list != ""]
       if (length(group_vars_list) > 0) { # Ensure group_vars_list is not empty before forming string
-        group_vars_r_vec_str = paste0('c("', paste0(group_vars_list, collapse='", "'), '")')
+        group_vars_r_vec_str = paste0('dplyr::all_of(c("', paste0(group_vars_list, collapse='", "'), '"))')
       }
     }
 
@@ -2635,7 +2629,7 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     if (length(sort_vars_list) > 0) {
       all_sort_vars = c(if(length(group_vars_list)>0) group_vars_list else character(0), sort_vars_list)
       all_sort_vars_str = paste(all_sort_vars, collapse = ", ")
-      arrange_call = paste0("data = dplyr::arrange(data, ", all_sort_vars_str, ")")
+      arrange_call = paste0("data = dplyr::arrange(data, dplyr::across(dplyr::all_of(c(", paste0('"', all_sort_vars, '"', collapse = ", "), "))))")
     }
   }
 
@@ -2679,12 +2673,12 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Add grouping and mutate steps
   if (!is.null(group_vars_r_vec_str)) { # Check if group_vars_r_vec_str is not NULL
-      r_code_lines = c(r_code_lines, paste0("  dplyr::group_by(dplyr::across(", group_vars_r_vec_str, ")) %>%"))
-      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", new_var, " = ", calc_expr, ") %>%"))
+      r_code_lines = c(r_code_lines, paste0("  dplyr::group_by(", group_vars_r_vec_str, ") %>%"))
+      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(`", new_var, "` = ", calc_expr, ") %>%"))
       r_code_lines = c(r_code_lines, "  dplyr::ungroup()")
   } else {
       # If not grouped, just add the mutate step directly to the pipe chain
-      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", new_var, " = ", calc_expr, ")"))
+      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(`", new_var, "` = ", calc_expr, ")"))
   }
 
 
@@ -2862,12 +2856,12 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Generate _merge variable unless nogenerate option is present
   if (!has_nogenerate) {
       r_code_lines = c(r_code_lines,
-          paste0("data = dplyr::mutate(data, _merge = dplyr::case_when("),
-          paste0("  ", indicator_col_name, " == \"left_only\" ~ 1L,"),
-          paste0("  ", indicator_col_name, " == \"right_only\" ~ 2L,"),
-          paste0("  ", indicator_col_name, " == \"both\" ~ 3L,"),
+          paste0("data = dplyr::mutate(data, `_merge` = dplyr::case_when("),
+          paste0("  `", indicator_col_name, "` == \"left_only\" ~ 1L,"),
+          paste0("  `", indicator_col_name, "` == \"right_only\" ~ 2L,"),
+          paste0("  `", indicator_col_name, "` == \"both\" ~ 3L,"),
           paste0("  TRUE ~ NA_integer_ # Should not happen if join is successful, but for safety"),
-          paste0(")) %>% dplyr::select(-", indicator_col_name, ")") # Remove temporary indicator column
+          paste0(")) %>% dplyr::select(-`", indicator_col_name, "`)") # Remove temporary indicator column
       )
   } else {
     r_code_lines = c(r_code_lines, paste0(" # _merge variable was not generated due to 'nogenerate' option."))
@@ -2897,7 +2891,6 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
-
 
 ```
 ### END OF FILE: t_merge.R
@@ -3189,13 +3182,13 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
           # Stata's `if` condition treats missing as FALSE, so use coalesce.
           final_value_expr = paste0("dplyr::if_else(dplyr::coalesce(", r_subset_cond, ", FALSE),\n",
                                     "    ", case_when_expr, ",\n",
-                                    "    data$", source_var_r, ")") # Keep original value if condition not met.
+                                    "    data$`", source_var_r, "`)") # Keep original value if condition not met.
       } else {
           final_value_expr = case_when_expr
       }
 
 
-      mutate_exprs[k] = paste0(new_var, " = ", final_value_expr)
+      mutate_exprs[k] = paste0("`", new_var, "` = ", final_value_expr)
   }
 
   # Combine mutate expressions
@@ -3215,7 +3208,6 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
-
 
 ```
 ### END OF FILE: t_recode.R
@@ -3290,7 +3282,7 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       group_vars_list = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
       group_vars_list = group_vars_list[group_vars_list != ""]
       if (length(group_vars_list) > 0) { # Ensure group_vars_list is not empty before forming string
-        group_vars_r_vec_str = paste0('c("', paste0(group_vars_list, collapse='", "'), '")')
+        group_vars_r_vec_str = paste0('dplyr::all_of(c("', paste0(group_vars_list, collapse='", "'), '"))')
       }
     }
 
@@ -3303,7 +3295,7 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     if (length(sort_vars_list) > 0) {
       all_sort_vars = c(if(length(group_vars_list)>0) group_vars_list else character(0), sort_vars_list)
       all_sort_vars_str = paste(all_sort_vars, collapse = ", ")
-      arrange_call = paste0("data = dplyr::arrange(data, ", all_sort_vars_str, ")")
+      arrange_call = paste0("data = dplyr::arrange(data, dplyr::across(dplyr::all_of(c(", paste0('"', all_sort_vars, '"', collapse = ", "), "))))")
     }
   }
 
@@ -3325,7 +3317,7 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # For 'replace' command, if condition is FALSE or NA, the value should be left unchanged.
   # Use dplyr::coalesce(condition, FALSE) to treat NA condition as FALSE.
   if (!is.na(r_if_cond) && r_if_cond != "") {
-    calc_expr = paste0("dplyr::if_else(dplyr::coalesce(", r_if_cond, ", FALSE), ", calculated_value_expr, ", data$", var_to_replace, ")")
+    calc_expr = paste0("dplyr::if_else(dplyr::coalesce(", r_if_cond, ", FALSE), ", calculated_value_expr, ", data$`", var_to_replace, "`)")
   } else {
     calc_expr = calculated_value_expr
   }
@@ -3341,11 +3333,11 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
 
   if (!is.null(group_vars_r_vec_str)) { # Check if group_vars_r_vec_str is not NULL
-      r_code_lines = c(r_code_lines, paste0("  dplyr::group_by(dplyr::across(", group_vars_r_vec_str, ")) %>%"))
-      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", var_to_replace, " = ", calc_expr, ") %>%"))
+      r_code_lines = c(r_code_lines, paste0("  dplyr::group_by(", group_vars_r_vec_str, ") %>%"))
+      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(`", var_to_replace, "` = ", calc_expr, ") %>%"))
       r_code_lines = c(r_code_lines, "  dplyr::ungroup()")
   } else {
-      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", var_to_replace, " = ", calc_expr, ")"))
+      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(`", var_to_replace, "` = ", calc_expr, ")"))
   }
 
   return(paste(r_code_lines, collapse="\n"))
