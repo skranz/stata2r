@@ -20,6 +20,7 @@ t_label = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 }
 
 t_label_define = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
+  restore.point("t_label_define")
   # label define lblname value "label" ... [, add|modify|replace]
   # Parts: "define ", lblname, rules, options
   define_match = stringi::stri_match_first_regex(rest_of_cmd, "^\\s*define\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*(.*?)(?:,\\s*(.*))?$")
@@ -40,8 +41,20 @@ t_label_define = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   values = rule_matches[,2] # Values as strings (e.g., "1", ".", ".a")
   labels = rule_matches[,3] # Label strings (e.g., "alpha", "Missing")
 
-  # Manually construct the R named vector string for haven::labelled format: c("value" = "label_string")
-  label_pairs_str = paste0('"', values, '" = "', labels, '"')
+  # Convert Stata values (like ".", ".a", numbers) to R numeric or NA_real_
+  numeric_values_for_labels = sapply(values, function(v) {
+      if (v == ".") return(NA_real_) # Stata system missing
+      # Stata extended missing values (.a to .z) are usually also mapped to NA by haven.
+      # haven::labelled labels argument does not support mapping extended missings directly.
+      # For now, just treat .x as NA.
+      if (stringi::stri_detect_regex(v, "^\\.[a-zA-Z]$")) return(NA_real_)
+      as.numeric(v) # Convert numeric strings to numeric
+  })
+
+  # Construct the R named numeric vector string for haven::labelled format: c("label_string" = value_numeric)
+  # Example: c("Male" = 1, "Female" = 2, "Not Applicable" = NA_real_)
+  # Names are labels, values are numeric codes
+  label_pairs_str = paste0('"', labels, '" = ', numeric_values_for_labels)
   new_labels_r_format_str = paste0("c(", paste(label_pairs_str, collapse = ", "), ")")
 
   # Handle options: replace, add, modify
@@ -66,6 +79,7 @@ t_label_define = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
 
 t_label_values = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
+  restore.point("t_label_values")
   # label values varlist lblname
   values_match = stringi::stri_match_first_regex(rest_of_cmd, "^\\s*values\\s+(.*?)\\s+([a-zA-Z_][a-zA-Z0-9_]*)$")
   if (is.na(values_match[1,1])) {
@@ -90,6 +104,7 @@ t_label_values = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 }
 
 t_label_variable = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
+  restore.point("t_label_variable")
   # label variable varname "label"
   variable_match = stringi::stri_match_first_regex(rest_of_cmd, "^\\s*variable\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s+\"([^\"]*)\"$")
   if (is.na(variable_match[1,1])) {
