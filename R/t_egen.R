@@ -229,7 +229,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     # The `by()` option variables are already in `group_vars_list_bare`.
     # For `rank`, it's generally sorted by the grouping variables + the variable being ranked.
     # For `group`, `tag`, it's sorted by the variables that define the group.
-    
+
     if (length(group_vars_list_bare) > 0) {
       sort_vars_for_arrange = unique(c(sort_vars_for_arrange, group_vars_list_bare))
     }
@@ -269,9 +269,10 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # For `group`, `tag`, and `rank` functions, restore original order IF an initial arrange was done.
   # This is crucial for matching Stata's behavior of not changing overall order unless explicitly sorted later.
-  if (egen_func_name %in% c("group", "tag", "rank") && arrange_call_str != "" && !is_row_function) { # Added "rank" here
-    pipe_elements = c(pipe_elements, "dplyr::arrange(stata2r_original_order_idx)")
-  }
+  # REMOVED: This block was causing issues because bysort implies a permanent sort.
+  # if (egen_func_name %in% c("group", "tag", "rank") && arrange_call_str != "" && !is_row_function) {
+  #   pipe_elements = c(pipe_elements, "dplyr::arrange(stata2r_original_order_idx)")
+  # }
 
   r_code_lines = c(r_code_lines, paste0("data = ", paste(pipe_elements, collapse = " %>% \n  ")))
 
