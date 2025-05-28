@@ -19,6 +19,8 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Context for expression translation (e.g. _n, _N behavior)
   # is_by_group TRUE if cmd_obj$by_group_vars is not NA
   current_context = list(is_by_group = cmd_obj$is_by_prefix && length(cmd_obj$by_group_vars) > 0 && !is.na(cmd_obj$by_group_vars[1]))
+  
+  # Translate the Stata expression to R first
   r_expr = translate_stata_expression_with_r_values(stata_expr, line_num, cmd_df, current_context)
 
   r_if_cond = NA_character_
@@ -60,24 +62,22 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
 
   # Step 1: Calculate the value for the new variable, potentially conditionally
-  # Ensure logical comparisons are converted to numeric (0/1) to match Stata's default numeric type for logical expressions.
-  is_logical_expr = stringi::stri_detect_regex(stata_expr, "==|!=|~=|<=|>=|<|>|&|\\|")
-  is_string_result_type = is_stata_expr_string_type(stata_expr)
-
+  # Determine the type of NA to use for the `if_else` fallback based on the *translated* R expression.
   calculated_value_expr = r_expr
   na_for_if_else = "NA_real_" # Default to numeric NA
 
-  if (is_logical_expr) {
-    calculated_value_expr = paste0("as.numeric(", r_expr, ")")
-    # If the expression itself is logical, Stata converts it to 0/1. So the result is numeric.
-    # Hence, NA_real_ is appropriate.
-    na_for_if_else = "NA_real_"
-  } else if (is_string_result_type) {
-    # If not a logical expression, but identified as producing a string result, use NA_character_.
+  # Heuristic for string result type: if the R expression contains string functions or sfun_stata_add
+  if (stringi::stri_detect_fixed(r_expr, "sfun_stata_add") || stringi::stri_detect_fixed(r_expr, "stringi::stri_")) {
     na_for_if_else = "NA_character_"
+  } else {
+    # If the original Stata expression is a logical comparison, it yields numeric 0/1 in Stata.
+    is_logical_expr = stringi::stri_detect_regex(stata_expr, "==|!=|~=|<=|>=|<|>|&|\\|")
+    if (is_logical_expr) {
+      calculated_value_expr = paste0("as.numeric(", r_expr, ")")
+      na_for_if_else = "NA_real_" # Logical to numeric
+    }
+    # Otherwise, it's assumed to be numeric, and NA_real_ is appropriate.
   }
-  # Otherwise (non-logical, non-string, i.e., numeric expression), NA_real_ is already the default.
-
 
   if (!is.na(r_if_cond) && r_if_cond != "") {
     # Stata's 'if' condition treats NA as FALSE.

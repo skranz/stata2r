@@ -27,10 +27,10 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Parse aggregate definitions: "(stat) var [name=expr ...] (stat) var [name=expr ...] ..."
   # Updated regex to correctly capture expressions for source and target variables.
-  # Changed `([^,=]+?)` to `([a-zA-Z_][a-zA-Z0-9_.]*)` for the variable name part (G2)
-  # Changed `([^,=]+?)` to `(.*?)` for the expression part (G3) to be more general
-  # FIX: Made the second group regex (for target var name) more robust to not consume part of the expression
-  aggregate_matches = stringi::stri_match_all_regex(aggregate_part, "\\(([a-zA-Z_][a-zA-Z0-9_]*)\\)\\s*([^\\s=,]+?)(?:\\s*=\\s*(.*?))?")[[1]]
+  # Group 1: stat name (e.g., mean, sum)
+  # Group 2: target variable name (e.g., i, total_i_sum)
+  # Group 3: source expression (e.g., i, i+1) - optional, for `name=expr` syntax
+  aggregate_matches = stringi::stri_match_all_regex(aggregate_part, "\\(([a-zA-Z_][a-zA-Z0-9_]*)\\)\\s*([a-zA-Z_][a-zA-Z0-9_.]*)(?:\\s*=\\s*(.*?))?")[[1]]
 
   if (NROW(aggregate_matches) == 0) {
     return(paste0("# Failed to parse collapse aggregate definitions: ", aggregate_part))
@@ -66,23 +66,15 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   aggregate_exprs = character(NROW(aggregate_matches))
   new_vars_created = character(NROW(aggregate_matches))
   for (j in 1:NROW(aggregate_matches)) {
-    stat_from_regex = aggregate_matches[j, 2]
-    # g2_val_from_regex is the second captured group (the target variable name)
-    g2_val_from_regex = aggregate_matches[j, 3]
-    # g3_val_from_regex is the third captured group (the source expression if newvar=expr)
-    g3_val_from_regex = aggregate_matches[j, 4]
+    stat_from_regex = aggregate_matches[j, 2] # Group 1: stat name
+    actual_stata_target_var_name = stringi::stri_trim_both(aggregate_matches[j, 3]) # Group 2: target var name
+    actual_stata_source_expr = stringi::stri_trim_both(aggregate_matches[j, 4]) # Group 3: source expression (optional)
 
-    actual_stata_source_expr = ""
-    actual_stata_target_var_name = ""
-
-    # FIX: Trim these values before assignment
-    if (is.na(g3_val_from_regex)) { # Matched (stat) g2_val_from_regex (e.g., (mean) myvar)
-        actual_stata_source_expr = stringi::stri_trim_both(g2_val_from_regex)
-        actual_stata_target_var_name = stringi::stri_trim_both(g2_val_from_regex)
-    } else { # Matched (stat) g2_val_from_regex = g3_val_from_regex (e.g., (mean) newvar = oldvar+1)
-        actual_stata_source_expr = stringi::stri_trim_both(g3_val_from_regex)
-        actual_stata_target_var_name = stringi::stri_trim_both(g2_val_from_regex)
+    if (is.na(actual_stata_source_expr) || actual_stata_source_expr == "") {
+      # If no explicit source expression (e.g., `(mean) myvar`), the source is the target var itself
+      actual_stata_source_expr = actual_stata_target_var_name
     }
+    
     new_vars_created[j] = actual_stata_target_var_name
 
     r_source_expr_translated = translate_stata_expression_with_r_values(actual_stata_source_expr, cmd_obj$line, cmd_df, context)
