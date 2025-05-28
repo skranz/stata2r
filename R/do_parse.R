@@ -1,12 +1,12 @@
 do_parse = function(do_code) {
   # do_code is a list of character vectors, each vector is a line
   # Ensure do_code is a simple character vector
-  if (is.list(do_code) && length(do_code) == 1 && is.character(do_code[[1]])){
-      do_code = do_code[[1]]
-  } else if (is.list(do_code)) {
-      # If multiple elements in list, try to unlist if structure is simple
-      # This might happen if stri_split_fixed returns a list of single strings
+  if (is.list(do_code)) {
       do_code = unlist(do_code)
+  }
+  # Ensure it's a character vector, even if empty after unlist
+  if (!is.character(do_code)) {
+    do_code = as.character(do_code)
   }
 
 
