@@ -1,11 +1,6 @@
-The main issues identified are:
-1.  **`t_collapse.R` regex error:** The regex used to parse aggregate definitions in the `collapse` command (e.g., `(sum) total_i_sum = i`) was not correctly distinguishing between the target variable name and the source expression, leading to incorrect R code generation. This caused the `do1` test to fail.
-2.  **`t_generate.R` and `t_replace.R` type inference:** The logic for determining the type of `NA` (numeric `NA_real_` vs. character `NA_character_`) to use in `dplyr::if_else` statements (when an `if` condition is not met or results in `NA`) was too simplistic. It didn't correctly infer string output types for expressions involving `sfun_stata_add` or other string manipulation, which could lead to type mismatches in the generated R data. This was likely contributing to the `do2` test's data differences.
+The primary issue in the `do2` test was a type mismatch in `dplyr::if_else` within `t_generate` (and `t_replace`). The heuristic for determining the `NA` type (e.g., `NA_real_` vs `NA_character_`) incorrectly relied on the *translated R expression* containing `sfun_stata_add`. However, `sfun_stata_add` can return numeric results if its inputs are numeric. The fix involves using `is_stata_expr_string_type` on the *original Stata expression* to correctly infer the target variable's type, ensuring `NA_real_` is used when the Stata expression implies a numeric result.
 
-I have updated the regex in `t_collapse.R` to correctly extract the target variable and source expression.
-I have also refined the type inference in `t_generate.R` and `t_replace.R` to check for the presence of `sfun_stata_add` or `stringi::stri_` functions in the translated R expression, ensuring that `NA_character_` is used for string results.
-
-The `do2` test's reported column mismatch for `rank_value1_in_group` appears to be a discrepancy between the R translation (which correctly creates the column via `egen rank`) and the provided Stata reference DTA file (which seems to lack this column). As per instructions, I am not introducing hacks for specific tests but ensuring the translation logic is generally correct for Stata's `egen rank` behavior.
+For the `do1` test's `collapse` command failure, the `Error: object 'total_i_sum' not found` suggested a problem with how the source variable `i` was being identified in `collapse::fsummarise` for the `(sum) total_i_sum = i` rule. While the original regex seemed logically correct, a subtle environment-specific behavior might have caused the capture group for `i` to be `NA`, leading to `total_i_sum` being incorrectly used as both target and source. The fix involves making the regex for capturing the source expression more robust by explicitly matching non-comma characters (`[^,]+`) instead of any character (`.`), which should ensure `i` is always correctly captured.
 
 !CHANGE_FILE R/t_collapse.R
 ```R
@@ -41,7 +36,8 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Group 1: stat name (e.g., mean, sum)
   # Group 2: target variable name (e.g., i, total_i_sum)
   # Group 3: source expression (e.g., i, i+1) - optional, for `name=expr` syntax
-  aggregate_matches = stringi::stri_match_all_regex(aggregate_part, "\\(([a-zA-Z_][a-zA-Z0-9_]*)\\)\\s*([a-zA-Z_][a-zA-Z0-9_.]*)(?:\\s*=\\s*(.*?))?")[[1]]
+  # Changed (?:\\s*=\\s*(.*?))? to (?:\\s*=\\s*([^,]+))? for more robust capture of expressions.
+  aggregate_matches = stringi::stri_match_all_regex(aggregate_part, "\\(([a-zA-Z_][a-zA-Z0-9_]*)\\)\\s*([a-zA-Z_][a-zA-Z0-9_.]*)(?:\\s*=\\s*([^,]+))?")[[1]]
 
   if (NROW(aggregate_matches) == 0) {
     return(paste0("# Failed to parse collapse aggregate definitions: ", aggregate_part))
@@ -238,12 +234,11 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
 
   # Step 1: Calculate the value for the new variable, potentially conditionally
-  # Determine the type of NA to use for the `if_else` fallback based on the *translated* R expression.
+  # Determine the type of NA to use for the `if_else` fallback based on the *original Stata expression*.
   calculated_value_expr = r_expr
   na_for_if_else = "NA_real_" # Default to numeric NA
 
-  # Heuristic for string result type: if the R expression contains string functions or sfun_stata_add
-  if (stringi::stri_detect_fixed(r_expr, "sfun_stata_add") || stringi::stri_detect_fixed(r_expr, "stringi::stri_")) {
+  if (is_stata_expr_string_type(stata_expr)) {
     na_for_if_else = "NA_character_"
   } else {
     # If the original Stata expression is a logical comparison, it yields numeric 0/1 in Stata.
@@ -350,12 +345,11 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
 
   # Step 1: Calculate the value for replacement, potentially conditionally
-  # Determine the type of NA to use for the `if_else` fallback based on the *translated* R expression.
+  # Determine the type of NA to use for the `if_else` fallback based on the *original Stata expression*.
   calculated_value_expr = r_expr
   na_for_if_else = "NA_real_" # Default to numeric NA
 
-  # Heuristic for string result type: if the R expression contains string functions or sfun_stata_add
-  if (stringi::stri_detect_fixed(r_expr, "sfun_stata_add") || stringi::stri_detect_fixed(r_expr, "stringi::stri_")) {
+  if (is_stata_expr_string_type(stata_expr)) {
     na_for_if_else = "NA_character_"
   } else {
     # If the original Stata expression is a logical comparison, it yields numeric 0/1 in Stata.
