@@ -31,6 +31,7 @@ example = function() {
       cat("\nAll tests ok!")
       break
     }
+    undebug(aic_make_prompt_stata2r)
     aic = aic_make_prompt_stata2r(aic)
     aic = aic_run_gemini(aic,model = "gemini-2.5-flash-preview-05-20")
     aic = aic_changes_stata2r(aic)

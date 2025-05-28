@@ -7,9 +7,9 @@ Outcome of test 'source_r': not ok
 Details of failed 'source' commands:
 source("/home/rstudio/aicoder/stata2r/R/stata_expression_translator.R")
 
-Error: /home/rstudio/aicoder/stata2r/R/stata_expression_translator.R:102:7: unexpected string constant
-101:       "\\b\\w+\\((?:[^()]|\\b\\w+\\([^()]*\\))*\\)" # Function call (allowing one level of nested simple function calls)
-102:       ")"
-           ^
+Error: /home/rstudio/aicoder/stata2r/R/stata_expression_translator.R:99:7: unexpected string constant
+98:       "\\b\\w+\\((?:[^()]|\\b\\w+\\([^()]*\\))*\\)" # Function call (allowing one level of nested simple function calls)
+99:       ")"
+          ^
 
 
