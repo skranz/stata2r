@@ -3136,8 +3136,11 @@ t_label_define = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
     label_map_r_code_str = paste0("stats::setNames(c(", paste(numeric_values_for_labels, collapse=", "), "), c(", paste0('"', labels_from_regex, '"', collapse=", "),"))")
     # Using setNames(values, names) is more robust if names have special chars, though c("name"=value) usually works.
     # The order for setNames is setNames(object, nm). So values first, then names.
-    # Corrected: stats::setNames(c(values_vector), c(names_vector))
-    # Ensure NA values are NA_real_ for numeric context.
+    # Corrected: stats::setNames(c(values, names)). No, it's stats::setNames(values, names)
+    # The current `label_map_r_code_str` is correct as `stats::setNames(numeric_vector, character_vector_of_names)`
+    # The haven::labelled function expects `labels` to be a named numeric vector, e.g. `c("label1" = 1, "label2" = 2)`.
+    # So `values` should be the numeric codes, and `names` should be the string labels.
+    # The current code: `stats::setNames(c(numeric_values_for_labels), c(labels_from_regex))` seems to do this.
     values_vec_str = paste0("c(", paste(ifelse(is.na(numeric_values_for_labels), "NA_real_", format(numeric_values_for_labels, scientific = FALSE, trim = TRUE)), collapse = ", "), ")")
     names_vec_str = paste0("c(", paste0('"', labels_from_regex, '"', collapse = ", "), ")")
     label_map_r_code_str = paste0("stats::setNames(", values_vec_str, ", ", names_vec_str, ")")
@@ -3156,31 +3159,12 @@ t_label_define = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
       if (is.na(option_type) || option_type == "replace") { # If replace or no option (Stata default is error if exists, we replace)
           r_code_lines = c(r_code_lines, paste0("stata2r_env$label_defs$`", lblname, "` = ", label_map_r_code_str))
       } else { # modify (same as add for this logic: new overwrites old for same value)
-          r_code_lines = c(r_code_lines, paste0("existing_labels_for_modify = if (exists('",lblname,"', where=stata2r_env$label_defs)) stata2r_env$label_defs$`", lblname, "` else stats::setNames(numeric(0), character(0))"))
-          r_code_lines = c(r_code_lines, paste0("new_labels_to_modify = ", label_map_r_code_str))
-          # Combine: new labels take precedence for same numeric value. Names are from new_labels.
-          r_code_lines = c(r_code_lines, paste0("combined_values = c(stats::setdiff(existing_labels_for_modify, new_labels_to_modify), new_labels_to_modify)")) # This logic needs care for names
-          # Simpler: New labels overwrite old ones for the same numeric key.
-          # R's c() for named vectors: later elements with same name overwrite earlier. We need to ensure values are unique.
+          # The logic for combining labels: new labels for existing numeric values override.
           # The names of the label vector are the string labels, values are the numeric codes.
-          # `new_labels_to_modify` has `c("string_label" = numeric_code)`. No, it's `stats::setNames(c(num_codes), c(string_labels))`.
-          # So, `names(new_labels_to_modify)` are the string labels. `new_labels_to_modify` itself contains the numeric codes.
-          # Stata `label define lbl 1 a, add` then `label define lbl 1 b, add` -> 1 is "b".
-          # Stata `label define lbl 1 a, modify` then `label define lbl 1 b, modify` -> 1 is "b".
-          # Stata `add` fails if value exists. `modify` allows changing label for existing value or adding new.
-          # My code should mimic `modify` if not `replace`.
-          # For `modify` or `add` (if we treat `add` as `modify` for simplicity if it passes Stata's own checks):
-          # Get current labels. Get new labels. Merge them. New labels for existing numeric values override.
-          r_code_lines = c(r_code_lines, paste0("stata2r_env$label_defs$`", lblname, "` = amerikanischen::update_named_vector(existing_labels_for_modify, new_labels_to_modify) # Custom helper needed here or careful c() usage"))
-          # Placeholder for robust named vector update. For now, new overwrites all.
-          # Correct merge:
-          # 1. Take all from existing that are NOT in new (by numeric value)
-          # 2. Add all from new.
-          # This assumes numeric_values are keys. `haven::labelled` uses `c("label"=value)`.
-          # Let's ensure `label_map_r_code_str` is `c("label" = value)`.
-          # My `label_map_r_code_str` is `stats::setNames(c(values), c(labels))`. This is `c(label1=val1, label2=val2, ...)`.
-          # This is what `haven::labelled` expects for its `labels` argument.
-
+          # `temp_new_defined` is `stats::setNames(c(num_codes), c(string_labels))`.
+          # This means `names(temp_new_defined)` are the string labels, and `temp_new_defined` itself is the numeric values.
+          # The `c()` function in R for named vectors: later elements with the same *name* overwrite earlier ones.
+          # But here, we want to overwrite based on *value*.
           # Correct merge logic for `labels` arg of `haven::labelled`
           # `existing_map = c(a=1, b=2)`
           # `new_map      = c(b=3, c=4)` (note: value for b changed)
@@ -3190,9 +3174,9 @@ t_label_define = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
             "temp_existing = if (!is.null(stata2r_env$label_defs$`", lblname, "`)) stata2r_env$label_defs$`", lblname, "` else stats::setNames(numeric(0), character(0))",
             "temp_new_defined = ", label_map_r_code_str,
             # Remove from temp_existing any elements whose numeric value is present in temp_new_defined
-            "values_in_new = temp_new_defined", # these are the numeric values
-            "labels_for_values_in_new = names(temp_new_defined)",
-            "temp_existing_filtered = temp_existing[! (temp_existing %in% values_in_new) ]",
+            "values_in_new = as.numeric(temp_new_defined)", # these are the numeric values
+            # To correctly remove, we need to compare values, not names.
+            "temp_existing_filtered = temp_existing[! (as.numeric(temp_existing) %in% values_in_new) ]",
             # Combine, ensuring new labels for overlapping values take precedence (by order in c())
             "stata2r_env$label_defs$`", lblname, "` = c(temp_existing_filtered, temp_new_defined)"
           )
@@ -3205,7 +3189,7 @@ t_label_define = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
             r_code_lines,
             "temp_existing = if (!is.null(stata2r_env$label_defs$`", lblname, "`)) stata2r_env$label_defs$`", lblname, "` else stats::setNames(numeric(0), character(0))",
             "temp_new_defined = ", label_map_r_code_str,
-            "stata2r_env$label_defs$`", lblname, "` = c(temp_existing[! (temp_existing %in% temp_new_defined) ], temp_new_defined)"
+            "stata2r_env$label_defs$`", lblname, "` = c(temp_existing[! (as.numeric(temp_existing) %in% as.numeric(temp_new_defined)) ], temp_new_defined)"
           )
   }
 
@@ -3240,17 +3224,15 @@ t_label_values = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
     r_code_lines = c(r_code_lines, paste0("label_map_to_apply = stata2r_env$label_defs$`", lblname, "`"))
 
     for (varname in vars_to_label) {
+      # Use a temporary variable for the new labelled object to avoid long line
+      temp_labelled_var = paste0("stata_tmp_labelled_L", cmd_obj$line, "_", varname)
+
       r_code_lines = c(r_code_lines, paste0("if (!is.null(label_map_to_apply)) {"))
-      # Preserve existing variable label (description) when applying new value labels
       r_code_lines = c(r_code_lines, paste0("  existing_var_label = attr(data[['",varname,"']], 'label')"))
-      # Ensure the data being labelled is of an appropriate type (e.g., integer for categorical)
-      # `haven::labelled` will typically handle this, but explicit coercion if needed could be added.
-      # We assume data[[varname]] contains the numeric codes to be labelled.
-      r_code_lines = c(r_code_lines, paste0("  data[['", varname, "']] = haven::labelled(data[['", varname, "']], labels = label_map_to_apply, label = existing_var_label)"))
-      r_code_lines = c(r_code_lines, "} else {")) # If label_map_to_apply is NULL (lblname not defined)
-      # Stata: if lblname does not exist, it's an error. Here, we'll defensively remove labels or do nothing.
-      # To match Stata erroring, this branch should ideally not be hit if lblname is invalid.
-      # For robustness, let's remove labels if map is not found (similar to `label values var .`)
+      r_code_lines = c(r_code_lines, paste0("  ", temp_labelled_var, " = haven::labelled(data[['", varname, "']], labels = label_map_to_apply, label = existing_var_label)"))
+      r_code_lines = c(r_code_lines, paste0("  data[['", varname, "']] = ", temp_labelled_var))
+      r_code_lines = c(r_code_lines, paste0("  rm(", temp_labelled_var, ")"))
+      r_code_lines = c(r_code_lines, "} else {"))
       r_code_lines = c(r_code_lines, paste0("  warning(paste0('Label definition `", lblname,"` not found for `label values` command on line ", cmd_obj$line, ". Labels removed from ', '",varname,"',' if any.'))"))
       r_code_lines = c(r_code_lines, paste0("  data[['", varname, "']] = haven::zap_labels(data[['", varname, "']])"))
       r_code_lines = c(r_code_lines, "}" )
@@ -3280,7 +3262,6 @@ t_label_variable = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   )
   return(paste(r_code_lines, collapse="\n"))
 }
-
 
 ```
 ### END OF FILE: t_label.R
@@ -4431,9 +4412,9 @@ Outcome of test 'source_r': not ok
 Details of failed 'source' commands:
 source("/home/rstudio/aicoder/stata2r/R/t_label.R")
 
-Error: /home/rstudio/aicoder/stata2r/R/t_label.R:174:49: unexpected ')'
-173:       r_code_lines = c(r_code_lines, paste0("  data[['", varname, "']] = haven::labelled(data[['", varname, "']], labels = label_map_to_apply, label = existing_var_label)"))
-174:       r_code_lines = c(r_code_lines, "} else {"))
+Error: /home/rstudio/aicoder/stata2r/R/t_label.R:159:49: unexpected ')'
+158:       r_code_lines = c(r_code_lines, paste0("  rm(", temp_labelled_var, ")"))
+159:       r_code_lines = c(r_code_lines, "} else {"))
                                                      ^
 
 

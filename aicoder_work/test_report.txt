@@ -7,9 +7,9 @@ Outcome of test 'source_r': not ok
 Details of failed 'source' commands:
 source("/home/rstudio/aicoder/stata2r/R/t_label.R")
 
-Error: /home/rstudio/aicoder/stata2r/R/t_label.R:174:49: unexpected ')'
-173:       r_code_lines = c(r_code_lines, paste0("  data[['", varname, "']] = haven::labelled(data[['", varname, "']], labels = label_map_to_apply, label = existing_var_label)"))
-174:       r_code_lines = c(r_code_lines, "} else {"))
+Error: /home/rstudio/aicoder/stata2r/R/t_label.R:159:49: unexpected ')'
+158:       r_code_lines = c(r_code_lines, paste0("  rm(", temp_labelled_var, ")"))
+159:       r_code_lines = c(r_code_lines, "} else {"))
                                                      ^
 
 
