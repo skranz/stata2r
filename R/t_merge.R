@@ -79,8 +79,8 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       }
   }
 
-  # Handle nogenerate option
-  has_nogenerate = !is.na(options_str) && stringi::stri_detect_fixed(options_str, "nogenerate")
+  # Handle nogenerate option - FIX: use regex to correctly detect 'nogen' abbreviation
+  has_nogenerate = !is.na(options_str) && stringi::stri_detect_regex(options_str, "\\bno(?:generate|gen)\\b")
   
   # Build the R command string using dplyr::*_join
 
@@ -138,7 +138,7 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   if (!is.na(options_str_cleaned)) {
       # Remove keep() and nogenerate from options string for comment
       options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "\\bkeep\\s*\\([^)]+\\)", "")
-      options_str_cleaned = stringi::stri_replace_first_fixed(options_str_cleaned, "nogenerate", "")
+      options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "\\bno(?:generate|gen)\\b", "") # Updated to remove both
       options_str_cleaned = stringi::stri_trim_both(stringi::stri_replace_all_regex(options_str_cleaned, ",+", ","))
       options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "^,+", "")
   }
