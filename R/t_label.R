@@ -61,7 +61,6 @@ t_label_define = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
     # Using setNames(values, names) is more robust if names have special chars, though c("name"=value) usually works.
     # The order for setNames is setNames(object, nm). So values first, then names.
     # Corrected: stats::setNames(c(values, names)). No, it's stats::setNames(values, names)
-    # The current `label_map_r_code_str` is correct as `stats::setNames(numeric_vector, character_vector_of_names)`
     # The haven::labelled function expects `labels` to be a named numeric vector, e.g. `c("label1" = 1, "label2" = 2)`.
     # So `values` should be the numeric codes, and `names` should be the string labels.
     # The current code: `stats::setNames(c(numeric_values_for_labels), c(labels_from_regex))` seems to do this.
@@ -156,7 +155,7 @@ t_label_values = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
       r_code_lines = c(r_code_lines, paste0("  ", temp_labelled_var, " = haven::labelled(data[['", varname, "']], labels = label_map_to_apply, label = existing_var_label)"))
       r_code_lines = c(r_code_lines, paste0("  data[['", varname, "']] = ", temp_labelled_var))
       r_code_lines = c(r_code_lines, paste0("  rm(", temp_labelled_var, ")"))
-      r_code_lines = c(r_code_lines, "} else {"))
+      r_code_lines = c(r_code_lines, "} else {" ) # Corrected: Removed extra ')'
       r_code_lines = c(r_code_lines, paste0("  warning(paste0('Label definition `", lblname,"` not found for `label values` command on line ", cmd_obj$line, ". Labels removed from ', '",varname,"',' if any.'))"))
       r_code_lines = c(r_code_lines, paste0("  data[['", varname, "']] = haven::zap_labels(data[['", varname, "']])"))
       r_code_lines = c(r_code_lines, "}" )
