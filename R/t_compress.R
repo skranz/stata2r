@@ -15,12 +15,13 @@ t_compress = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   r_code_lines = c()
   if (length(vars_to_compress) > 0) {
-      # Use collapse::fcompress on specific columns
+      # Use dplyr::mutate(across()) to apply sfun_compress_col_type
       vars_r_vec_str = paste0('c("', paste(vars_to_compress, collapse = '", "'), '")')
-      r_code_lines = c(r_code_lines, paste0("data = collapse::fcompress(data, cols = ", vars_r_vec_str, ")"))
+      r_code_lines = c(r_code_lines, paste0("data = dplyr::mutate(data, dplyr::across(dplyr::all_of(", vars_r_vec_str, "), stata2r::sfun_compress_col_type))"))
   } else {
-      # Use collapse::fcompress on the entire dataframe
-      r_code_lines = c(r_code_lines, paste0("data = collapse::fcompress(data)"))
+      # Apply to all variables using dplyr::across(dplyr::everything(), .fns = stata2r::sfun_compress_col_type)
+      # Using .fns = stata2r::sfun_compress_col_type explicitly for clarity, though it might be inferred.
+      r_code_lines = c(r_code_lines, paste0("data = dplyr::mutate(data, dplyr::across(dplyr::everything(), .fns = stata2r::sfun_compress_col_type))"))
   }
 
   return(paste(r_code_lines, collapse="\n"))
