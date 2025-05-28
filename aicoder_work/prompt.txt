@@ -3137,7 +3137,6 @@ t_label_define = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
     # Using setNames(values, names) is more robust if names have special chars, though c("name"=value) usually works.
     # The order for setNames is setNames(object, nm). So values first, then names.
     # Corrected: stats::setNames(c(values, names)). No, it's stats::setNames(values, names)
-    # The current `label_map_r_code_str` is correct as `stats::setNames(numeric_vector, character_vector_of_names)`
     # The haven::labelled function expects `labels` to be a named numeric vector, e.g. `c("label1" = 1, "label2" = 2)`.
     # So `values` should be the numeric codes, and `names` should be the string labels.
     # The current code: `stats::setNames(c(numeric_values_for_labels), c(labels_from_regex))` seems to do this.
@@ -3232,7 +3231,7 @@ t_label_values = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
       r_code_lines = c(r_code_lines, paste0("  ", temp_labelled_var, " = haven::labelled(data[['", varname, "']], labels = label_map_to_apply, label = existing_var_label)"))
       r_code_lines = c(r_code_lines, paste0("  data[['", varname, "']] = ", temp_labelled_var))
       r_code_lines = c(r_code_lines, paste0("  rm(", temp_labelled_var, ")"))
-      r_code_lines = c(r_code_lines, "} else {"))
+      r_code_lines = c(r_code_lines, "} else {" ) # Corrected: Removed extra ')'
       r_code_lines = c(r_code_lines, paste0("  warning(paste0('Label definition `", lblname,"` not found for `label values` command on line ", cmd_obj$line, ". Labels removed from ', '",varname,"',' if any.'))"))
       r_code_lines = c(r_code_lines, paste0("  data[['", varname, "']] = haven::zap_labels(data[['", varname, "']])"))
       r_code_lines = c(r_code_lines, "}" )
@@ -4401,23 +4400,807 @@ translate_stata_expression_with_r_values = function(stata_expr, line_num, cmd_df
 #################
 # TEST RESULTS
 #################
-In total 1 of 1 tests failed:
+In total 1 of 3 tests failed:
 
-In total 1 of 1 tests failed.
+In total 1 of 3 tests failed.
 
 
 ---
-Outcome of test 'source_r': not ok
-
-Details of failed 'source' commands:
-source("/home/rstudio/aicoder/stata2r/R/t_label.R")
-
-Error: /home/rstudio/aicoder/stata2r/R/t_label.R:159:49: unexpected ')'
-158:       r_code_lines = c(r_code_lines, paste0("  rm(", temp_labelled_var, ")"))
-159:       r_code_lines = c(r_code_lines, "} else {"))
-                                                     ^
+Outcome of test 'source_r': ok
+All R files could be sourced.
 
 
+
+---
+Outcome of test 'do1': ok
+
+
+Details:
+
+cmd_df = do_parse(do_code)
+cmd_df = mark_data_manip_cmd(cmd_df)
+
+str(cmd_df)
+'data.frame':	38 obs. of  10 variables:
+ $ line                   : int  1 2 3 4 5 6 7 8 9 10 ...
+ $ do_code                : chr  "use \"data.dta\", clear" "sort group i" "keep in 1/39" "list in 1/5" ...
+ $ stata_cmd_original     : chr  "use" "sort" "keep" "list" ...
+ $ stata_cmd              : chr  "use" "sort" "keep" "list" ...
+ $ rest_of_cmd            : chr  "\"data.dta\", clear" "group i" "in 1/39" "in 1/5" ...
+ $ is_by_prefix           : logi  FALSE FALSE FALSE FALSE FALSE TRUE ...
+ $ by_group_vars          : chr  NA NA NA NA ...
+ $ by_sort_vars           : chr  NA NA NA NA ...
+ $ stata_translation_error: chr  NA NA NA NA ...
+ $ do_translate           : logi  TRUE TRUE TRUE FALSE FALSE TRUE ...
+NULL
+
+---
+#Translate Stata to R commands... ... translation done.
+---
+# Run translated R commands and compare results
+
+
+ 1 do:  use "data.dta", clear
+ 1 r:  data = haven::read_dta(file.path(stata2r_env$working_dir, "data.dta")) %>%
+  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used 
+data = haven::read_dta(file.path(stata2r_env$working_dir, "data.dta")) %>%
+  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used
+
+ 2 do:  sort group i
+ 2 r:  data = dplyr::arrange(data, !!!dplyr::syms(c("group", "i"))) 
+data = dplyr::arrange(data, !!!dplyr::syms(c("group", "i")))
+
+ 3 do:  keep in 1/39
+ 3 r:  data = dplyr::slice(data, 1:39) 
+data = dplyr::slice(data, 1:39)
+
+ 4 do:  list in 1/5 
+
+ 4 r:  not translated since not flagged as data manipulation
+
+ 5 do:  display _n 
+
+ 5 r:  not translated since not flagged as data manipulation
+
+ 6 do:  by group: gen seq = _n
+ 6 r:  data = dplyr::arrange(data, !!!dplyr::syms(c("group")))
+data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group"))) %>% 
+  dplyr::mutate(`seq` = as.numeric(dplyr::row_number())) %>% 
+  dplyr::ungroup() 
+data = dplyr::arrange(data, !!!dplyr::syms(c("group")))
+
+data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group"))) %>% 
+  dplyr::mutate(`seq` = as.numeric(dplyr::row_number())) %>% 
+  dplyr::ungroup()
+
+ 7 do:  gen logi = log(i)
+ 7 r:  data = data %>% 
+  dplyr::mutate(`logi` = log(i)) 
+data = data %>% 
+  dplyr::mutate(`logi` = log(i))
+
+ 8 do:  gen sqrt_i = sqrt(i)
+ 8 r:  data = data %>% 
+  dplyr::mutate(`sqrt_i` = sqrt(i)) 
+data = data %>% 
+  dplyr::mutate(`sqrt_i` = sqrt(i))
+
+ 9 do:  gen group_num = cond(group=="A",1,cond(group=="B",2,3))
+ 9 r:  data = data %>% 
+  dplyr::mutate(`group_num` = as.numeric(dplyr::if_else(group=="A", 1, dplyr::if_else(group=="B", 2, 3)))) 
+data = data %>% 
+  dplyr::mutate(`group_num` = as.numeric(dplyr::if_else(group=="A", 1, dplyr::if_else(group=="B", 2, 3))))
+
+ 10 do:  egen mean_i_grp = mean(i), by(group)
+ 10 r:  data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group"))) %>% 
+  dplyr::mutate(`mean_i_grp` = mean(i, na.rm = TRUE)) %>% 
+  dplyr::ungroup() 
+data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group"))) %>% 
+  dplyr::mutate(`mean_i_grp` = mean(i, na.rm = TRUE)) %>% 
+  dplyr::ungroup()
+
+ 11 do:  egen total_i = total(i)
+ 11 r:  data = data %>% 
+  dplyr::mutate(`total_i` = sum(i, na.rm = TRUE)) 
+data = data %>% 
+  dplyr::mutate(`total_i` = sum(i, na.rm = TRUE))
+
+ 12 do:  bysort group: egen rank_i = rank(i)
+ 12 r:  data = dplyr::arrange(data, !!!dplyr::syms(c("group")))
+data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group"))) %>% 
+  dplyr::mutate(`rank_i` = as.numeric(base::rank(i, ties.method = 'average', na.last = 'keep'))) %>% 
+  dplyr::ungroup() 
+data = dplyr::arrange(data, !!!dplyr::syms(c("group")))
+
+data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group"))) %>% 
+  dplyr::mutate(`rank_i` = as.numeric(base::rank(i, ties.method = 'average', na.last = 'keep'))) %>% 
+  dplyr::ungroup()
+
+ 13 do:  gen flag = (i>20) if group=="A"
+ 13 r:  data = data %>% 
+  dplyr::mutate(`flag` = dplyr::if_else(dplyr::coalesce(group=="A", FALSE), as.numeric((i>20)), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`flag` = dplyr::if_else(dplyr::coalesce(group=="A", FALSE), as.numeric((i>20)), NA_real_))
+
+ 14 do:  replace flag = 0 if missing(flag)
+ 14 r:  data = data %>% 
+  dplyr::mutate(`flag` = dplyr::if_else(dplyr::coalesce(sfun_missing(flag), FALSE), 0, data$`flag`)) 
+data = data %>% 
+  dplyr::mutate(`flag` = dplyr::if_else(dplyr::coalesce(sfun_missing(flag), FALSE), 0, data$`flag`))
+
+ 15 do:  keep if flag==1 | group=="B"
+ 15 r:  data = dplyr::filter(data, flag==1 | group=="B") 
+data = dplyr::filter(data, flag==1 | group=="B")
+
+ 16 do:  drop if i>35
+ 16 r:  data = dplyr::filter(data, !(i>35)) 
+data = dplyr::filter(data, !(i>35))
+
+ 17 do:  collapse (mean) i (sum) total_i_sum = i, by(group)
+ 17 r:  data = data %>% 
+  collapse::fgroup_by(group) %>% 
+  collapse::fsummarise(`i` = collapse::fmean(i, na.rm = TRUE),
+  `total_i_sum` = collapse::fsum(i, na.rm = TRUE)) %>% 
+  collapse::fungroup() 
+data = data %>% 
+  collapse::fgroup_by(group) %>% 
+  collapse::fsummarise(`i` = collapse::fmean(i, na.rm = TRUE),
+  `total_i_sum` = collapse::fsum(i, na.rm = TRUE)) %>% 
+  collapse::fungroup()
+
+ 18 do:  rename i mean_i_overall
+ 18 r:  data = collapse::frename(data, `i` = `mean_i_overall`) 
+data = collapse::frename(data, `i` = `mean_i_overall`)
+
+ 19 do:  expand 2 if group=="C"
+ 19 r:  stata_tmp_expand_n_values_L19 = 2
+stata_tmp_expand_cond_values_L19 = with(data, group=="C")
+stata_tmp_final_expand_times_L19 = ifelse(!is.na(stata_tmp_expand_cond_values_L19) & stata_tmp_expand_cond_values_L19, ifelse(is.na(stata_tmp_expand_n_values_L19), 1, pmax(0, as.integer(stata_tmp_expand_n_values_L19))), 1)
+data = data[base::rep(1:NROW(data), times = stata_tmp_final_expand_times_L19), ]
+if (exists('stata_tmp_expand_n_values_L19')) rm(stata_tmp_expand_n_values_L19, stata_tmp_expand_cond_values_L19, stata_tmp_final_expand_times_L19) 
+stata_tmp_expand_n_values_L19 = 2
+
+stata_tmp_expand_cond_values_L19 = with(data, group=="C")
+
+stata_tmp_final_expand_times_L19 = ifelse(!is.na(stata_tmp_expand_cond_values_L19) & stata_tmp_expand_cond_values_L19, ifelse(is.na(stata_tmp_expand_n_values_L19), 1, pmax(0, as.integer(stata_tmp_expand_n_values_L19))), 1)
+
+data = data[base::rep(1:NROW(data), times = stata_tmp_final_expand_times_L19), ]
+
+if (exists('stata_tmp_expand_n_values_L19')) rm(stata_tmp_expand_n_values_L19, stata_tmp_expand_cond_values_L19, stata_tmp_final_expand_times_L19)
+
+ 20 do:  duplicates drop
+ 20 r:  ## Calculate duplicate flag based on all variables
+stata_tmp_is_duplicate_L20 = base::duplicated(data, fromLast = FALSE)
+## Calculate condition flag
+stata_tmp_satisfies_cond_L20 = TRUE
+data = dplyr::filter(data, !(stata_tmp_is_duplicate_L20 & stata_tmp_satisfies_cond_L20))
+rm(stata_tmp_is_duplicate_L20, stata_tmp_satisfies_cond_L20) 
+## Calculate duplicate flag based on all variables
+
+stata_tmp_is_duplicate_L20 = base::duplicated(data, fromLast = FALSE)
+
+## Calculate condition flag
+
+stata_tmp_satisfies_cond_L20 = TRUE
+
+data = dplyr::filter(data, !(stata_tmp_is_duplicate_L20 & stata_tmp_satisfies_cond_L20))
+
+rm(stata_tmp_is_duplicate_L20, stata_tmp_satisfies_cond_L20)
+
+ 21 do:  encode group, gen(group_code)
+ 21 r:  data = dplyr::mutate(data, `group_code` = NA_integer_)
+temp_source_vector_L21 = data[['group']]
+temp_unique_values_L21 = base::sort(base::unique(temp_source_vector_L21[!is.na(temp_source_vector_L21)]))
+temp_numeric_values_L21 = base::match(temp_source_vector_L21, temp_unique_values_L21)
+temp_labels_vector_L21 = stats::setNames(as.numeric(1:length(temp_unique_values_L21)), temp_unique_values_L21)
+stata_tmp_encoded_full_L21 = haven::labelled(as.integer(temp_numeric_values_L21), labels = temp_labels_vector_L21)
+rm(temp_source_vector_L21, temp_unique_values_L21, temp_numeric_values_L21, temp_labels_vector_L21)
+data[['group_code']] = stata_tmp_encoded_full_L21
+rm(stata_tmp_encoded_full_L21) 
+data = dplyr::mutate(data, `group_code` = NA_integer_)
+
+temp_source_vector_L21 = data[['group']]
+
+temp_unique_values_L21 = base::sort(base::unique(temp_source_vector_L21[!is.na(temp_source_vector_L21)]))
+
+temp_numeric_values_L21 = base::match(temp_source_vector_L21, temp_unique_values_L21)
+
+temp_labels_vector_L21 = stats::setNames(as.numeric(1:length(temp_unique_values_L21)), temp_unique_values_L21)
+
+stata_tmp_encoded_full_L21 = haven::labelled(as.integer(temp_numeric_values_L21), labels = temp_labels_vector_L21)
+
+rm(temp_source_vector_L21, temp_unique_values_L21, temp_numeric_values_L21, temp_labels_vector_L21)
+
+data[['group_code']] = stata_tmp_encoded_full_L21
+
+rm(stata_tmp_encoded_full_L21)
+
+ 22 do:  decode group_code, gen(group_str)
+ 22 r:  data = dplyr::mutate(data, `group_str` = NA_character_)
+## Decode values using haven::as_factor
+stata_tmp_original_values_L22 = with(data, data$`group_code`)
+stata_tmp_decoded_values_L22 = as.character(haven::as_factor(stata_tmp_original_values_L22, levels = 'labels'))
+stata_tmp_decoded_values_L22 = dplyr::if_else(is.na(stata_tmp_decoded_values_L22), dplyr::if_else(is.na(stata_tmp_original_values_L22), "", as.character(stata_tmp_original_values_L22)), stata_tmp_decoded_values_L22)
+data = dplyr::mutate(data, `group_str` = stata_tmp_decoded_values_L22)
+rm(stata_tmp_decoded_values_L22, stata_tmp_original_values_L22) 
+data = dplyr::mutate(data, `group_str` = NA_character_)
+
+## Decode values using haven::as_factor
+
+stata_tmp_original_values_L22 = with(data, data$`group_code`)
+
+stata_tmp_decoded_values_L22 = as.character(haven::as_factor(stata_tmp_original_values_L22, levels = 'labels'))
+
+stata_tmp_decoded_values_L22 = dplyr::if_else(is.na(stata_tmp_decoded_values_L22), dplyr::if_else(is.na(stata_tmp_original_values_L22), "", as.character(stata_tmp_original_values_L22)), stata_tmp_decoded_values_L22)
+
+data = dplyr::mutate(data, `group_str` = stata_tmp_decoded_values_L22)
+
+rm(stata_tmp_decoded_values_L22, stata_tmp_original_values_L22)
+
+ 23 do:  sort group_code
+ 23 r:  data = dplyr::arrange(data, !!!dplyr::syms(c("group_code"))) 
+data = dplyr::arrange(data, !!!dplyr::syms(c("group_code")))
+
+ 24 do:  tempfile t1
+ 24 r:  R_tempfile_L24_t1_path = tempfile(fileext = '.dta') # Stata tempfile 't1' 
+R_tempfile_L24_t1_path = tempfile(fileext = '.dta') # Stata tempfile 't1'
+
+ 25 do:  save "`t1'"
+ 25 r:  haven::write_dta(data, path = R_tempfile_L24_t1_path) 
+haven::write_dta(data, path = R_tempfile_L24_t1_path)
+
+ 26 do:  keep if group_code==1
+ 26 r:  data = dplyr::filter(data, group_code==1) 
+data = dplyr::filter(data, group_code==1)
+
+ 27 do:  merge 1:m group_code using "`t1'", keep(match master) nogenerate
+ 27 r:  stata_tmp_using_data_L27 = haven::read_dta(R_tempfile_L24_t1_path)
+common_cols = intersect(names(data), names(stata_tmp_using_data_L27))
+common_cols_not_by = setdiff(common_cols, c("group_code"))
+if (length(common_cols_not_by) > 0) { stata_tmp_using_data_L27 = dplyr::select(stata_tmp_using_data_L27, -dplyr::all_of(common_cols_not_by)) }
+data = dplyr::left_join(data, stata_tmp_using_data_L27, by = c("group_code"), indicator = "_merge_status_tmp_L27")
+ # _merge variable was not generated due to 'nogenerate' option.
+data = dplyr::select(data, -dplyr::any_of('_merge_status_tmp_L27'))
+rm(stata_tmp_using_data_L27, common_cols, common_cols_not_by)
+# Stata merge type: 1:m, keep(master), nogenerate 
+stata_tmp_using_data_L27 = haven::read_dta(R_tempfile_L24_t1_path)
+
+common_cols = intersect(names(data), names(stata_tmp_using_data_L27))
+
+common_cols_not_by = setdiff(common_cols, c("group_code"))
+
+if (length(common_cols_not_by) > 0) { stata_tmp_using_data_L27 = dplyr::select(stata_tmp_using_data_L27, -dplyr::all_of(common_cols_not_by)) }
+
+data = dplyr::left_join(data, stata_tmp_using_data_L27, by = c("group_code"), indicator = "_merge_status_tmp_L27")
+
+ # _merge variable was not generated due to 'nogenerate' option.
+
+data = dplyr::select(data, -dplyr::any_of('_merge_status_tmp_L27'))
+
+rm(stata_tmp_using_data_L27, common_cols, common_cols_not_by)
+
+# Stata merge type: 1:m, keep(master), nogenerate
+
+ 28 do:  append using "`t1'"
+ 28 r:  data = dplyr::bind_rows(data, haven::read_dta(R_tempfile_L24_t1_path)) 
+data = dplyr::bind_rows(data, haven::read_dta(R_tempfile_L24_t1_path))
+
+ 29 do:  gen id = _n
+ 29 r:  data = data %>% 
+  dplyr::mutate(`id` = as.numeric(dplyr::row_number())) 
+data = data %>% 
+  dplyr::mutate(`id` = as.numeric(dplyr::row_number()))
+
+ 30 do:  bysort group_code (mean_i_overall): gen diff_mean = mean_i_overall - mean_i_overall[_n-1]
+ 30 r:  data = dplyr::arrange(data, !!!dplyr::syms(c("group_code", "mean_i_overall")))
+data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_code"))) %>% 
+  dplyr::mutate(`diff_mean` = mean_i_overall - dplyr::lag(mean_i_overall, n = 1)) %>% 
+  dplyr::ungroup() 
+data = dplyr::arrange(data, !!!dplyr::syms(c("group_code", "mean_i_overall")))
+
+data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_code"))) %>% 
+  dplyr::mutate(`diff_mean` = mean_i_overall - dplyr::lag(mean_i_overall, n = 1)) %>% 
+  dplyr::ungroup()
+
+ 31 do:  recode group_code (1=10)(2=20)(3=30)
+ 31 r:  data = dplyr::mutate(data, `group_code` = dplyr::case_when(
+    group_code %in% c(1) ~ 10,
+    group_code %in% c(2) ~ 20,
+    group_code %in% c(3) ~ 30
+  )) 
+data = dplyr::mutate(data, `group_code` = dplyr::case_when(
+    group_code %in% c(1) ~ 10,
+    group_code %in% c(2) ~ 20,
+    group_code %in% c(3) ~ 30
+  ))
+
+ 32 do:  drop if missing(mean_i_overall)
+ 32 r:  data = dplyr::filter(data, !(sfun_missing(mean_i_overall))) 
+data = dplyr::filter(data, !(sfun_missing(mean_i_overall)))
+
+ 33 do:  order id group_code mean_i_overall
+ 33 r:  data = dplyr::select(data, id, group_code, mean_i_overall, dplyr::everything()) 
+data = dplyr::select(data, id, group_code, mean_i_overall, dplyr::everything())
+
+ 34 do:  collapse (sum) sum_mean = mean_i_overall, by(group_code)
+ 34 r:  data = data %>% 
+  collapse::fgroup_by(group_code) %>% 
+  collapse::fsummarise(`sum_mean` = collapse::fsum(mean_i_overall, na.rm = TRUE)) %>% 
+  collapse::fungroup() 
+data = data %>% 
+  collapse::fgroup_by(group_code) %>% 
+  collapse::fsummarise(`sum_mean` = collapse::fsum(mean_i_overall, na.rm = TRUE)) %>% 
+  collapse::fungroup()
+
+ 35 do:  egen total_sum = total(sum_mean)
+ 35 r:  data = data %>% 
+  dplyr::mutate(`total_sum` = sum(sum_mean, na.rm = TRUE)) 
+data = data %>% 
+  dplyr::mutate(`total_sum` = sum(sum_mean, na.rm = TRUE))
+
+ 36 do:  gen proportion = sum_mean/total_sum
+ 36 r:  data = data %>% 
+  dplyr::mutate(`proportion` = sum_mean/total_sum) 
+data = data %>% 
+  dplyr::mutate(`proportion` = sum_mean/total_sum)
+
+ 37 do:  sort proportion
+ 37 r:  data = dplyr::arrange(data, !!!dplyr::syms(c("proportion"))) 
+data = dplyr::arrange(data, !!!dplyr::syms(c("proportion")))
+
+ 38 do:  save "result_data.dta", replace
+ 38 r:  haven::write_dta(data, path = file.path(stata2r_env$working_dir, "result_data.dta")) # Options ignored: replace 
+haven::write_dta(data, path = file.path(stata2r_env$working_dir, "result_data.dta")) # Options ignored: replace
+
+
+---
+Outcome of test 'do2': not ok
+
+
+Details:
+
+cmd_df = do_parse(do_code)
+cmd_df = mark_data_manip_cmd(cmd_df)
+
+str(cmd_df)
+'data.frame':	82 obs. of  10 variables:
+ $ line                   : int  1 2 3 4 5 6 7 8 9 10 ...
+ $ do_code                : chr  "use \"test_data.dta\", clear" "generate value1_log = log(value1)" "generate value2_squared = value2^2" "generate int_value1 = int(value1) if !missing(value1)" ...
+ $ stata_cmd_original     : chr  "use" "generate" "generate" "generate" ...
+ $ stata_cmd              : chr  "use" "generate" "generate" "generate" ...
+ $ rest_of_cmd            : chr  "\"test_data.dta\", clear" "value1_log = log(value1)" "value2_squared = value2^2" "int_value1 = int(value1) if !missing(value1)" ...
+ $ is_by_prefix           : logi  FALSE FALSE FALSE FALSE FALSE FALSE ...
+ $ by_group_vars          : chr  NA NA NA NA ...
+ $ by_sort_vars           : chr  NA NA NA NA ...
+ $ stata_translation_error: chr  NA NA NA NA ...
+ $ do_translate           : logi  TRUE TRUE TRUE TRUE TRUE TRUE ...
+NULL
+
+---
+#Translate Stata to R commands... ... translation done.
+---
+# Run translated R commands and compare results
+
+
+ 1 do:  use "test_data.dta", clear
+ 1 r:  data = haven::read_dta(file.path(stata2r_env$working_dir, "test_data.dta")) %>%
+  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used 
+data = haven::read_dta(file.path(stata2r_env$working_dir, "test_data.dta")) %>%
+  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used
+
+ 2 do:  generate value1_log = log(value1)
+ 2 r:  data = data %>% 
+  dplyr::mutate(`value1_log` = log(value1)) 
+data = data %>% 
+  dplyr::mutate(`value1_log` = log(value1))
+
+ 3 do:  generate value2_squared = value2^2
+ 3 r:  data = data %>% 
+  dplyr::mutate(`value2_squared` = value2^2) 
+data = data %>% 
+  dplyr::mutate(`value2_squared` = value2^2)
+
+ 4 do:  generate int_value1 = int(value1) if !missing(value1)
+ 4 r:  data = data %>% 
+  dplyr::mutate(`int_value1` = dplyr::if_else(dplyr::coalesce(!sfun_missing(value1), FALSE), trunc(value1), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`int_value1` = dplyr::if_else(dplyr::coalesce(!sfun_missing(value1), FALSE), trunc(value1), NA_real_))
+
+ 5 do:  generate rounded_value1 = round(value1, 0.1) if !missing(value1)
+ 5 r:  data = data %>% 
+  dplyr::mutate(`rounded_value1` = dplyr::if_else(dplyr::coalesce(!sfun_missing(value1), FALSE), sfun_stata_round(value1,  0.1), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`rounded_value1` = dplyr::if_else(dplyr::coalesce(!sfun_missing(value1), FALSE), sfun_stata_round(value1,  0.1), NA_real_))
+
+ 6 do:  generate random_uniform_draw = runiform()
+ 6 r:  data = data %>% 
+  dplyr::mutate(`random_uniform_draw` = stats::runif(as.numeric(dplyr::n()))) 
+data = data %>% 
+  dplyr::mutate(`random_uniform_draw` = stats::runif(as.numeric(dplyr::n())))
+
+ 7 do:  generate id_plus_value2 = id + value2 if value2 < 7 & !missing(value2)
+ 7 r:  data = data %>% 
+  dplyr::mutate(`id_plus_value2` = dplyr::if_else(dplyr::coalesce(value2 < 7 & !sfun_missing(value2), FALSE), sfun_stata_add(id, value2), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`id_plus_value2` = dplyr::if_else(dplyr::coalesce(value2 < 7 & !sfun_missing(value2), FALSE), sfun_stata_add(id, value2), NA_real_))
+
+ 8 do:  replace value1_log = 0 if missing(value1_log) & !missing(value1)
+ 8 r:  data = data %>% 
+  dplyr::mutate(`value1_log` = dplyr::if_else(dplyr::coalesce(sfun_missing(value1_log) & !sfun_missing(value1), FALSE), 0, data$`value1_log`)) 
+data = data %>% 
+  dplyr::mutate(`value1_log` = dplyr::if_else(dplyr::coalesce(sfun_missing(value1_log) & !sfun_missing(value1), FALSE), 0, data$`value1_log`))
+
+ 9 do:  replace value1 = value1 * 1.5 if group_orig == "Alpha" & !missing(value1) & !missing(group_orig)
+ 9 r:  data = data %>% 
+  dplyr::mutate(`value1` = dplyr::if_else(dplyr::coalesce(group_orig == "Alpha" & !sfun_missing(value1) & !sfun_missing(group_orig), FALSE), value1 * 1.5, data$`value1`)) 
+data = data %>% 
+  dplyr::mutate(`value1` = dplyr::if_else(dplyr::coalesce(group_orig == "Alpha" & !sfun_missing(value1) & !sfun_missing(group_orig), FALSE), value1 * 1.5, data$`value1`))
+
+ 10 do:  gen group_clean = strtrim(stritrim(lower(group_orig)))
+ 10 r:  data = data %>% 
+  dplyr::mutate(`group_clean` = stringi::stri_trim_right(sfun_stritrim(stringi::stri_trans_tolower(group_orig)))) 
+data = data %>% 
+  dplyr::mutate(`group_clean` = stringi::stri_trim_right(sfun_stritrim(stringi::stri_trans_tolower(group_orig))))
+
+ 11 do:  replace group_clean = "unknown" if missing(group_clean)
+ 11 r:  data = data %>% 
+  dplyr::mutate(`group_clean` = dplyr::if_else(dplyr::coalesce(sfun_missing(group_clean), FALSE), "unknown", data$`group_clean`)) 
+data = data %>% 
+  dplyr::mutate(`group_clean` = dplyr::if_else(dplyr::coalesce(sfun_missing(group_clean), FALSE), "unknown", data$`group_clean`))
+
+ 12 do:  gen group_abbr = substr(group_clean, 1, 3) if group_clean != "unknown"
+ 12 r:  data = data %>% 
+  dplyr::mutate(`group_abbr` = dplyr::if_else(dplyr::coalesce(group_clean != "unknown", FALSE), stringi::stri_sub(group_clean, from =  1, length =  3), "")) 
+data = data %>% 
+  dplyr::mutate(`group_abbr` = dplyr::if_else(dplyr::coalesce(group_clean != "unknown", FALSE), stringi::stri_sub(group_clean, from =  1, length =  3), ""))
+
+ 13 do:  gen contact_info = group_clean + ":" + num_str
+ 13 r:  data = data %>% 
+  dplyr::mutate(`contact_info` = sfun_stata_add(sfun_stata_add(group_clean, ":"), num_str)) 
+data = data %>% 
+  dplyr::mutate(`contact_info` = sfun_stata_add(sfun_stata_add(group_clean, ":"), num_str))
+
+ 14 do:  gen str_len_group = strlen(group_clean)
+ 14 r:  data = data %>% 
+  dplyr::mutate(`str_len_group` = stringi::stri_length(group_clean)) 
+data = data %>% 
+  dplyr::mutate(`str_len_group` = stringi::stri_length(group_clean))
+
+ 15 do:  replace contact_info = subinstr(contact_info, "beta", "delta", 1) if strpos(contact_info, "beta") > 0
+ 15 r:  data = data %>% 
+  dplyr::mutate(`contact_info` = dplyr::if_else(dplyr::coalesce(sfun_strpos(contact_info,  "beta") > 0, FALSE), sfun_subinstr(contact_info,  "beta",  "delta",  1), data$`contact_info`)) 
+data = data %>% 
+  dplyr::mutate(`contact_info` = dplyr::if_else(dplyr::coalesce(sfun_strpos(contact_info,  "beta") > 0, FALSE), sfun_subinstr(contact_info,  "beta",  "delta",  1), data$`contact_info`))
+
+ 16 do:  egen mean_overall_value1 = mean(value1)
+ 16 r:  data = data %>% 
+  dplyr::mutate(`mean_overall_value1` = mean(value1, na.rm = TRUE)) 
+data = data %>% 
+  dplyr::mutate(`mean_overall_value1` = mean(value1, na.rm = TRUE))
+
+ 17 do:  egen sd_overall_value1 = sd(value1)
+ 17 r:  data = data %>% 
+  dplyr::mutate(`sd_overall_value1` = stats::sd(value1, na.rm = TRUE)) 
+data = data %>% 
+  dplyr::mutate(`sd_overall_value1` = stats::sd(value1, na.rm = TRUE))
+
+ 18 do:  egen total_value2_by_group = total(value2), by(group_clean)
+ 18 r:  data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`total_value2_by_group` = sum(value2, na.rm = TRUE)) %>% 
+  dplyr::ungroup() 
+data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`total_value2_by_group` = sum(value2, na.rm = TRUE)) %>% 
+  dplyr::ungroup()
+
+ 19 do:  egen median_value1_by_group = median(value1), by(group_clean)
+ 19 r:  data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`median_value1_by_group` = stats::median(value1, na.rm = TRUE)) %>% 
+  dplyr::ungroup() 
+data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`median_value1_by_group` = stats::median(value1, na.rm = TRUE)) %>% 
+  dplyr::ungroup()
+
+ 20 do:  egen group_numeric_id = group(group_clean)
+ 20 r:  data = data %>% 
+  dplyr::arrange(stata2r_original_order_idx) %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`group_numeric_id` = dplyr::cur_group_id()) %>% 
+  dplyr::ungroup() 
+data = data %>% 
+  dplyr::arrange(stata2r_original_order_idx) %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`group_numeric_id` = dplyr::cur_group_id()) %>% 
+  dplyr::ungroup()
+
+ 21 do:  egen tag_first_in_group = tag(group_clean)
+ 21 r:  data = data %>% 
+  dplyr::arrange(stata2r_original_order_idx) %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`tag_first_in_group` = as.numeric(dplyr::row_number() == 1)) %>% 
+  dplyr::ungroup() 
+data = data %>% 
+  dplyr::arrange(stata2r_original_order_idx) %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`tag_first_in_group` = as.numeric(dplyr::row_number() == 1)) %>% 
+  dplyr::ungroup()
+
+ 22 do:  egen count_obs_in_group = count(id), by(group_clean)
+ 22 r:  data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`count_obs_in_group` = sum(!is.na(id))) %>% 
+  dplyr::ungroup() 
+data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`count_obs_in_group` = sum(!is.na(id))) %>% 
+  dplyr::ungroup()
+
+ 23 do:  egen rank_value1_in_group = rank(value1), by(group_clean) fieldstrustmissings
+ 23 r:  data = data %>% 
+  dplyr::arrange(stata2r_original_order_idx) %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`rank_value1_in_group` = as.numeric(base::rank(as.numeric(dplyr::if_else(is.na(value1), Inf, value1)), ties.method = 'average', na.last = 'keep'))) %>% 
+  dplyr::ungroup() 
+data = data %>% 
+  dplyr::arrange(stata2r_original_order_idx) %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`rank_value1_in_group` = as.numeric(base::rank(as.numeric(dplyr::if_else(is.na(value1), Inf, value1)), ties.method = 'average', na.last = 'keep'))) %>% 
+  dplyr::ungroup()
+
+ 24 do:  egen row_total_v1_v2 = rowtotal(value1 value2)
+ 24 r:  data = data %>% 
+  dplyr::mutate(`row_total_v1_v2` = base::rowSums(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(c('value1','value2'))) %>% replace(is.na(.), 0), na.rm = FALSE)) 
+data = data %>% 
+  dplyr::mutate(`row_total_v1_v2` = base::rowSums(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(c('value1','value2'))) %>% replace(is.na(.), 0), na.rm = FALSE))
+
+ 25 do:  egen row_mean_v1_v2 = rowmean(value1 value2)
+ 25 r:  data = data %>% 
+  dplyr::mutate(`row_mean_v1_v2` = base::rowMeans(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(c('value1','value2'))), na.rm = TRUE)) 
+data = data %>% 
+  dplyr::mutate(`row_mean_v1_v2` = base::rowMeans(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(c('value1','value2'))), na.rm = TRUE))
+
+ 26 do:  egen concat_group_num = concat(group_clean num_str)
+ 26 r:  data = data %>% 
+  dplyr::mutate(`concat_group_num` = dplyr::if_else((is.na(data[['group_clean']]) & is.na(data[['num_str']])), NA_character_, stringi::stri_paste(dplyr::if_else(is.na(as.character(data[['group_clean']])), "", as.character(data[['group_clean']])), dplyr::if_else(is.na(as.character(data[['num_str']])), "", as.character(data[['num_str']])), sep = ''))) 
+data = data %>% 
+  dplyr::mutate(`concat_group_num` = dplyr::if_else((is.na(data[['group_clean']]) & is.na(data[['num_str']])), NA_character_, stringi::stri_paste(dplyr::if_else(is.na(as.character(data[['group_clean']])), "", as.character(data[['group_clean']])), dplyr::if_else(is.na(as.character(data[['num_str']])), "", as.character(data[['num_str']])), sep = '')))
+
+ 27 do:  summarize value2, meanonly
+ 27 r:  stata_r_val_L27_N = NROW(data)
+stata_r_val_L27_mean = mean(data[['value2']], na.rm = TRUE) 
+stata_r_val_L27_N = NROW(data)
+
+stata_r_val_L27_mean = mean(data[['value2']], na.rm = TRUE)
+
+ 28 do:  gen value2_dev_from_mean = value2 - r(mean) if !missing(value2) & r(mean) != .
+ 28 r:  data = data %>% 
+  dplyr::mutate(`value2_dev_from_mean` = dplyr::if_else(dplyr::coalesce(!sfun_missing(value2) & !is.na(stata_r_val_L27_mean), FALSE), value2 - stata_r_val_L27_mean, NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`value2_dev_from_mean` = dplyr::if_else(dplyr::coalesce(!sfun_missing(value2) & !is.na(stata_r_val_L27_mean), FALSE), value2 - stata_r_val_L27_mean, NA_real_))
+
+ 29 do:  gen obs_date = date(date_str, "YMD", 2050)
+ 29 r:  data = data %>% 
+  dplyr::mutate(`obs_date` = sfun_stata_date(date_str,  "YMD",  2050)) 
+data = data %>% 
+  dplyr::mutate(`obs_date` = sfun_stata_date(date_str,  "YMD",  2050))
+
+ 30 do:  format obs_date %tdCY-N-D 
+
+ 30 r:  not translated since not flagged as data manipulation
+
+ 31 do:  gen obs_year = year(obs_date) if !missing(obs_date)
+ 31 r:  data = data %>% 
+  dplyr::mutate(`obs_year` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), as.numeric(format(as.Date(obs_date, origin = '1960-01-01'), '%Y')), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`obs_year` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), as.numeric(format(as.Date(obs_date, origin = '1960-01-01'), '%Y')), NA_real_))
+
+ 32 do:  gen obs_month = month(obs_date) if !missing(obs_date)
+ 32 r:  data = data %>% 
+  dplyr::mutate(`obs_month` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), sfun_month(obs_date), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`obs_month` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), sfun_month(obs_date), NA_real_))
+
+ 33 do:  gen obs_day = day(obs_date) if !missing(obs_date)
+ 33 r:  data = data %>% 
+  dplyr::mutate(`obs_day` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), sfun_day(obs_date), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`obs_day` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), sfun_day(obs_date), NA_real_))
+
+ 34 do:  gen obs_quarter = qofd(obs_date) if !missing(obs_date)
+ 34 r:  data = data %>% 
+  dplyr::mutate(`obs_quarter` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), sfun_qofd(obs_date), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`obs_quarter` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), sfun_qofd(obs_date), NA_real_))
+
+ 35 do:  gen days_since_2021_start = obs_date - mdy(1,1,2021) if !missing(obs_date)
+ 35 r:  data = data %>% 
+  dplyr::mutate(`days_since_2021_start` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), obs_date - sfun_stata_mdy(1, 1, 2021), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`days_since_2021_start` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), obs_date - sfun_stata_mdy(1, 1, 2021), NA_real_))
+
+ 36 do:  gen is_weekend_day = (dow(obs_date) == 0 | dow(obs_date) == 6) if !missing(obs_date)
+ 36 r:  data = data %>% 
+  dplyr::mutate(`is_weekend_day` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), as.numeric((sfun_dow(obs_date) == 0 | sfun_dow(obs_date) == 6)), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`is_weekend_day` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), as.numeric((sfun_dow(obs_date) == 0 | sfun_dow(obs_date) == 6)), NA_real_))
+
+ 37 do:  destring num_str, generate(num_val_from_str) ignore("error")
+ 37 r:  data = dplyr::mutate(data, `num_val_from_str` = readr::parse_number(as.character(num_str))) # Other options ignored: ignore("error") 
+data = dplyr::mutate(data, `num_val_from_str` = readr::parse_number(as.character(num_str))) # Other options ignored: ignore("error")
+
+ 38 do:  replace num_val_from_str = 0 if missing(num_val_from_str)
+ 38 r:  data = data %>% 
+  dplyr::mutate(`num_val_from_str` = dplyr::if_else(dplyr::coalesce(sfun_missing(num_val_from_str), FALSE), 0, data$`num_val_from_str`)) 
+data = data %>% 
+  dplyr::mutate(`num_val_from_str` = dplyr::if_else(dplyr::coalesce(sfun_missing(num_val_from_str), FALSE), 0, data$`num_val_from_str`))
+
+ 39 do:  destring mixed_var, generate(mixed_val_num) force
+ 39 r:  data = dplyr::mutate(data, `mixed_val_num` = readr::parse_number(as.character(mixed_var))) # Other options ignored: force 
+data = dplyr::mutate(data, `mixed_val_num` = readr::parse_number(as.character(mixed_var))) # Other options ignored: force
+
+Warning: 12 parsing failures.
+row col expected actual
+  1  -- a number apple 
+  7  -- a number apple 
+  8  -- a number apple 
+ 16  -- a number banana
+ 20  -- a number banana
+... ... ........ ......
+See problems(...) for more details.
+
+Warning: Problem with `mutate()` column `mixed_val_num`.
+ℹ `mixed_val_num = readr::parse_number(as.character(mixed_var))`.
+ℹ 12 parsing failures.
+row col expected actual
+  1  -- a number apple 
+  7  -- a number apple 
+  8  -- a number apple 
+ 16  -- a number banana
+ 20  -- a number banana
+... ... ........ ......
+See problems(...) for more details.
+
+ 40 do:  gen mixed_var_as_str = string(mixed_val_num) if !missing(mixed_val_num)
+ 40 r:  data = data %>% 
+  dplyr::mutate(`mixed_var_as_str` = dplyr::if_else(dplyr::coalesce(!sfun_missing(mixed_val_num), FALSE), sfun_string(mixed_val_num), "")) 
+data = data %>% 
+  dplyr::mutate(`mixed_var_as_str` = dplyr::if_else(dplyr::coalesce(!sfun_missing(mixed_val_num), FALSE), sfun_string(mixed_val_num), ""))
+
+ 41 do:  encode group_clean, generate(group_code_num)
+ 41 r:  data = dplyr::mutate(data, `group_code_num` = NA_integer_)
+temp_source_vector_L41 = data[['group_clean']]
+temp_unique_values_L41 = base::sort(base::unique(temp_source_vector_L41[!is.na(temp_source_vector_L41)]))
+temp_numeric_values_L41 = base::match(temp_source_vector_L41, temp_unique_values_L41)
+temp_labels_vector_L41 = stats::setNames(as.numeric(1:length(temp_unique_values_L41)), temp_unique_values_L41)
+stata_tmp_encoded_full_L41 = haven::labelled(as.integer(temp_numeric_values_L41), labels = temp_labels_vector_L41)
+rm(temp_source_vector_L41, temp_unique_values_L41, temp_numeric_values_L41, temp_labels_vector_L41)
+data[['group_code_num']] = stata_tmp_encoded_full_L41
+rm(stata_tmp_encoded_full_L41) 
+data = dplyr::mutate(data, `group_code_num` = NA_integer_)
+
+temp_source_vector_L41 = data[['group_clean']]
+
+temp_unique_values_L41 = base::sort(base::unique(temp_source_vector_L41[!is.na(temp_source_vector_L41)]))
+
+temp_numeric_values_L41 = base::match(temp_source_vector_L41, temp_unique_values_L41)
+
+temp_labels_vector_L41 = stats::setNames(as.numeric(1:length(temp_unique_values_L41)), temp_unique_values_L41)
+
+stata_tmp_encoded_full_L41 = haven::labelled(as.integer(temp_numeric_values_L41), labels = temp_labels_vector_L41)
+
+rm(temp_source_vector_L41, temp_unique_values_L41, temp_numeric_values_L41, temp_labels_vector_L41)
+
+data[['group_code_num']] = stata_tmp_encoded_full_L41
+
+rm(stata_tmp_encoded_full_L41)
+
+ 42 do:  label define group_label_map 1 "alpha" 2 "beta" 3 "gamma" 4 "unknown", replace
+ 42 r:  if (!exists('stata2r_env$label_defs')) stata2r_env$label_defs = list()
+stata2r_env$label_defs$`group_label_map` = stats::setNames(c(1, 2, 3, 4), c("alpha", "beta", "gamma", "unknown")) 
+if (!exists('stata2r_env$label_defs')) stata2r_env$label_defs = list()
+
+stata2r_env$label_defs$`group_label_map` = stats::setNames(c(1, 2, 3, 4), c("alpha", "beta", "gamma", "unknown"))
+
+ 43 do:  label values group_code_num group_label_map
+ 43 r:  if (!exists('stata2r_env$label_defs')) stata2r_env$label_defs = list()
+label_map_to_apply = stata2r_env$label_defs$`group_label_map`
+if (!is.null(label_map_to_apply)) {
+  existing_var_label = attr(data[['group_code_num']], 'label')
+  stata_tmp_labelled_L43_group_code_num = haven::labelled(data[['group_code_num']], labels = label_map_to_apply, label = existing_var_label)
+  data[['group_code_num']] = stata_tmp_labelled_L43_group_code_num
+  rm(stata_tmp_labelled_L43_group_code_num)
+} else {
+  warning(paste0('Label definition `group_label_map` not found for `label values` command on line 43. Labels removed from ', 'group_code_num',' if any.'))
+  data[['group_code_num']] = haven::zap_labels(data[['group_code_num']])
+} 
+if (!exists('stata2r_env$label_defs')) stata2r_env$label_defs = list()
+
+label_map_to_apply = stata2r_env$label_defs$`group_label_map`
+
+if (!is.null(label_map_to_apply)) {
+  existing_var_label = attr(data[['group_code_num']], 'label')
+  stata_tmp_labelled_L43_group_code_num = haven::labelled(data[['group_code_num']], labels = label_map_to_apply, label = existing_var_label)
+  data[['group_code_num']] = stata_tmp_labelled_L43_group_code_num
+  rm(stata_tmp_labelled_L43_group_code_num)
+} else {
+  warning(paste0('Label definition `group_label_map` not found for `label values` command on line 43. Labels removed from ', 'group_code_num',' if any.'))
+  data[['group_code_num']] = haven::zap_labels(data[['group_code_num']])
+}
+
+Warning: Label definition `group_label_map` not found for `label values` command on line 43. Labels removed from group_code_num if any.
+ 44 do:  label variable group_code_num "Numeric code for cleaned group"
+ 44 r:  attr(data$`group_code_num`, "label") = "Numeric code for cleaned group" 
+attr(data$`group_code_num`, "label") = "Numeric code for cleaned group"
+
+ 45 do:  decode group_code_num, generate(group_from_decode)
+ 45 r:  data = dplyr::mutate(data, `group_from_decode` = NA_character_)
+## Decode values using haven::as_factor
+stata_tmp_original_values_L45 = with(data, data$`group_code_num`)
+stata_tmp_decoded_values_L45 = as.character(haven::as_factor(stata_tmp_original_values_L45, levels = 'labels'))
+stata_tmp_decoded_values_L45 = dplyr::if_else(is.na(stata_tmp_decoded_values_L45), dplyr::if_else(is.na(stata_tmp_original_values_L45), "", as.character(stata_tmp_original_values_L45)), stata_tmp_decoded_values_L45)
+data = dplyr::mutate(data, `group_from_decode` = stata_tmp_decoded_values_L45)
+rm(stata_tmp_decoded_values_L45, stata_tmp_original_values_L45) 
+data = dplyr::mutate(data, `group_from_decode` = NA_character_)
+
+## Decode values using haven::as_factor
+
+stata_tmp_original_values_L45 = with(data, data$`group_code_num`)
+
+stata_tmp_decoded_values_L45 = as.character(haven::as_factor(stata_tmp_original_values_L45, levels = 'labels'))
+
+Error: Arguments in `...` must be used.
+✖ Problematic argument:
+• levels = "labels"
+ℹ Did you misspell an argument name?
+stata_tmp_decoded_values_L45 = dplyr::if_else(is.na(stata_tmp_decoded_values_L45), dplyr::if_else(is.na(stata_tmp_original_values_L45), "", as.character(stata_tmp_original_values_L45)), stata_tmp_decoded_values_L45)
+
+Error: object 'stata_tmp_decoded_values_L45' not found
+data = dplyr::mutate(data, `group_from_decode` = stata_tmp_decoded_values_L45)
+
+Error: Problem with `mutate()` column `group_from_decode`.
+ℹ `group_from_decode = stata_tmp_decoded_values_L45`.
+✖ object 'stata_tmp_decoded_values_L45' not found
+Caused by error in `mask$eval_all_mutate()`:
+! object 'stata_tmp_decoded_values_L45' not found
+rm(stata_tmp_decoded_values_L45, stata_tmp_original_values_L45)
+
+Warning: object 'stata_tmp_decoded_values_L45' not found
+Error executing R code for Stata line  45 :  data = dplyr::mutate(data, `group_from_decode` = NA_character_)
+
+## Decode values using haven::as_factor
+
+stata_tmp_original_values_L45 = with(data, data$`group_code_num`)
+
+stata_tmp_decoded_values_L45 = as.character(haven::as_factor(stata_tmp_original_values_L45, levels = 'labels'))
+
+Error: Arguments in `...` must be used.
+✖ Problematic argument:
+• levels = "labels"
+ℹ Did you misspell an argument name?
+stata_tmp_decoded_values_L45 = dplyr::if_else(is.na(stata_tmp_decoded_values_L45), dplyr::if_else(is.na(stata_tmp_original_values_L45), "", as.character(stata_tmp_original_values_L45)), stata_tmp_decoded_values_L45)
+
+Error: object 'stata_tmp_decoded_values_L45' not found
+data = dplyr::mutate(data, `group_from_decode` = stata_tmp_decoded_values_L45)
+
+Error: Problem with `mutate()` column `group_from_decode`.
+ℹ `group_from_decode = stata_tmp_decoded_values_L45`.
+✖ object 'stata_tmp_decoded_values_L45' not found
+Caused by error in `mask$eval_all_mutate()`:
+! object 'stata_tmp_decoded_values_L45' not found
+rm(stata_tmp_decoded_values_L45, stata_tmp_original_values_L45)
+
+Warning: object 'stata_tmp_decoded_values_L45' not found 
 
 ##############################
 # YOUR TASK
