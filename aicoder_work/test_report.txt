@@ -713,6 +713,7 @@ stata2r_env$label_defs$`group_label_map` = stats::setNames(c(1, 2, 3, 4), c("alp
 label_map_to_apply = stata2r_env$label_defs$`group_label_map`
 if (!is.null(label_map_to_apply)) {
   existing_var_label = attr(data[['group_code_num']], 'label')
+  existing_var_label = if (is.null(existing_var_label)) NA_character_ else existing_var_label
   stata_tmp_labelled_L43_group_code_num = haven::labelled(data[['group_code_num']], labels = label_map_to_apply, label = existing_var_label)
   data[['group_code_num']] = stata_tmp_labelled_L43_group_code_num
   rm(stata_tmp_labelled_L43_group_code_num)
@@ -726,6 +727,7 @@ label_map_to_apply = stata2r_env$label_defs$`group_label_map`
 
 if (!is.null(label_map_to_apply)) {
   existing_var_label = attr(data[['group_code_num']], 'label')
+  existing_var_label = if (is.null(existing_var_label)) NA_character_ else existing_var_label
   stata_tmp_labelled_L43_group_code_num = haven::labelled(data[['group_code_num']], labels = label_map_to_apply, label = existing_var_label)
   data[['group_code_num']] = stata_tmp_labelled_L43_group_code_num
   rm(stata_tmp_labelled_L43_group_code_num)
@@ -741,6 +743,7 @@ label_map_to_apply = stata2r_env$label_defs$`group_label_map`
 
 if (!is.null(label_map_to_apply)) {
   existing_var_label = attr(data[['group_code_num']], 'label')
+  existing_var_label = if (is.null(existing_var_label)) NA_character_ else existing_var_label
   stata_tmp_labelled_L43_group_code_num = haven::labelled(data[['group_code_num']], labels = label_map_to_apply, label = existing_var_label)
   data[['group_code_num']] = stata_tmp_labelled_L43_group_code_num
   rm(stata_tmp_labelled_L43_group_code_num)
