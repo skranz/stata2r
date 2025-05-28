@@ -129,9 +129,9 @@ t_label_values = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
       temp_labelled_var = paste0("stata_tmp_labelled_L", cmd_obj$line, "_", varname)
 
       r_code_lines = c(r_code_lines, paste0("if (!is.null(label_map_to_apply)) {"))
-      r_code_lines = c(r_code_lines, paste0("  existing_var_label = attr(data[['",varname,"']], 'label')"))
-      # FIX: Ensure existing_var_label is character(1) for haven::labelled
-      r_code_lines = c(r_code_lines, paste0("  existing_var_label = if (is.null(existing_var_label)) NA_character_ else existing_var_label"))
+      # Ensure existing_var_label is character(1) for haven::labelled
+      r_code_lines = c(r_code_lines, paste0("  temp_attr_label = attr(data[['",varname,"']], 'label')"))
+      r_code_lines = c(r_code_lines, paste0("  existing_var_label = if (is.null(temp_attr_label) || length(temp_attr_label) == 0 || is.na(temp_attr_label[1])) NA_character_ else as.character(temp_attr_label[1])")) # FIX HERE
       r_code_lines = c(r_code_lines, paste0("  ", temp_labelled_var, " = haven::labelled(data[['", varname, "']], labels = label_map_to_apply, label = existing_var_label)"))
       r_code_lines = c(r_code_lines, paste0("  data[['", varname, "']] = ", temp_labelled_var))
       r_code_lines = c(r_code_lines, paste0("  rm(", temp_labelled_var, ")"))
