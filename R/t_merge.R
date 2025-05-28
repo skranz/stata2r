@@ -79,8 +79,11 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   r_code_lines = c(r_code_lines, paste0(temp_using_data_var, " = haven::read_dta(", using_source_r_expr, ")"))
 
   # Strip haven attributes from both master and using dataframes before joining
+  # And normalize string NAs
   r_code_lines = c(r_code_lines, paste0("data = sfun_strip_stata_attributes(data)"))
+  r_code_lines = c(r_code_lines, paste0("data = sfun_normalize_string_nas(data)")) # Added
   r_code_lines = c(r_code_lines, paste0(temp_using_data_var, " = sfun_strip_stata_attributes(", temp_using_data_var, ")"))
+  r_code_lines = c(r_code_lines, paste0(temp_using_data_var, " = sfun_normalize_string_nas(", temp_using_data_var, ")")) # Added
 
   # Ensure merge keys are plain numeric for robustness against haven-specific types
   r_code_lines = c(r_code_lines,
@@ -162,15 +165,11 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   )
 
   # NEW: Post-merge processing for string NAs to empty strings
-  # Stata treats missing string values as "" (empty string).
-  # dplyr joins will produce NA for non-matching rows.
-  r_code_lines = c(r_code_lines,
-      paste0("for (col_name in names(data)) {"),
-      paste0("  if (is.character(data[[col_name]])) {"),
-      paste0("    data[[col_name]][is.na(data[[col_name]])] = \"\""),
-      paste0("  }"),
-      paste0("}")
-  )
+  # This part is now handled by sfun_normalize_string_nas after `read_dta` and `strip_stata_attributes`.
+  # The `dplyr::join` might reintroduce NAs in character columns if they are not matched,
+  # so this is still needed to ensure consistency.
+  r_code_lines = c(r_code_lines, paste0("data = sfun_normalize_string_nas(data)"))
+
 
   # Generate _merge variable unless nogenerate option is present
   if (!has_nogenerate) {
