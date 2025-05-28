@@ -190,12 +190,13 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   } else if (egen_func_name == "rank") {
     # Stata rank() without fieldstrustmissings returns missing for missing.
     # Stata rank() with fieldstrustmissings treats missing values as true values (usually largest) and assigns them a rank.
+    # Stata's rank() uses the 'average' method for ties.
     if (is_fieldstrustmissings) {
       # Use base::rank with na.last=TRUE to assign ranks to NAs, treating them as largest
-      calc_expr = paste0("base::rank(", r_egen_args_conditional, ", ties.method = 'min', na.last = TRUE)")
+      calc_expr = paste0("base::rank(", r_egen_args_conditional, ", ties.method = 'average', na.last = TRUE)")
     } else {
-      # Default Stata rank: NAs get NA ranks. dplyr::min_rank does this.
-      calc_expr = paste0("dplyr::min_rank(", r_egen_args_conditional, ")")
+      # Default Stata rank: NAs get NA ranks, and uses 'average' method for ties.
+      calc_expr = paste0("base::rank(", r_egen_args_conditional, ", ties.method = 'average', na.last = 'keep')")
     }
   } else if (egen_func_name == "median" || egen_func_name == "p50") {
     calc_expr = paste0("stats::median(", r_egen_args_conditional, ", na.rm = TRUE)")
