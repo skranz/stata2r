@@ -712,8 +712,8 @@ stata2r_env$label_defs$`group_label_map` = stats::setNames(c(1, 2, 3, 4), c("alp
  43 r:  if (!exists("label_defs", envir = stata2r_env)) stata2r_env$label_defs = list()
 label_map_to_apply = stata2r_env$label_defs$`group_label_map`
 if (!is.null(label_map_to_apply)) {
-  existing_var_label = attr(data[['group_code_num']], 'label')
-  existing_var_label = if (is.null(existing_var_label)) NA_character_ else existing_var_label
+  temp_attr_label = attr(data[['group_code_num']], 'label')
+  existing_var_label = if (is.null(temp_attr_label) || length(temp_attr_label) == 0 || is.na(temp_attr_label[1])) NA_character_ else as.character(temp_attr_label[1])
   stata_tmp_labelled_L43_group_code_num = haven::labelled(data[['group_code_num']], labels = label_map_to_apply, label = existing_var_label)
   data[['group_code_num']] = stata_tmp_labelled_L43_group_code_num
   rm(stata_tmp_labelled_L43_group_code_num)
@@ -726,8 +726,8 @@ if (!exists("label_defs", envir = stata2r_env)) stata2r_env$label_defs = list()
 label_map_to_apply = stata2r_env$label_defs$`group_label_map`
 
 if (!is.null(label_map_to_apply)) {
-  existing_var_label = attr(data[['group_code_num']], 'label')
-  existing_var_label = if (is.null(existing_var_label)) NA_character_ else existing_var_label
+  temp_attr_label = attr(data[['group_code_num']], 'label')
+  existing_var_label = if (is.null(temp_attr_label) || length(temp_attr_label) == 0 || is.na(temp_attr_label[1])) NA_character_ else as.character(temp_attr_label[1])
   stata_tmp_labelled_L43_group_code_num = haven::labelled(data[['group_code_num']], labels = label_map_to_apply, label = existing_var_label)
   data[['group_code_num']] = stata_tmp_labelled_L43_group_code_num
   rm(stata_tmp_labelled_L43_group_code_num)
@@ -736,20 +736,56 @@ if (!is.null(label_map_to_apply)) {
   data[['group_code_num']] = haven::zap_labels(data[['group_code_num']])
 }
 
-Error: `label` must be a character vector of length one.
-Error executing R code for Stata line  43 :  if (!exists("label_defs", envir = stata2r_env)) stata2r_env$label_defs = list()
+ 44 do:  label variable group_code_num "Numeric code for cleaned group"
+ 44 r:  attr(data$`group_code_num`, "label") = "Numeric code for cleaned group" 
+attr(data$`group_code_num`, "label") = "Numeric code for cleaned group"
 
-label_map_to_apply = stata2r_env$label_defs$`group_label_map`
+ 45 do:  decode group_code_num, generate(group_from_decode)
+ 45 r:  data = dplyr::mutate(data, `group_from_decode` = NA_character_)
+## Decode values using haven::as_factor
+stata_tmp_original_values_L45 = with(data, data$`group_code_num`)
+stata_tmp_decoded_values_L45 = as.character(haven::as_factor(stata_tmp_original_values_L45))
+stata_tmp_decoded_values_L45 = dplyr::if_else(is.na(stata_tmp_decoded_values_L45), dplyr::if_else(is.na(stata_tmp_original_values_L45), "", as.character(stata_tmp_original_values_L45)), stata_tmp_decoded_values_L45)
+data = dplyr::mutate(data, `group_from_decode` = stata_tmp_decoded_values_L45)
+rm(stata_tmp_decoded_values_L45, stata_tmp_original_values_L45) 
+data = dplyr::mutate(data, `group_from_decode` = NA_character_)
 
-if (!is.null(label_map_to_apply)) {
-  existing_var_label = attr(data[['group_code_num']], 'label')
-  existing_var_label = if (is.null(existing_var_label)) NA_character_ else existing_var_label
-  stata_tmp_labelled_L43_group_code_num = haven::labelled(data[['group_code_num']], labels = label_map_to_apply, label = existing_var_label)
-  data[['group_code_num']] = stata_tmp_labelled_L43_group_code_num
-  rm(stata_tmp_labelled_L43_group_code_num)
-} else {
-  warning(paste0('Label definition `group_label_map` not found for `label values` command on line 43. Labels removed from ', 'group_code_num',' if any.'))
-  data[['group_code_num']] = haven::zap_labels(data[['group_code_num']])
-}
+## Decode values using haven::as_factor
 
-Error: `label` must be a character vector of length one. 
+stata_tmp_original_values_L45 = with(data, data$`group_code_num`)
+
+stata_tmp_decoded_values_L45 = as.character(haven::as_factor(stata_tmp_original_values_L45))
+
+stata_tmp_decoded_values_L45 = dplyr::if_else(is.na(stata_tmp_decoded_values_L45), dplyr::if_else(is.na(stata_tmp_original_values_L45), "", as.character(stata_tmp_original_values_L45)), stata_tmp_decoded_values_L45)
+
+data = dplyr::mutate(data, `group_from_decode` = stata_tmp_decoded_values_L45)
+
+rm(stata_tmp_decoded_values_L45, stata_tmp_original_values_L45)
+
+ 46 do:  recode value2 (0/1=1 "Very Low") (2/4=2 "Low-Mid") (nonmissing=3 "High") (missing = .a), gen(value2_cat_str)
+ 46 r:  data = dplyr::mutate(data, `value2_cat_str` = dplyr::case_when(
+    value2 >= 0 & value2 <= 1 ~ 1 "Very Low",
+    value2 >= 2 & value2 <= 4 ~ 2 "Low-Mid",
+    value2 %in% c(nonmissing) ~ 3 "High",
+    value2 %in% c(missing) ~ NA_real_a
+  )) 
+data = dplyr::mutate(data, `value2_cat_str` = dplyr::case_when(
+    value2 >= 0 & value2 <= 1 ~ 1 "Very Low",
+    value2 >= 2 & value2 <= 4 ~ 2 "Low-Mid",
+    value2 %in% c(nonmissing) ~ 3 "High",
+    value2 %in% c(missing) ~ NA_real_a
+  ))
+Error: <text>:2:35: unexpected string constant
+1: data = dplyr::mutate(data, `value2_cat_str` = dplyr::case_when(
+2:     value2 >= 0 & value2 <= 1 ~ 1 "Very Low"
+                                     ^
+Error executing R code for Stata line  46 :  data = dplyr::mutate(data, `value2_cat_str` = dplyr::case_when(
+    value2 >= 0 & value2 <= 1 ~ 1 "Very Low",
+    value2 >= 2 & value2 <= 4 ~ 2 "Low-Mid",
+    value2 %in% c(nonmissing) ~ 3 "High",
+    value2 %in% c(missing) ~ NA_real_a
+  ))
+Error: <text>:2:35: unexpected string constant
+1: data = dplyr::mutate(data, `value2_cat_str` = dplyr::case_when(
+2:     value2 >= 0 & value2 <= 1 ~ 1 "Very Low"
+                                     ^ 

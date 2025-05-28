@@ -1,173 +1,409 @@
-The main issue causing the `do2` test to fail was an error in `t_label.R` when retrieving and assigning variable labels using `haven::labelled`. The `label` argument for `haven::labelled` expects a single character string or `NA_character_`. The previous code did not guarantee this format when fetching existing labels, which could lead to an error if the attribute was not `NULL` or a single string. The fix ensures that the `label` argument is always `character(1)`.
+The primary issue causing the `do2` test to fail at line 46 (`recode`) is an R syntax error generated due to incorrect translation of Stata's `value "label"` syntax and special `recode` keywords (`missing`, `nonmissing`). Stata allows assigning a numeric value and an associated label, or directly assigning a string value. The R translation must correctly interpret whether the target variable should be numeric or character based on the rules provided in `recode`.
 
-!CHANGE_FILE R/t_label.R
+The fix involves:
+1.  **`stata_expression_translator.R`**: Enhanced the regex to correctly translate all Stata missing value literals (`.`, `.a`, `.b`, etc.) to `NA_real_`. This ensures consistency and prevents partial translations like `NA_real_a`.
+2.  **`t_recode.R`**:
+    *   Added logic to pre-analyze the `recode` rules to determine if any rule implies that the new variable should be a `character` type in R (e.g., assigning a string literal or a numeric value with an explicit string label). This `target_is_string` flag guides the translation of the `new_value` part of each rule.
+    *   Modified the `translate_recode_rule` helper function:
+        *   Correctly translates Stata `missing` and `nonmissing` keywords in the `old_value` part to `is.na()` and `!is.na()` expressions in R.
+        *   Improved parsing of `old_value` ranges (`val1/val2` and `val1 thru val2`) to use `translate_stata_expression_to_r` for the numeric bounds.
+        *   Correctly handles the `new_value` part: if `target_is_string` is `TRUE` and the rule specifies `value "label"`, it extracts and returns the `label` as an R string literal. Otherwise, it translates the numeric value using `translate_stata_expression_to_r`.
+
+These changes ensure that the generated R code for `recode` commands is syntactically correct and aligns with Stata's type inference and value assignment behavior.
+
+!CHANGE_FILE R/stata_expression_translator.R
 ```R
-# Translate Stata 'label' command
-# Stata: label define lblname value "label" [value "label" ...] [, add|modify|replace]
-# Stata: label values varlist lblname
-# Stata: label variable varname "label"
+# Stata Expression Translator
 
-t_label = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
-  restore.point("t_label")
+# Placeholder for Stata results (r() and e() values)
+# This environment would be populated by commands like summarize, regress
+# For now, we will generate unique variable names for r() values.
+# stata_results_env = new.env(parent = emptyenv())
+
+
+# Translates a Stata expression string into an R expression string
+# stata_expr: The Stata expression (e.g., "var1 + log(var2)")
+# context: Information about the context (e.g., if inside a by group, for _n/_N)
+# r_value_mappings: A named list/vector mapping Stata r-value names (e.g. "r(mean)")
+#                   to R variable names (e.g. "stata_r_val_L5_mean")
+translate_stata_expression_to_r = function(stata_expr, context = list(is_by_group = FALSE), r_value_mappings = NULL) {
+  restore.point("translate_stata_expression_to_r")
+  if (is.na(stata_expr) || stata_expr == "") return(NA_character_)
+
+  r_expr = stata_expr
+
+  # Step 1: Handle Stata missing value literals '.', '.a', ..., '.z'
+  # This must happen early to prevent interference with decimal numbers or variable names.
+  # Regex matches '.' or '.a' to '.z' only when not part of a number or a variable name.
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![0-9a-zA-Z_])\\.[a-zA-Z]?(?![0-9a-zA-Z_])", "NA_real_")
+
+  # Step 2: Handle r() values using the mapping.
+  # This ensures that r() values are replaced by their corresponding R variable names
+  # BEFORE other transformations (like missing value checks) are applied to them.
+  if (!is.null(r_value_mappings) && length(r_value_mappings) > 0) {
+    for (stata_r_name in names(r_value_mappings)) {
+      # Escape parentheses for regex matching
+      stata_r_regex = gsub("(", "\\(", gsub(")", "\\)", stata_r_name, fixed=TRUE), fixed=TRUE)
+      r_expr = stringi::stri_replace_all_regex(r_expr, stata_r_regex, r_value_mappings[[stata_r_name]])
+    }
+  }
+
+  # Step 3: Translate Stata logical operators and missing value comparisons.
+  # These must happen after handling `r()` values so `r(mean)` is already `stata_r_val_Lxx_mean`.
+  # Stata `X == .` -> R `is.na(X)`
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*==\\s*NA_real_", "is.na($1)")
+  # Stata `X != .` -> R `!is.na($1)`
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*!=\\s*NA_real_", "!is.na($1)") # Use stri_replace_all_regex for safety
+
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![<>!=~])\\s*=\\s*(?![=])", " == ") # Replace single = with == if not part of other ops
+  r_expr = stringi::stri_replace_all_regex(r_expr, "\\s+~=\\s+", " != ") # Stata `~=` to R `!=`
+
+
+  # Step 4: Translate Stata special variables and indexing (e.g., _n, _N, var[_n-1])
+  # These are generally fixed references, not nested functions.
+  # Use dplyr::lag/lead which are context-aware in grouped operations.
+
+  # Directly replace with `n = $2`
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*-\\s*(\\d+)\\]", "dplyr::lag($1, n = $2)")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*\\+\\s*(\\d+)\\]", "dplyr::lead($1, n = $2)")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\]", "$1")
+
+  # Handle _n and _N.
+  # Convert to numeric to match Stata's default float storage for integers.
+  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_n\\b", "as.numeric(dplyr::row_number())")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_N\\b", "as.numeric(dplyr::n())")
+
+
+  # Step 5: Iteratively translate Stata functions (e.g., cond(), round(), log(), etc.)
+  # This loop handles nested function calls by repeatedly applying transformations.
+  old_r_expr = ""
+  while (r_expr != old_r_expr) {
+    old_r_expr = r_expr
+
+    # Apply more specific regexes first if there are overlaps (e.g., round(x,y) before round(x))
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bcond\\(([^,]+),([^,]+),([^)]+)\\)", "dplyr::if_else($1, $2, $3)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^,]+),([^)]+)\\)", "sfun_stata_round($1, $2)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^)]+)\\)", "sfun_stata_round($1, 1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmod\\(([^,]+),([^)]+)\\)", "($1 %% $2)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmissing\\(([^)]+)\\)", "sfun_missing($1)") # Changed to sfun_missing
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\blog\\(([^)]+)\\)", "log($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsqrt\\(([^)]+)\\)", "sqrt($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bint\\(([^)]+)\\)", "trunc($1)") # Stata int() truncates
+
+    # String functions (using stringi or custom helpers)
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrtrim\\(([^)]+)\\)", "stringi::stri_trim_right($1)") # Corrected for Stata's strtrim
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstritrim\\(([^)]+)\\)", "sfun_stritrim($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\blower\\(([^)]+)\\)", "stringi::stri_trans_tolower($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bupper\\(([^)]+)\\)", "stringi::stri_trans_toupper($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsubstr\\(([^,]+),([^,]+),([^)]+)\\)", "stringi::stri_sub($1, from = $2, length = $3)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsubinstr\\(([^,]+),([^,]+),([^,]+),([^)]+)\\)", "sfun_subinstr($1, $2, $3, $4)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrpos\\(([^,]+),([^)]+)\\)", "sfun_strpos($1, $2)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\blength\\(([^)]+)\\)", "stringi::stri_length($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrlen\\(([^)]+)\\)", "stringi::stri_length($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstring\\(([^)]+)\\)", "sfun_string($1)") # CHANGED HERE
+    # Random number generator functions
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bruniform\\(\\)", "stats::runif(as.numeric(dplyr::n()))") # Stata runiform()
+    # Date functions
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bdate\\(([^,]+),([^,]+),([^)]+)\\)", "sfun_stata_date($1, $2, $3)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bdate\\(([^,]+),([^)]+)\\)", "sfun_stata_date($1, $2)")
+    # NEW: mdy() function
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmdy\\(([^,]+),([^,]+),([^)]+)\\)", "sfun_stata_mdy($1, $2, $3)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\byear\\(([^)]+)\\)", "as.numeric(format(as.Date($1, origin = '1960-01-01'), '%Y'))") # Stata date epoch is 1960-01-01
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmonth\\(([^)]+)\\)", "sfun_month($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bday\\(([^)]+)\\)", "sfun_day($1)") # Use sfun_day
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bqofd\\(([^)]+)\\)", "sfun_qofd($1)") # Use sfun_qofd
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bdow\\(([^)]+)\\)", "sfun_dow($1)") # NEW: Use sfun_dow
+  }
+
+  # Step 6: Translate Stata '+' operator to sfun_stata_add for polymorphic behavior
+  # This needs to be applied iteratively until no more '+' signs (that are not part of comparison operators) exist.
+  # The regex for operands must be robust to capture complete R expressions, including nested function calls.
+
+  # Define a robust pattern for an R expression unit that can be an operand.
+  # This pattern matches:
+  # 1. A variable name (starts with letter/underscore, then alphanumeric/underscore/dot)
+  # 2. A numeric literal
+  # 3. A string literal (single or double quoted)
+  # 4. A function call (e.g., `log(x)`, `sfun_stata_add(a, b)`)
+  operand_regex = paste0(
+      "(?:",
+      "[a-zA-Z_][a-zA-Z0-9_.]*|", # Variable name
+      "\\d+(?:\\.\\d+)?|",       # Numeric literal
+      "\"[^\"]*\"|'[^']*'|",     # String literal (double or single quoted)
+      "\\b\\w+\\((?:[^()]|\\b\\w+\\([^()]*\\))*\\)", # Function call (allowing one level of nested simple function calls)
+      ")"
+  )
+
+  old_r_expr_add = ""
+  while (r_expr != old_r_expr_add) {
+    old_r_expr_add = r_expr
+    # Regex: Match 'operand' + 'operand', where an operand is defined by `operand_regex`.
+    # It ensures that `+` is treated as an operator, not part of `==` or `!=`.
+    r_expr = stringi::stri_replace_all_regex(r_expr,
+                                           paste0("(", operand_regex, ")\\s*(?<![<>=!~])\\+\\s*(?!\\s*\\+|\\s*=\\s*)(", operand_regex, ")"),
+                                           "sfun_stata_add($1, $2)")
+  }
+
+  # Defensive check: if r_expr became empty or NA for some reason (should not happen for valid input)
+  if (is.na(r_expr) || r_expr == "") {
+      warning(paste0("R expression became NA or empty during translation. Original Stata expression: '", stata_expr, "'"))
+      return(NA_character_)
+  }
+
+  return(r_expr)
+}
+
+```
+!END_CHANGE_FILE R/stata_expression_translator.R
+
+!CHANGE_FILE R/t_recode.R
+```R
+# Translate Stata 'recode' command
+# Stata: recode varlist (rule1)(rule2)... [if] [in] [, options]
+# Example: recode income (0=.) (100 thru 200 = 150) (300 301 305 = 300) (else=copy), gen(newincome)
+
+t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_recode") # Added restore.point
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
-  # Determine subcommand: define, values, variable
-  if (stringi::stri_startswith_fixed(rest_of_cmd_trimmed, "define ")) {
-    return(t_label_define(rest_of_cmd_trimmed, cmd_obj, cmd_df, line_num))
-  } else if (stringi::stri_startswith_fixed(rest_of_cmd_trimmed, "values ")) {
-    return(t_label_values(rest_of_cmd_trimmed, cmd_obj, cmd_df, line_num))
-  } else if (stringi::stri_startswith_fixed(rest_of_cmd_trimmed, "variable ")) {
-    return(t_label_variable(rest_of_cmd_trimmed, cmd_obj, cmd_df, line_num))
+  # Parse varlist, rules, if/in, options (especially gen())
+  # This parsing is quite complex due to nested parentheses and optional parts.
+  # Let's try to split varlist first, then find rules in parentheses.
+  # Example: `recode var1 var2 (0=.) (1/10=1) (else=copy) if cond, gen(new1 new2)`
+
+  # Split at first parenthesis to get varlist
+  parts_varlist = stringi::stri_split_fixed(rest_of_cmd_trimmed, "(", n=2)[[1]]
+  if (length(parts_varlist) != 2) {
+      return(paste0("# Failed to parse recode command (missing rules): ", rest_of_cmd))
+  }
+  varlist_str = stringi::stri_trim_both(parts_varlist[1])
+  vars_to_recode = stringi::stri_split_regex(varlist_str, "\\s+")[[1]]
+  vars_to_recode = vars_to_recode[vars_to_recode != ""]
+
+  if (length(vars_to_recode) == 0) {
+      return(paste0("# recode command requires varlist: ", rest_of_cmd))
+  }
+
+  rules_and_rest = paste0("(", parts_varlist[2]) # Put the '(' back
+
+  # Separate if/in and options from rules
+  stata_if_in_cond = NA_character_
+  options_str = NA_character_
+
+  # Look for `if` or `in` first
+  if_in_match = stringi::stri_match_first_regex(rules_and_rest, "\\s+(?:if\\s+|in\\s+)(.*)$")
+  if(!is.na(if_in_match[1,1])) {
+      stata_if_in_cond = if_in_match[1,2]
+      rules_and_rest = stringi::stri_replace_last_regex(rules_and_rest, "\\s+(?:if\\s+|in\\s+)(.*)$", "")
+      rules_and_rest = stringi::stri_trim_both(rules_and_rest)
+  }
+
+  # Look for options after the if/in part or after rules
+  options_match = stringi::stri_match_first_regex(rules_and_rest, ",\\s*(.*)$")
+  if (!is.na(options_match[1,1])) {
+      options_str = stringi::stri_trim_both(options_match[1,2])
+      rules_part = stringi::stri_replace_last_regex(rules_and_rest, ",\\s*(.*)$", "")
+      rules_part = stringi::stri_trim_both(rules_part)
   } else {
-    return(paste0("# Unknown label subcommand: ", rest_of_cmd))
-  }
-}
-
-t_label_define = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
-  restore.point("t_label_define")
-  # label define lblname value "label" ... [, add|modify|replace]
-  # Parts: "define ", lblname, rules, options
-  define_match = stringi::stri_match_first_regex(rest_of_cmd, "^\\s*define\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*(.*?)(?:,\\s*(add|modify|replace))?$")
-  if (is.na(define_match[1,1])) {
-      return(paste0("# Failed to parse label define command: ", rest_of_cmd))
-  }
-  lblname = define_match[1,2]
-  rules_str = stringi::stri_trim_both(define_match[1,3]) # Trim whitespace around rules
-  option_type = define_match[1,4] # add, modify, replace, or NA
-
-  # Parse rules: value "label" value "label" ...
-  # Find all pairs of (non-space value) and (quoted label)
-  rule_matches = stringi::stri_match_all_regex(rules_str, "(-?\\d*\\.?\\d+e?-?\\d*|-?\\.\\w?|\\S+)\\s+(?:\"([^\"]*)\"|'([^']*)')")[[1]]
-  # Regex breakdown:
-  # (-?\\d*\\.?\\d+e?-?\\d*|-?\\.\\w?|\\S+)  -> Captures numeric values (incl sci notation), Stata missing (.), extended missing (.a), or any non-space sequence for other values.
-  # \\s+                                    -> Space separator
-  # (?:\"([^\"]*)\"|'([^']*)')              -> Captures label in double OR single quotes. Group 2 for double, Group 3 for single.
-
-  if (NROW(rule_matches) == 0 && rules_str != "") { # Allow empty rules_str if label define is just to create an empty set
-      return(paste0("# Failed to parse label define rules: ", rules_str))
+      rules_part = rules_and_rest
   }
 
-  values_from_regex = rule_matches[,2]
-  labels_from_regex = ifelse(!is.na(rule_matches[,3]), rule_matches[,3], rule_matches[,4]) # Pick double or single quoted label
+  # Now parse the rules part: (rule1)(rule2)...
+  # Find all rules within parentheses
+  rule_matches = stringi::stri_match_all_regex(rules_part, "\\(([^)]*)\\)")[[1]] # Match content inside ()
+  if (NROW(rule_matches) == 0) {
+      return(paste0("# Failed to parse recode rules: ", rules_part))
+  }
+  recode_rules_raw = rule_matches[,2] # Extract the content within parentheses
 
 
-  # Convert Stata values (like ".", ".a", numbers) to R numeric or NA_real_
-  numeric_values_for_labels = sapply(values_from_regex, function(v) {
-      if (v == ".") return(NA_real_) # Stata system missing
-      if (stringi::stri_detect_regex(v, "^\\.[a-zA-Z]$")) return(NA_real_) # Stata extended missing
-      as.numeric(v) # Convert numeric strings to numeric
-  })
-
-  # Construct the R named numeric vector string for haven::labelled format: c("label_string" = value_numeric)
-  if (length(labels_from_regex) > 0) {
-    values_vec_str = paste0("c(", paste(ifelse(is.na(numeric_values_for_labels), "NA_real_", format(numeric_values_for_labels, scientific = FALSE, trim = TRUE)), collapse = ", "), ")")
-    names_vec_str = paste0("c(", paste0('"', labels_from_regex, '"', collapse = ", "), ")")
-    label_map_r_code_str = paste0("stats::setNames(", values_vec_str, ", ", names_vec_str, ")")
-
-  } else {
-    label_map_r_code_str = "stats::setNames(numeric(0), character(0))" # Empty label set
+  # Parse options, specifically `gen()`
+  gen_vars = NA_character_
+  if (!is.na(options_str)) {
+      gen_opt_match = stringi::stri_match_first_regex(options_str, "\\bgen\\s*\\(([^)]+)\\)")
+      if (!is.na(gen_opt_match[1,1])) {
+           gen_vars = stringi::stri_trim_both(gen_opt_match[1,2])
+       }
   }
 
-
-  r_code_lines = c()
-  # Corrected exists check:
-  r_code_lines = c(r_code_lines, "if (!exists(\"label_defs\", envir = stata2r_env)) stata2r_env$label_defs = list()")
-
-  # Default behavior if no option is like 'add' but Stata errors if exists. Here, we'll overwrite like 'modify'.
-  # 'replace' means remove old definition entirely first. 'modify' and 'add' merge.
-  if (is.na(option_type) || option_type %in% c("replace", "modify")) { # Treat no option or modify as overwrite/merge; replace is clear overwrite
-      if (is.na(option_type) || option_type == "replace") { # If replace or no option (Stata default is error if exists, we replace)
-          r_code_lines = c(r_code_lines, paste0("stata2r_env$label_defs$`", lblname, "` = ", label_map_r_code_str))
-      } else { # modify (same as add for this logic: new overwrites old for same value)
-          r_code_lines = c(
-            r_code_lines,
-            "temp_existing = if (!is.null(stata2r_env$label_defs$`", lblname, "`)) stata2r_env$label_defs$`", lblname, "` else stats::setNames(numeric(0), character(0))",
-            "temp_new_defined = ", label_map_r_code_str,
-            "values_in_new = as.numeric(temp_new_defined)",
-            "temp_existing_filtered = temp_existing[! (as.numeric(temp_existing) %in% values_in_new) ]",
-            "stata2r_env$label_defs$`", lblname, "` = c(temp_existing_filtered, temp_new_defined)"
-          )
+  new_vars = NULL
+  if (!is.na(gen_vars)) {
+      new_vars = stringi::stri_split_regex(gen_vars, "\\s+")[[1]]
+      new_vars = new_vars[new_vars != ""]
+      if (length(new_vars) != length(vars_to_recode)) {
+          return(paste0("# recode gen() option requires same number of new variables as old variables."))
       }
-  } else if (option_type == "add") { # Stata 'add' errors if any value already exists.
-       r_code_lines = c(
-            r_code_lines,
-            "temp_existing = if (!is.null(stata2r_env$label_defs$`", lblname, "`)) stata2r_env$label_defs$`", lblname, "` else stats::setNames(numeric(0), character(0))",
-            "temp_new_defined = ", label_map_r_code_str,
-            "stata2r_env$label_defs$`", lblname, "` = c(temp_existing[! (as.numeric(temp_existing) %in% as.numeric(temp_new_defined)) ], temp_new_defined)"
-          )
+  } else {
+      # If no gen() option, recode is done in place. New vars are the same as old vars.
+      new_vars = vars_to_recode
+  }
+
+  # Determine if the target variable(s) should be string type
+  any_rule_implies_string = FALSE
+  for (rule_raw in recode_rules_raw) {
+      rule_str_trimmed = stringi::stri_trim_both(rule_raw)
+      parts_eq = stringi::stri_split_fixed(rule_str_trimmed, "=", n=2)[[1]]
+      if (length(parts_eq) != 2) next # Skip malformed rules
+      new_part_raw = stringi::stri_trim_both(parts_eq[2])
+
+      # A rule implies string type if:
+      # 1. The new value is a string literal (e.g., "new_string_value").
+      # 2. The new value is a numeric value with an attached string label (e.g., 1 "label").
+      if ( (stringi::stri_startswith_fixed(new_part_raw, '"') && stringi::stri_endswith_fixed(new_part_raw, '"')) ||
+           (stringi::stri_startswith_fixed(new_part_raw, "'") && stringi::stri_endswith_fixed(new_part_raw, "'")) ) {
+          any_rule_implies_string = TRUE
+          break
+      }
+      # Check for 'value "label"' syntax
+      label_match = stringi::stri_match_first_regex(new_part_raw, "^\\s*(-?\\d*\\.?\\d+e?-?\\d*|-?\\.\\w?|\\S+)\\s+(?:\"([^\"]*)\"|'([^']*)')\\s*$")
+      if (!is.na(label_match[1,1])) {
+          any_rule_implies_string = TRUE
+          break
+      }
   }
 
 
-  return(paste(r_code_lines, collapse="\n"))
+  # Translate the if/in condition for subsetting
+  r_subset_cond = NA_character_
+  data_source_for_recode = "data"
+  r_code_prefix = "" # Code to create subset if needed
+
+  if (!is.na(stata_if_in_cond) && stata_if_in_cond != "") {
+      # Stata recode applies if/in to select observations *to be recoded*.
+      # Observations not meeting if/in condition are left unchanged.
+      # This means the R code needs to apply the recoding conditionally.
+      r_subset_cond = translate_stata_expression_with_r_values(stata_if_in_cond, line_num, cmd_df, context = list(is_by_group = FALSE))
+      if (is.na(r_subset_cond) || r_subset_cond == "") {
+           return(paste0("# Failed to translate if/in condition for recode: ", stata_if_in_cond))
+       }
+      # The actual recoding logic (case_when/ifelse) will incorporate this condition.
+      # No need for a separate subset dataframe here.
+  }
+
+
+  # Translate rules into R case_when clauses
+  # Rule format: old_value = new_value
+  # old_value can be: single value, range (val1/val2, val1 thru val2), list (val1 val2), else, missing (.)
+  # new_value can be: single value, copy (use original value), missing (.)
+
+  translate_recode_rule = function(rule_str, source_var_r, target_is_string) {
+      rule_str = stringi::stri_trim_both(rule_str)
+      parts_eq = stringi::stri_split_fixed(rule_str, "=", n=2)[[1]]
+      if (length(parts_eq) != 2) {
+          return(paste0("## Error parsing rule: ", rule_str))
+      }
+      old_part_raw = stringi::stri_trim_both(parts_eq[1])
+      new_part_raw = stringi::stri_trim_both(parts_eq[2])
+
+      # Translate old_part into R condition (left side of case_when ~ )
+      r_condition = ""
+      if (old_part_raw == "else") {
+          r_condition = "TRUE" # This rule is the fallback
+      } else if (old_part_raw == "missing") {
+           r_condition = paste0("is.na(", source_var_r, ")") # Missing value rule
+      } else if (old_part_raw == "nonmissing") {
+           r_condition = paste0("!is.na(", source_var_r, ")") # Non-missing value rule
+      } else if (grepl("\\s+thru\\s+", old_part_raw)) {
+           # Range: val1 thru val2
+           range_parts = stringi::stri_split_regex(old_part_raw, "\\s+thru\\s+", n=2)[[1]]
+           val1 = translate_stata_expression_to_r(stringi::stri_trim_both(range_parts[1]), context=list(is_by_group=FALSE))
+           val2 = translate_stata_expression_to_r(stringi::stri_trim_both(range_parts[2]), context=list(is_by_group=FALSE))
+           if (is.na(val1) || is.na(val2)) return(paste0("## Error translating range values in rule: ", rule_str))
+           r_condition = paste0(source_var_r, " >= ", val1, " & ", source_var_r, " <= ", val2)
+      } else if (grepl("/", old_part_raw)) {
+          # Range: val1/val2
+           range_parts = stringi::stri_split_regex(old_part_raw, "/", n=2)[[1]]
+           val1 = translate_stata_expression_to_r(stringi::stri_trim_both(range_parts[1]), context=list(is_by_group=FALSE))
+           val2 = translate_stata_expression_to_r(stringi::stri_trim_both(range_parts[2]), context=list(is_by_group=FALSE))
+           if (is.na(val1) || is.na(val2)) return(paste0("## Error translating range values in rule: ", rule_str))
+           r_condition = paste0(source_var_r, " >= ", val1, " & ", source_var_r, " <= ", val2) # Stata / is inclusive range
+      }
+      else {
+          # List of values or single value
+          old_values = stringi::stri_split_regex(old_part_raw, "\\s+")[[1]]
+          old_values = old_values[old_values != ""]
+          r_values = sapply(old_values, function(val) {
+               # Use translate_stata_expression_to_r for each value in the list
+               translate_stata_expression_to_r(val, context=list(is_by_group=FALSE))
+          })
+          r_values = r_values[!is.na(r_values)] # Filter out any NA from translation for safety
+          if (length(r_values) == 0) return(paste0("## Error translating old values in rule: ", rule_str))
+          r_condition = paste0(source_var_r, " %in% c(", paste(r_values, collapse = ", "), ")")
+      }
+
+
+      # Translate new_part into R value (right side of case_when ~ )
+      r_new_value = ""
+      if (new_part_raw == "copy") {
+          r_new_value = source_var_r # Use the original variable value
+      } else {
+          # Check for numeric value with optional label, e.g., '1 "Very Low"'
+          label_match = stringi::stri_match_first_regex(new_part_raw, "^\\s*(-?\\d*\\.?\\d+e?-?\\d*|-?\\.\\w?|\\S+)\\s+(?:\"([^\"]*)\"|'([^']*)')\\s*$")
+          if (!is.na(label_match[1,1])) {
+              # It's a "value label" syntax
+              string_label_part = ifelse(!is.na(label_match[1,3]), label_match[1,3], label_match[1,4])
+              numeric_val_part = stringi::stri_trim_both(label_match[1,2])
+
+              if (target_is_string) {
+                  r_new_value = quote_for_r_literal(string_label_part) # Return the label as a string literal
+              } else {
+                  # If target is numeric, return the numeric value, translated
+                  r_new_value = translate_stata_expression_to_r(numeric_val_part, context=list(is_by_group=FALSE))
+              }
+          } else {
+              # It's a plain expression or literal (numeric or string)
+              r_new_value = translate_stata_expression_to_r(new_part_raw, context=list(is_by_group=FALSE))
+          }
+      }
+
+      return(paste0(r_condition, " ~ ", r_new_value))
+  }
+
+  # Generate case_when expression for each variable
+  mutate_exprs = character(length(vars_to_recode))
+  for (k in seq_along(vars_to_recode)) {
+      old_var = vars_to_recode[k]
+      new_var = new_vars[k]
+      source_var_r = old_var # R variable name for the source column
+
+      # Translate all rules for this variable
+      r_rules = sapply(recode_rules_raw, translate_recode_rule, source_var_r = source_var_r, target_is_string = any_rule_implies_string)
+
+      # Combine rules into a case_when statement
+      case_when_expr = paste0("dplyr::case_when(\n    ", paste(r_rules, collapse = ",\n    "), "\n  )")
+
+      # Apply global if/in condition around the case_when
+      if (!is.na(r_subset_cond) && r_subset_cond != "") {
+          # If condition is met, apply case_when. Otherwise, keep original value.
+          # Stata's `if` condition treats missing as FALSE, so use coalesce.
+          final_value_expr = paste0("dplyr::if_else(dplyr::coalesce(", r_subset_cond, ", FALSE),\n",
+                                    "    ", case_when_expr, ",\n",
+                                    "    `", source_var_r, "`)") # Keep original value if condition not met.
+      } else {
+          final_value_expr = case_when_expr
+      }
+
+
+      mutate_exprs[k] = paste0("`", new_var, "` = ", final_value_expr)
+  }
+
+  # Combine mutate expressions
+  mutate_exprs_str = paste(mutate_exprs, collapse = ",\n  ")
+
+  # Build the final R code using dplyr::mutate
+  r_code_lines = c(paste0("data = dplyr::mutate(data, ", mutate_exprs_str, ")")) # Changed to dplyr::mutate
+
+
+  r_code_str = paste(r_code_lines, collapse="\n")
+
+  # Add comment about options if any were present but not handled (excluding gen)
+   if (!is.na(options_str) && !grepl("\\bgen\\s*\\([^)]+\\)", options_str)) {
+        r_code_str = paste0(r_code_str, paste0(" # Other options ignored: ", options_str))
+   }
+
+
+  return(r_code_str)
 }
 
-
-t_label_values = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
-  restore.point("t_label_values")
-  # label values varlist lblname
-  # Or: label values varlist . (to remove labels)
-  values_match = stringi::stri_match_first_regex(rest_of_cmd, "^\\s*values\\s+(.*?)\\s+([a-zA-Z_][a-zA-Z0-9_]*|\\.)$")
-  if (is.na(values_match[1,1])) {
-      return(paste0("# Failed to parse label values command: ", rest_of_cmd))
-  }
-  varlist_str = stringi::stri_trim_both(values_match[1,2])
-  lblname_or_dot = values_match[1,3]
-
-  vars_to_label = stringi::stri_split_regex(varlist_str, "\\s+")[[1]]
-  vars_to_label = vars_to_label[vars_to_label != ""]
-
-  r_code_lines = c()
-
-  if (lblname_or_dot == ".") { # Remove labels
-    for (varname in vars_to_label) {
-        r_code_lines = c(r_code_lines, paste0("  data[['", varname, "']] = haven::zap_labels(data[['", varname, "']])"))
-    }
-  } else { # Apply labels from lblname
-    lblname = lblname_or_dot
-    # Corrected exists check:
-    r_code_lines = c(r_code_lines, paste0("if (!exists(\"label_defs\", envir = stata2r_env)) stata2r_env$label_defs = list()"))
-    r_code_lines = c(r_code_lines, paste0("label_map_to_apply = stata2r_env$label_defs$`", lblname, "`"))
-
-    for (varname in vars_to_label) {
-      # Use a temporary variable for the new labelled object to avoid long line
-      temp_labelled_var = paste0("stata_tmp_labelled_L", cmd_obj$line, "_", varname)
-
-      r_code_lines = c(r_code_lines, paste0("if (!is.null(label_map_to_apply)) {"))
-      # Ensure existing_var_label is character(1) for haven::labelled
-      r_code_lines = c(r_code_lines, paste0("  temp_attr_label = attr(data[['",varname,"']], 'label')"))
-      r_code_lines = c(r_code_lines, paste0("  existing_var_label = if (is.null(temp_attr_label) || length(temp_attr_label) == 0 || is.na(temp_attr_label[1])) NA_character_ else as.character(temp_attr_label[1])")) # FIX HERE
-      r_code_lines = c(r_code_lines, paste0("  ", temp_labelled_var, " = haven::labelled(data[['", varname, "']], labels = label_map_to_apply, label = existing_var_label)"))
-      r_code_lines = c(r_code_lines, paste0("  data[['", varname, "']] = ", temp_labelled_var))
-      r_code_lines = c(r_code_lines, paste0("  rm(", temp_labelled_var, ")"))
-      r_code_lines = c(r_code_lines, "} else {" )
-      r_code_lines = c(r_code_lines, paste0("  warning(paste0('Label definition `", lblname,"` not found for `label values` command on line ", cmd_obj$line, ". Labels removed from ', '",varname,"',' if any.'))"))
-      r_code_lines = c(r_code_lines, paste0("  data[['", varname, "']] = haven::zap_labels(data[['", varname, "']])"))
-      r_code_lines = c(r_code_lines, "}" )
-    }
-  }
-  return(paste(r_code_lines, collapse="\n"))
-}
-
-t_label_variable = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
-  restore.point("t_label_variable")
-  # label variable varname "label"
-  variable_match = stringi::stri_match_first_regex(rest_of_cmd, "^\\s*variable\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s+(?:\"([^\"]*)\"|'([^']*)')$")
-  if (is.na(variable_match[1,1])) {
-      return(paste0("# Failed to parse label variable command: ", rest_of_cmd))
-  }
-  varname = variable_match[1,2]
-  label_str_double_quoted = variable_match[1,3]
-  label_str_single_quoted = variable_match[1,4]
-
-  label_str = if (!is.na(label_str_double_quoted)) label_str_double_quoted else label_str_single_quoted
-  # Escape double quotes within the label string for R string literal
-  label_str_escaped = stringi::stri_replace_all_fixed(label_str, '"', '\\"')
-
-
-  r_code_lines = c(
-      paste0("attr(data$`", varname, "`, \"label\") = \"", label_str_escaped, "\"")
-  )
-  return(paste(r_code_lines, collapse="\n"))
-}
 ```
-!END_CHANGE_FILE R/t_label.R
+!END_CHANGE_FILE R/t_recode.R
