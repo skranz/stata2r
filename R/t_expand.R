@@ -93,6 +93,7 @@ t_expand = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
                                              "ifelse(is.na(", temp_n_values_var, "), 1, pmax(0, as.integer(", temp_n_values_var, "))), ",
                                              "1)"),
            paste0("data = data[base::rep(1:NROW(data), times = ", final_times_calc_var, "), ]"),
+           paste0("data = dplyr::as_tibble(data)"), # Convert back to tibble
            paste0("if (exists('", temp_n_values_var, "')) rm(", temp_n_values_var, ", ", temp_cond_values_var, ", ", final_times_calc_var, ")")
        )
        r_code_str = paste(r_code_lines, collapse="\n")
@@ -101,6 +102,7 @@ t_expand = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
            paste0(temp_n_values_var, " = ", n_expr_with_context),
            paste0(final_times_calc_var, " = ifelse(is.na(", temp_n_values_var, "), 1, pmax(0, as.integer(", temp_n_values_var, ")))"),
            paste0("data = data[base::rep(1:NROW(data), times = ", final_times_calc_var, "), ]"),
+           paste0("data = dplyr::as_tibble(data)"), # Convert back to tibble
            paste0("if (exists('", temp_n_values_var, "')) rm(", temp_n_values_var, ", ", final_times_calc_var, ")")
         )
        r_code_str = paste(r_code_lines, collapse="\n")
@@ -113,5 +115,4 @@ t_expand = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
-
 

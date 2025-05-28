@@ -106,11 +106,11 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       )
   }
 
-  # Ensure merge keys are plain numeric for robustness against haven-specific types
-  # This section remains, as it explicitly casts to numeric. stripping attributes doesn't guarantee numeric.
+  # Ensure merge keys are plain integer for robustness against haven-specific types
+  # Changed to as.integer for robustness with ID-like columns.
   r_code_lines = c(r_code_lines,
-      paste0("data = dplyr::mutate(data, ", paste0("`", vars_to_merge_on, "` = as.numeric(`", vars_to_merge_on, "`)", collapse = ", "), ")"),
-      paste0(temp_using_data_var, " = dplyr::mutate(", temp_using_data_var, ", ", paste0("`", vars_to_merge_on, "` = as.numeric(`", vars_to_merge_on, "`)", collapse = ", "), ")")
+      paste0("data = dplyr::mutate(data, ", paste0("`", vars_to_merge_on, "` = as.integer(`", vars_to_merge_on, "`)", collapse = ", "), ")"),
+      paste0(temp_using_data_var, " = dplyr::mutate(", temp_using_data_var, ", ", paste0("`", vars_to_merge_on, "` = as.integer(`", vars_to_merge_on, "`)", collapse = ", "), ")")
   )
 
 
