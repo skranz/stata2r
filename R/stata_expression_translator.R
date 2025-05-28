@@ -90,7 +90,8 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   # Step 5: Handle Stata missing value literal '.' (MOVED AND REFINED)
   # This must happen after functions like `is.na()` and `as.numeric()` are formed
   # to avoid replacing '.' within their names. Use word boundaries to match standalone dot.
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b\\.\\b", "NA_real_")
+  # Corrected regex to avoid matching decimal points in numbers (e.g., 0.1)
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![0-9])\\.(?![0-9])", "NA_real_")
 
   # Step 6: Translate Stata '+' operator to sfun_stata_add for polymorphic behavior
   # This needs to be applied iteratively until no more '+' signs (that are not part of comparison operators) exist.
