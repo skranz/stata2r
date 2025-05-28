@@ -180,13 +180,14 @@ compare_df = function(df1, df2,
 
   out = list(identical=FALSE)
 
-  # ---- dimension and column checks ----
-  if (nrow(df1) != nrow(df2))
-    out$row_count = c(df1 = nrow(df1), df2 = nrow(df2))
+  # Ensure column names are plain character vectors before setdiff operations
+  # This can prevent issues if names have attributes or are of a special class
+  names_df1_raw = as.character(names(df1))
+  names_df2_raw = as.character(names(df2))
 
   # Filter out ignored columns from names for comparison
-  names_df1_filtered = setdiff(names(df1), ignore_cols_values)
-  names_df2_filtered = setdiff(names(df2), ignore_cols_values)
+  names_df1_filtered = setdiff(names_df1_raw, ignore_cols_values)
+  names_df2_filtered = setdiff(names_df2_raw, ignore_cols_values)
 
   missing_in_do_df = setdiff(names_df2_filtered, names_df1_filtered)
   missing_in_r_df = setdiff(names_df1_filtered, names_df2_filtered)
@@ -195,11 +196,11 @@ compare_df = function(df1, df2,
                                missing_in_r_df = missing_in_r_df)
 
   common_cols = intersect(names_df1_filtered, names_df2_filtered)
-  if (length(common_cols) == 0 && (length(names(df1)) + length(names(df2)) > 0)) { # If no common columns but non-empty data frames
-      # This case needs to be handled if all columns were ignored.
-      # If all columns were ignored and no other differences, it should be identical.
-      # But if there are columns that are NOT ignored and no common columns, it's a mismatch.
-      # For now, let's assume `common_cols` reflects the truly comparable columns.
+  if (length(common_cols) == 0 && (length(names_df1_filtered) > 0 || length(names_df2_filtered) > 0)) {
+      if (is.null(out$column_mismatch)) { # Avoid overwriting previous mismatch details
+          out$column_mismatch = list(missing_in_do_df = missing_in_do_df,
+                                     missing_in_r_df = missing_in_r_df)
+      }
   }
 
 
@@ -231,8 +232,7 @@ compare_df = function(df1, df2,
     out$type_mismatch = type_diff
 
   # ---- value‐level comparison ----
-  # Filter common_cols to exclude ignored columns for value comparison
-  cols_for_value_comp = intersect(common_cols, setdiff(names(df1), ignore_cols_values)) # ensure only non-ignored common cols
+  cols_for_value_comp = common_cols
 
   value_diffs = lapply(cols_for_value_comp, function(cl) {
     v1 = df1[[cl]]
@@ -240,8 +240,24 @@ compare_df = function(df1, df2,
 
     # numeric columns need tolerance
     if (is.numeric(v1) && is.numeric(v2)) {
-      neq = abs(v1 - v2) > tol | xor(is.na(v1), is.na(v2))
+      neq = rep(FALSE, length(v1))
+      for (k in seq_along(v1)) {
+        val1_k = v1[k]
+        val2_k = v2[k]
+
+        if (is.na(val1_k) && is.na(val2_k)) {
+          neq[k] = FALSE
+        } else if (is.infinite(val1_k) && is.infinite(val2_k) && sign(val1_k) == sign(val2_k)) {
+          neq[k] = FALSE
+        } else if (is.finite(val1_k) && is.finite(val2_k) && abs(val1_k - val2_k) <= tol) {
+          neq[k] = FALSE
+        } else {
+          neq[k] = TRUE # Any other case: different (one NA, other finite/inf; one inf, other finite; different inf signs)
+        }
+      }
+
     } else {
+      # For non-numeric, direct comparison, NA/NA is TRUE
       neq = v1 != v2 | xor(is.na(v1), is.na(v2))
     }
     which(neq)
@@ -271,4 +287,5 @@ compare_df = function(df1, df2,
   }
   out
 }
+
 
