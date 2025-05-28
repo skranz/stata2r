@@ -7,6 +7,8 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
   # Split into aggregate definitions part and options part
+  # Pattern: ^\s*(.*?)(?:,\\s*(.*))?$
+  # G1: aggregate_part, G2: options_part
   parts = stringi::stri_match_first_regex(rest_of_cmd_trimmed, "^\\s*(.*?)(?:,\\s*(.*))?$")
   aggregate_part = stringi::stri_trim_both(parts[1,2])
   options_part = stringi::stri_trim_both(parts[1,3]) # NA if no options
@@ -72,12 +74,13 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     actual_stata_source_expr = ""
     actual_stata_target_var_name = ""
 
+    # FIX: Trim these values before assignment
     if (is.na(g3_val_from_regex)) { # Matched (stat) g2_val_from_regex (e.g., (mean) myvar)
-        actual_stata_source_expr = g2_val_from_regex
-        actual_stata_target_var_name = g2_val_from_regex
+        actual_stata_source_expr = stringi::stri_trim_both(g2_val_from_regex)
+        actual_stata_target_var_name = stringi::stri_trim_both(g2_val_from_regex)
     } else { # Matched (stat) g2_val_from_regex = g3_val_from_regex (e.g., (mean) newvar = oldvar+1)
-        actual_stata_source_expr = g3_val_from_regex
-        actual_stata_target_var_name = g2_val_from_regex
+        actual_stata_source_expr = stringi::stri_trim_both(g3_val_from_regex)
+        actual_stata_target_var_name = stringi::stri_trim_both(g2_val_from_regex)
     }
     new_vars_created[j] = actual_stata_target_var_name
 

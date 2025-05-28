@@ -43,8 +43,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   stata_in_range_in_args = NA_character_
   egen_args_str = args_and_if_part
 
-  # Look for `if` or `in` within the args part
-  # Check for `if` first
+  # Look for `if` first
   if_match_in_args = stringi::stri_match_first_regex(egen_args_str, "\\s+if\\s+(.*)$")
    if(!is.na(if_match_in_args[1,1])) {
       stata_if_cond_in_args = if_match_in_args[1,2]
@@ -170,6 +169,9 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   calc_expr = ""
   is_row_function = FALSE # Flag for functions like rowtotal, rowmean that don't use group_by
 
+  # Determine if 'fieldstrustmissings' option is present
+  is_fieldstrustmissings = !is.na(options_str) && stringi::stri_detect_fixed(options_str, "fieldstrustmissings")
+
 
   # Switch for egen functions
   if (egen_func_name == "mean") {
@@ -182,9 +184,15 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     # Assuming r_egen_args_conditional results in a numeric or logical vector
     calc_expr = paste0("sum(!is.na(", r_egen_args_conditional, "))")
   } else if (egen_func_name == "rank") {
-    # Stata rank puts missing values last.
-    # To emulate this with dplyr::min_rank, replace NA values with Inf before ranking.
-    calc_expr = paste0("dplyr::min_rank(ifelse(is.na(", r_egen_args_conditional, "), Inf, ", r_egen_args_conditional, "))")
+    # Stata rank() without fieldstrustmissings returns missing for missing.
+    # Stata rank() with fieldstrustmissings treats missing values as true values (usually largest) and assigns them a rank.
+    if (is_fieldstrustmissings) {
+      # Use base::rank with na.last="last" to assign ranks to NAs, treating them as largest
+      calc_expr = paste0("base::rank(", r_egen_args_conditional, ", ties.method = 'min', na.last = 'last')")
+    } else {
+      # Default Stata rank: NAs get NA ranks. dplyr::min_rank does this.
+      calc_expr = paste0("dplyr::min_rank(", r_egen_args_conditional, ")")
+    }
   } else if (egen_func_name == "median" || egen_func_name == "p50") {
     calc_expr = paste0("stats::median(", r_egen_args_conditional, ", na.rm = TRUE)")
   } else if (egen_func_name == "sd" || egen_func_name == "std") {
@@ -263,6 +271,8 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
    options_str_cleaned = options_str
    if (!is.na(options_str_cleaned)) {
         options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "\\bby\\s*\\([^)]+\\)", "")
+        # Remove fieldstrustmissings from the options string if it was present
+        options_str_cleaned = stringi::stri_replace_first_fixed(options_str_cleaned, "fieldstrustmissings", "")
         options_str_cleaned = stringi::stri_trim_both(stringi::stri_replace_all_regex(options_str_cleaned, ",+", ",")) # Clean up multiple commas
         options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "^,+", "") # Remove leading comma
    }
