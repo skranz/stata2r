@@ -899,16 +899,10 @@ common_cols = intersect(names(data), names(stata_tmp_using_data_L70))
 common_cols_not_by = setdiff(common_cols, c("id"))
 if (length(common_cols_not_by) > 0) { stata_tmp_using_data_L70 = dplyr::select(stata_tmp_using_data_L70, -dplyr::all_of(common_cols_not_by)) }
 data = dplyr::left_join(data, stata_tmp_using_data_L70, by = c("id"), indicator = "_merge_status_tmp_L70")
-data = dplyr::mutate(data, `_merge` = dplyr::case_when(
-  `_merge_status_tmp_L70` == "left_only" ~ 1L,
-  `_merge_status_tmp_L70` == "right_only" ~ 2L,
-  `_merge_status_tmp_L70` == "both" ~ 3L,
-  TRUE ~ NA_integer_ # Should not happen if join is successful, but for safety
-))
+ # _merge variable was not generated due to 'nogenerate' option.
 data = dplyr::select(data, -dplyr::any_of('_merge_status_tmp_L70'))
 rm(stata_tmp_using_data_L70, common_cols, common_cols_not_by)
-# Stata merge type: 1:1, keep(match master)
- # Other options ignored: nogen 
+# Stata merge type: 1:1, keep(match master), nogenerate 
 stata_tmp_using_data_L70 = haven::read_dta(file.path(stata2r_env$working_dir, "extra_data_temp.dta"))
 
 common_cols = intersect(names(data), names(stata_tmp_using_data_L70))
@@ -919,53 +913,14 @@ if (length(common_cols_not_by) > 0) { stata_tmp_using_data_L70 = dplyr::select(s
 
 data = dplyr::left_join(data, stata_tmp_using_data_L70, by = c("id"), indicator = "_merge_status_tmp_L70")
 
-data = dplyr::mutate(data, `_merge` = dplyr::case_when(
-  `_merge_status_tmp_L70` == "left_only" ~ 1L,
-  `_merge_status_tmp_L70` == "right_only" ~ 2L,
-  `_merge_status_tmp_L70` == "both" ~ 3L,
-  TRUE ~ NA_integer_ # Should not happen if join is successful, but for safety
-))
+ # _merge variable was not generated due to 'nogenerate' option.
 
-Error: Problem with `mutate()` column `_merge`.
-ℹ `_merge = dplyr::case_when(...)`.
-✖ object '_merge_status_tmp_L70' not found
-Caused by error:
-! object '_merge_status_tmp_L70' not found
 data = dplyr::select(data, -dplyr::any_of('_merge_status_tmp_L70'))
 
 rm(stata_tmp_using_data_L70, common_cols, common_cols_not_by)
 
-# Stata merge type: 1:1, keep(match master)
+# Stata merge type: 1:1, keep(match master), nogenerate
+Error in vec_slice(x, i) : Can't subset elements past the end.
+ℹ Location 37 doesn't exist.
+ℹ There are only 36 elements.
 
- # Other options ignored: nogen
-
-Error executing R code for Stata line  70 :  stata_tmp_using_data_L70 = haven::read_dta(file.path(stata2r_env$working_dir, "extra_data_temp.dta"))
-
-common_cols = intersect(names(data), names(stata_tmp_using_data_L70))
-
-common_cols_not_by = setdiff(common_cols, c("id"))
-
-if (length(common_cols_not_by) > 0) { stata_tmp_using_data_L70 = dplyr::select(stata_tmp_using_data_L70, -dplyr::all_of(common_cols_not_by)) }
-
-data = dplyr::left_join(data, stata_tmp_using_data_L70, by = c("id"), indicator = "_merge_status_tmp_L70")
-
-data = dplyr::mutate(data, `_merge` = dplyr::case_when(
-  `_merge_status_tmp_L70` == "left_only" ~ 1L,
-  `_merge_status_tmp_L70` == "right_only" ~ 2L,
-  `_merge_status_tmp_L70` == "both" ~ 3L,
-  TRUE ~ NA_integer_ # Should not happen if join is successful, but for safety
-))
-
-Error: Problem with `mutate()` column `_merge`.
-ℹ `_merge = dplyr::case_when(...)`.
-✖ object '_merge_status_tmp_L70' not found
-Caused by error:
-! object '_merge_status_tmp_L70' not found
-data = dplyr::select(data, -dplyr::any_of('_merge_status_tmp_L70'))
-
-rm(stata_tmp_using_data_L70, common_cols, common_cols_not_by)
-
-# Stata merge type: 1:1, keep(match master)
-
- # Other options ignored: nogen
- 
