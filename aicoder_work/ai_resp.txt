@@ -1,7 +1,6 @@
-The primary issue causing the test failures is that the `labelled` package, which is used by `t_decode` and `t_encode` (and loaded in `aic_do_test.R`), is not declared as a dependency in the `DESCRIPTION` file. Adding `labelled` to the `Depends` field will ensure it's available during package checks and usage.
+The current test failures indicate that some required packages (`labelled`, `haven`, `tidyr`, `readr`) are not being loaded, even though `library()` calls are present in the test script. This suggests that these packages are not declared as dependencies in the `DESCRIPTION` file. Adding them to the `Depends` field will ensure they are available when the package is used or tested. No other code changes are immediately necessary based on the provided error logs.
 
 !CHANGE_FILE DESCRIPTION
-```
 Package: stata2r
 Type: Package
 Title: stata2r translation for data manipulation commands
@@ -12,6 +11,5 @@ Description: Experiment: develop package using an ai agent via aicode
 License: GPL >= 2.0
 Encoding: UTF-8
 LazyData: true
-Depends: stringi, collapse, dplyr, restorepoint, labelled
-```
+Depends: stringi, collapse, dplyr, restorepoint, haven, tidyr, readr, labelled
 !END_CHANGE_FILE DESCRIPTION
