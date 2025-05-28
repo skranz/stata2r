@@ -127,55 +127,13 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       r_egen_args_conditional = r_egen_args
   }
 
+  # Determine if 'fieldstrustmissings' option is present
+  is_fieldstrustmissings = !is.na(options_str) && stringi::stri_detect_fixed(options_str, "fieldstrustmissings")
 
-  # Determine the base grouping variables for dplyr::group_by (from by-prefix or by() option)
-  by_vars_for_group_by = NULL
-  by_vars_list_unquoted = character(0) # Initialize for use in combined_grouping_vars
-
-  if (cmd_obj$is_by_prefix) {
-    if (length(cmd_obj$by_group_vars) > 0 && !is.na(cmd_obj$by_group_vars[1])) {
-      by_vars_list_unquoted = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
-      by_vars_list_unquoted = by_vars_list_unquoted[!is.na(by_vars_list_unquoted) & by_vars_list_unquoted != ""] # Modified filter
-      if (length(by_vars_list_unquoted) > 0) { # Ensure by_vars_list_unquoted is not empty
-        by_vars_for_group_by = paste0('!!!dplyr::syms(c("', paste0(by_vars_list_unquoted, collapse='", "'), '"))')
-      }
-    }
-
-    sort_vars_list = character(0)
-    if (length(cmd_obj$by_sort_vars) > 0 && !is.na(cmd_obj$by_sort_vars[1])) {
-      sort_vars_list = stringi::stri_split_fixed(cmd_obj$by_sort_vars, ",")[[1]]
-      sort_vars_list = sort_vars_list[!is.na(sort_vars_list) & sort_vars_list != ""] # Modified filter
-    }
-
-    # If there are sort keys for by-processing, prepare the arrange call
-    # This is handled by t_generate/t_replace for _n/_N usage, but egen functions might need sorting too.
-    # Stata egen functions like `rank` are influenced by sort order if `by` prefix is used.
-    # However, for functions like mean/total, explicit sorting isn't strictly necessary for the result,
-    # but `by` prefix implies it.
-    # The `context$is_by_group` comes from the `by` prefix.
-    # The `dplyr::group_by` handles the grouping.
-    # For `rank`, `_n`, `_N` etc. the order within groups matters.
-    # The `stata_expression_translator` should handle `_n` and `_N` correctly by replacing with `fseq()` and `fnobs()` inside grouped operations.
-    # So explicit `arrange` here might be redundant or problematic if the order is already handled by `by` prefix parsing.
-    # Let's assume that `dplyr::group_by` and `stata_expression_translator` are sufficient.
-  } else if (!is.na(options_str)) {
-    by_opt_match = stringi::stri_match_first_regex(options_str, "\\bby\\s*\\(([^)]+)\\)")
-    if (!is.na(by_opt_match[1,1])) {
-      by_vars_list_unquoted = stringi::stri_split_regex(stringi::stri_trim_both(by_opt_match[1,2]), "\\s+")[[1]]
-      by_vars_list_unquoted = by_vars_list_unquoted[!is.na(by_vars_list_unquoted) & by_vars_list_unquoted != ""] # Modified filter
-      if (length(by_vars_list_unquoted) > 0) { # Ensure by_vars_list_unquoted is not empty
-        by_vars_for_group_by = paste0('!!!dplyr::syms(c("', paste0(by_vars_list_unquoted, collapse='", "'), '"))')
-      }
-    }
-  }
 
   # Translate egen function into an R expression for calculation
   calc_expr = ""
   is_row_function = FALSE # Flag for functions like rowtotal, rowmean that don't use group_by
-
-  # Determine if 'fieldstrustmissings' option is present
-  is_fieldstrustmissings = !is.na(options_str) && stringi::stri_detect_fixed(options_str, "fieldstrustmissings")
-
 
   # Switch for egen functions
   if (egen_func_name == "mean") {
@@ -203,29 +161,8 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   } else if (egen_func_name == "sd" || egen_func_name == "std") {
     calc_expr = paste0("stats::sd(", r_egen_args_conditional, ", na.rm = TRUE)")
   } else if (egen_func_name == "group" || egen_func_name == "tag") {
-    # For 'group' and 'tag', the effective grouping for dplyr::group_by is the combination
-    # of the 'by' prefix/option variables and the variables in the egen function arguments.
-    egen_func_args_list = stringi::stri_split_regex(egen_args_str, "\\s+")[[1]]
-    egen_func_args_list = egen_func_args_list[!is.na(egen_func_args_list) & egen_func_args_list != ""] # Filter empty/NA
-    
-    combined_grouping_vars = unique(c(by_vars_list_unquoted, egen_func_args_list))
-    combined_grouping_vars = combined_grouping_vars[!is.na(combined_grouping_vars) & combined_grouping_vars != ""] # Final clean
-
-    if (length(combined_grouping_vars) > 0) {
-      by_vars_for_group_by = paste0('!!!dplyr::syms(c("', paste0(combined_grouping_vars, collapse='", "'), '"))')
-    } else {
-      by_vars_for_group_by = NULL # No grouping if no vars for group/tag
-    }
-
-    if (egen_func_name == "group") {
-        # dplyr::cur_group_id() gives integer for each group.
-        calc_expr = paste0("dplyr::cur_group_id()")
-    } else if (egen_func_name == "tag") {
-        # Stata `tag` flags the first obs in each group defined by `varlist` (and `by` prefix if any).
-        # This is `_n==1` after sorting by all these variables.
-        # _n is translated by stata_expression_translator_to_r, which will use collapse::fseq() if grouped.
-        calc_expr = paste0("as.integer(dplyr::row_number() == 1)") # This will be translated to fseq() if grouped.
-    }
+    # dplyr::cur_group_id() gives integer for each group.
+    calc_expr = paste0("dplyr::cur_group_id()")
   } else if (egen_func_name == "rowtotal") {
     vars_for_rowop_list = stringi::stri_split_regex(r_egen_args, "\\s+")[[1]] # Use non-conditional args here
     vars_for_rowop_list = vars_for_rowop_list[!is.na(vars_for_rowop_list) & vars_for_rowop_list != ""] # Filter empty/NA
@@ -234,14 +171,14 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     # Stata rowtotal treats NA as 0 *before* summing.
     # Using rowSums on a selection of columns after replacing NA with 0.
     calc_expr = paste0("rowSums(tidyr::replace_na(dplyr::select(dplyr::cur_data_all(), ", vars_for_rowop_r_vec_str, "), 0), na.rm = FALSE)") # na.rm=FALSE because we replaced NA with 0
-    is_row_function = TRUE; by_vars_for_group_by = NULL # Row functions don't use grouping in the same way
+    is_row_function = TRUE
   } else if (egen_func_name == "rowmean") {
     vars_for_rowop_list = stringi::stri_split_regex(r_egen_args, "\\s+")[[1]] # Use non-conditional args here
     vars_for_rowop_list = vars_for_rowop_list[!is.na(vars_for_rowop_list) & vars_for_rowop_list != ""] # Filter empty/NA
     vars_for_rowop_r_vec_str = paste0('dplyr::all_of(c("', paste(vars_for_rowop_list, collapse='", "'), '"))')
 
     calc_expr = paste0("rowMeans(dplyr::select(dplyr::cur_data_all(), ", vars_for_rowop_r_vec_str, "), na.rm = TRUE)")
-    is_row_function = TRUE; by_vars_for_group_by = NULL
+    is_row_function = TRUE
   } else {
     return(paste0("# Egen function '", egen_func_name, "' not yet implemented."))
   }
@@ -249,30 +186,85 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Combine into a mutate statement
   full_mutate_expr = paste0("`", new_var, "` = ", calc_expr)
 
-  # Build the R command string using pipes
+
+  # Determine actual grouping variables for dplyr::group_by
+  group_vars_for_dplyr_group_by = character(0)
+  if (cmd_obj$is_by_prefix) {
+    if (length(cmd_obj$by_group_vars) > 0 && !is.na(cmd_obj$by_group_vars[1])) {
+      group_vars_for_dplyr_group_by = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
+      group_vars_for_dplyr_group_by = group_vars_for_dplyr_group_by[!is.na(group_vars_for_dplyr_group_by) & group_vars_for_dplyr_group_by != ""]
+    }
+  } else if (!is.na(options_str)) {
+    by_opt_match = stringi::stri_match_first_regex(options_str, "\\bby\\s*\\(([^)]+)\\)")
+    if (!is.na(by_opt_match[1,1])) {
+      group_vars_for_dplyr_group_by = stringi::stri_split_regex(stringi::stri_trim_both(by_opt_match[1,2]), "\\s+")[[1]]
+      group_vars_for_dplyr_group_by = group_vars_for_dplyr_group_by[!is.na(group_vars_for_dplyr_group_by) & group_vars_for_dplyr_group_by != ""]
+    }
+  }
+
+  # For 'group' and 'tag' functions, the arguments also define the grouping
+  if (egen_func_name %in% c("group", "tag")) {
+    egen_func_args_list = stringi::stri_split_regex(egen_args_str, "\\s+")[[1]]
+    egen_func_args_list = egen_func_args_list[!is.na(egen_func_args_list) & egen_func_args_list != ""]
+    # Union of `by` variables and `egen` function arguments defines the group
+    group_vars_for_dplyr_group_by = unique(c(group_vars_for_dplyr_group_by, egen_func_args_list))
+  }
+
+
+  # Determine variables for initial sorting (for `bysort` logic)
+  sort_vars_for_arrange = character(0)
+  if (cmd_obj$is_by_prefix) {
+    # Stata's `bysort` sorts by all variables in `varlist` (group + sort).
+    sort_vars_for_arrange = unique(c(cmd_obj$by_group_vars, cmd_obj$by_sort_vars))
+    sort_vars_for_arrange = sort_vars_for_arrange[!is.na(sort_vars_for_arrange) & sort_vars_for_arrange != ""]
+  } else if (egen_func_name %in% c("rank", "group", "tag")) {
+    # If not by-prefix, but it's a function sensitive to order (rank, group, tag)
+    # and has a by() option, or implicit grouping through function args.
+    # The `by()` option variables are already in `group_vars_for_dplyr_group_by`.
+    # For `rank`, it's generally sorted by the grouping variables + the variable being ranked.
+    # For `group`, `tag`, it's sorted by the variables that define the group.
+    
+    if (length(group_vars_for_dplyr_group_by) > 0) {
+      sort_vars_for_arrange = unique(c(sort_vars_for_arrange, group_vars_for_dplyr_group_by))
+    }
+    if (egen_func_name == "rank") {
+      # For rank, the variable being ranked also affects the internal order for ties.
+      # It's typically sorted by grouping vars, then the ranked var.
+      # `egen_args_str` for rank is the variable to rank.
+      sort_vars_for_arrange = unique(c(sort_vars_for_arrange, egen_args_str))
+    }
+  }
+
+  arrange_call_str = ""
+  if (length(sort_vars_for_arrange) > 0) {
+    sort_vars_for_arrange = unique(sort_vars_for_arrange)
+    arrange_vars_expr = paste0('!!!dplyr::syms(c("', paste0(sort_vars_for_arrange, collapse = '", "'), '"))')
+    arrange_call_str = paste0("data = dplyr::arrange(data, ", arrange_vars_expr, ")")
+  }
+
   r_code_lines = c()
+  if (arrange_call_str != "") {
+      r_code_lines = c(r_code_lines, arrange_call_str)
+  }
+
   pipe_elements = list("data") # Start the pipe with the data object
 
-  if ((egen_func_name == "group" || egen_func_name == "tag") && !is.null(by_vars_for_group_by) && !is_row_function) {
-    # For group/tag, we need to sort to ensure consistent IDs and restore order
-    arrange_vars_str = paste0('!!!dplyr::syms(c("', paste0(combined_grouping_vars, collapse = '", "'), '"))')
-    
-    pipe_elements = c(pipe_elements,
-                        paste0("dplyr::arrange(", arrange_vars_str, ")"),
-                        paste0("dplyr::group_by(", by_vars_for_group_by, ")"),
-                        paste0("dplyr::mutate(", full_mutate_expr, ")"),
-                        "dplyr::ungroup()",
-                        "dplyr::arrange(stata2r_original_order_idx)") # Restore original order
-  } else if (!is.null(by_vars_for_group_by) && !is_row_function) {
-    # For other grouped egen functions (mean, sd, etc. with by-prefix or by-option)
-    pipe_elements = c(pipe_elements,
-                        paste0("dplyr::group_by(", by_vars_for_group_by, ")"),
-                        paste0("dplyr::mutate(", full_mutate_expr, ")"),
-                        "dplyr::ungroup()")
-  } else {
-    # For non-grouped or row functions
-    pipe_elements = c(pipe_elements,
-                        paste0("dplyr::mutate(", full_mutate_expr, ")"))
+  # Add grouping and mutate steps
+  if (length(group_vars_for_dplyr_group_by) > 0 && !is_row_function) {
+    group_by_expr = paste0('dplyr::group_by(!!!dplyr::syms(c("', paste0(group_vars_for_dplyr_group_by, collapse='", "'), '")))')
+    pipe_elements = c(pipe_elements, group_by_expr)
+  }
+
+  pipe_elements = c(pipe_elements, paste0("dplyr::mutate(", full_mutate_expr, ")"))
+
+  if (length(group_vars_for_dplyr_group_by) > 0 && !is_row_function) {
+    pipe_elements = c(pipe_elements, "dplyr::ungroup()")
+  }
+
+  # For `group` and `tag` functions, restore original order IF an initial arrange was done.
+  # This is crucial for matching Stata's behavior of not changing overall order unless explicitly sorted later.
+  if (egen_func_name %in% c("group", "tag") && arrange_call_str != "" && !is_row_function) {
+    pipe_elements = c(pipe_elements, "dplyr::arrange(stata2r_original_order_idx)")
   }
 
   r_code_lines = c(r_code_lines, paste0("data = ", paste(pipe_elements, collapse = " %>% \n  ")))
