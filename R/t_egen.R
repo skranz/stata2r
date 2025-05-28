@@ -154,7 +154,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       # Note: r_egen_args_conditional already applies if/in conditions, yielding NA for rows not meeting condition.
       # These NAs should also be treated as largest for ranking due to fieldstrustmissings.
       val_for_ranking = paste0("dplyr::if_else(is.na(", r_egen_args_conditional, "), Inf, ", r_egen_args_conditional, ")")
-      calc_expr = paste0("base::rank(", val_for_ranking, ", ties.method = 'average')")
+      calc_expr = paste0("base::rank(", val_for_ranking, ", ties.method = 'average', na.last = 'keep')") # Added na.last = 'keep'
     } else {
       # Default Stata rank: NAs get NA ranks, and uses 'average' method for ties.
       calc_expr = paste0("base::rank(", r_egen_args_conditional, ", ties.method = 'average', na.last = 'keep')")
