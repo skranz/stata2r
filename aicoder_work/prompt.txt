@@ -916,8 +916,9 @@ parse_stata_command_line = function(line_text) {
           by_group_vars = c(by_group_vars, token)
         }
       }
-      by_group_vars = by_group_vars[by_group_vars != ""]
-      by_sort_vars = by_sort_vars[by_sort_vars != ""]
+      # Ensure by_group_vars and by_sort_vars are clean (no NA or empty strings)
+      by_group_vars = by_group_vars[!is.na(by_group_vars) & by_group_vars != ""]
+      by_sort_vars = by_sort_vars[!is.na(by_sort_vars) & by_sort_vars != ""]
     }
   }
 
@@ -1035,6 +1036,7 @@ resolve_stata_filename = function(raw_filename_token, cmd_df, line_num, default_
     }
   }
 }
+
 
 ```
 ### END OF FILE: stata_cmd_utils.R
@@ -2153,7 +2155,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   if (cmd_obj$is_by_prefix) {
     if (length(cmd_obj$by_group_vars) > 0 && !is.na(cmd_obj$by_group_vars[1])) {
       by_vars_list_unquoted = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
-      by_vars_list_unquoted = by_vars_list_unquoted[by_vars_list_unquoted != ""]
+      by_vars_list_unquoted = by_vars_list_unquoted[!is.na(by_vars_list_unquoted) & by_vars_list_unquoted != ""] # Modified filter
       if (length(by_vars_list_unquoted) > 0) { # Ensure by_vars_list_unquoted is not empty
         by_vars_for_group_by = paste0('dplyr::all_of(c("', paste0(by_vars_list_unquoted, collapse='", "'), '"))')
       }
@@ -2162,7 +2164,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     sort_vars_list = character(0)
     if (length(cmd_obj$by_sort_vars) > 0 && !is.na(cmd_obj$by_sort_vars[1])) {
       sort_vars_list = stringi::stri_split_fixed(cmd_obj$by_sort_vars, ",")[[1]]
-      sort_vars_list = sort_vars_list[sort_vars_list != ""]
+      sort_vars_list = sort_vars_list[!is.na(sort_vars_list) & sort_vars_list != ""] # Modified filter
     }
 
     # If there are sort keys for by-processing, prepare the arrange call
@@ -2180,7 +2182,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     by_opt_match = stringi::stri_match_first_regex(options_str, "\\bby\\s*\\(([^)]+)\\)")
     if (!is.na(by_opt_match[1,1])) {
       by_vars_list_unquoted = stringi::stri_split_regex(stringi::stri_trim_both(by_opt_match[1,2]), "\\s+")[[1]]
-      by_vars_list_unquoted = by_vars_list_unquoted[by_vars_list_unquoted != ""]
+      by_vars_list_unquoted = by_vars_list_unquoted[!is.na(by_vars_list_unquoted) & by_vars_list_unquoted != ""] # Modified filter
       if (length(by_vars_list_unquoted) > 0) { # Ensure by_vars_list_unquoted is not empty
         by_vars_for_group_by = paste0('dplyr::all_of(c("', paste0(by_vars_list_unquoted, collapse='", "'), '"))')
       }
@@ -2223,10 +2225,10 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     # For 'group' and 'tag', the effective grouping for dplyr::group_by is the combination
     # of the 'by' prefix/option variables and the variables in the egen function arguments.
     egen_func_args_list = stringi::stri_split_regex(egen_args_str, "\\s+")[[1]]
-    egen_func_args_list = egen_func_args_list[egen_func_args_list != ""]
-
+    egen_func_args_list = egen_func_args_list[!is.na(egen_func_args_list) & egen_func_args_list != ""] # Filter empty/NA
+    
     combined_grouping_vars = unique(c(by_vars_list_unquoted, egen_func_args_list))
-    combined_grouping_vars = combined_grouping_vars[combined_grouping_vars != ""]
+    combined_grouping_vars = combined_grouping_vars[!is.na(combined_grouping_vars) & combined_grouping_vars != ""] # Final clean
 
     if (length(combined_grouping_vars) > 0) {
       by_vars_for_group_by = paste0('dplyr::all_of(c("', paste0(combined_grouping_vars, collapse='", "'), '"))')
@@ -2245,7 +2247,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     }
   } else if (egen_func_name == "rowtotal") {
     vars_for_rowop_list = stringi::stri_split_regex(r_egen_args, "\\s+")[[1]] # Use non-conditional args here
-    vars_for_rowop_list = vars_for_rowop_list[vars_for_rowop_list != ""]
+    vars_for_rowop_list = vars_for_rowop_list[!is.na(vars_for_rowop_list) & vars_for_rowop_list != ""] # Filter empty/NA
     vars_for_rowop_r_vec_str = paste0('dplyr::all_of(c("', paste(vars_for_rowop_list, collapse='", "'), '"))')
 
     # Stata rowtotal treats NA as 0 *before* summing.
@@ -2254,7 +2256,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     is_row_function = TRUE; by_vars_for_group_by = NULL # Row functions don't use grouping in the same way
   } else if (egen_func_name == "rowmean") {
     vars_for_rowop_list = stringi::stri_split_regex(r_egen_args, "\\s+")[[1]] # Use non-conditional args here
-    vars_for_rowop_list = vars_for_rowop_list[vars_for_rowop_list != ""]
+    vars_for_rowop_list = vars_for_rowop_list[!is.na(vars_for_rowop_list) & vars_for_rowop_list != ""] # Filter empty/NA
     vars_for_rowop_r_vec_str = paste0('dplyr::all_of(c("', paste(vars_for_rowop_list, collapse='", "'), '"))')
 
     calc_expr = paste0("rowMeans(dplyr::select(dplyr::cur_data_all(), ", vars_for_rowop_r_vec_str, "), na.rm = TRUE)")
@@ -2271,8 +2273,10 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   if ((egen_func_name == "group" || egen_func_name == "tag") && !is.null(by_vars_for_group_by) && !is_row_function) {
     # For group/tag, we need to sort to ensure consistent IDs and restore order
+    # The `arrange` call should use `dplyr::across(dplyr::all_of(...))` for robustness.
+    arrange_vars_str = paste0('dplyr::all_of(c("', paste0(combined_grouping_vars, collapse = '", "'), '"))') # Use combined_grouping_vars for arranging
     r_code_lines = c(r_code_lines,
-                        paste0("  dplyr::arrange(", paste0(by_vars_list_unquoted, collapse = ", "), ") %>%"), # arrange takes bare names
+                        paste0("  dplyr::arrange(", arrange_vars_str, ") %>%"),
                         paste0("  dplyr::group_by(", by_vars_for_group_by, ") %>%"),
                         "  dplyr::mutate(", full_mutate_expr, ") %>%",
                         "  dplyr::ungroup() %>%",
@@ -2306,6 +2310,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 
 ```
 ### END OF FILE: t_egen.R
@@ -2613,7 +2618,8 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   if (cmd_obj$is_by_prefix) {
     if (length(cmd_obj$by_group_vars) > 0 && !is.na(cmd_obj$by_group_vars[1])) {
       group_vars_list = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
-      group_vars_list = group_vars_list[group_vars_list != ""]
+      # Ensure group_vars_list is clean (no NA or empty strings)
+      group_vars_list = group_vars_list[!is.na(group_vars_list) & group_vars_list != ""]
       if (length(group_vars_list) > 0) { # Ensure group_vars_list is not empty before forming string
         group_vars_r_vec_str = paste0('dplyr::all_of(c("', paste0(group_vars_list, collapse='", "'), '"))')
       }
@@ -2622,14 +2628,17 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     sort_vars_list = character(0)
     if (length(cmd_obj$by_sort_vars) > 0 && !is.na(cmd_obj$by_sort_vars[1])) {
       sort_vars_list = stringi::stri_split_fixed(cmd_obj$by_sort_vars, ",")[[1]]
-      sort_vars_list = sort_vars_list[sort_vars_list != ""]
+      # Ensure sort_vars_list is clean (no NA or empty strings)
+      sort_vars_list = sort_vars_list[!is.na(sort_vars_list) & sort_vars_list != ""]
     }
 
     # If there are sort keys for by-processing, prepare the arrange call
     if (length(sort_vars_list) > 0) {
       all_sort_vars = c(if(length(group_vars_list)>0) group_vars_list else character(0), sort_vars_list)
-      all_sort_vars_str = paste(all_sort_vars, collapse = ", ")
-      arrange_call = paste0("data = dplyr::arrange(data, dplyr::across(dplyr::all_of(c(", paste0('"', all_sort_vars, '"', collapse = ", "), "))))")
+      all_sort_vars = all_sort_vars[!is.na(all_sort_vars) & all_sort_vars != ""] # Final clean
+      if (length(all_sort_vars) > 0) {
+        arrange_call = paste0("data = dplyr::arrange(data, dplyr::across(dplyr::all_of(c(", paste0('"', all_sort_vars, '"', collapse = ", "), "))))")
+      }
     }
   }
 
@@ -2684,6 +2693,7 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 
 ```
 ### END OF FILE: t_generate.R
@@ -3280,7 +3290,8 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   if (cmd_obj$is_by_prefix) {
     if (length(cmd_obj$by_group_vars) > 0 && !is.na(cmd_obj$by_group_vars[1])) {
       group_vars_list = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
-      group_vars_list = group_vars_list[group_vars_list != ""]
+      # Ensure group_vars_list is clean (no NA or empty strings)
+      group_vars_list = group_vars_list[!is.na(group_vars_list) & group_vars_list != ""]
       if (length(group_vars_list) > 0) { # Ensure group_vars_list is not empty before forming string
         group_vars_r_vec_str = paste0('dplyr::all_of(c("', paste0(group_vars_list, collapse='", "'), '"))')
       }
@@ -3289,13 +3300,16 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     sort_vars_list = character(0)
     if (length(cmd_obj$by_sort_vars) > 0 && !is.na(cmd_obj$by_sort_vars[1])) {
       sort_vars_list = stringi::stri_split_fixed(cmd_obj$by_sort_vars, ",")[[1]]
-      sort_vars_list = sort_vars_list[sort_vars_list != ""]
+      # Ensure sort_vars_list is clean (no NA or empty strings)
+      sort_vars_list = sort_vars_list[!is.na(sort_vars_list) & sort_vars_list != ""]
     }
 
     if (length(sort_vars_list) > 0) {
       all_sort_vars = c(if(length(group_vars_list)>0) group_vars_list else character(0), sort_vars_list)
-      all_sort_vars_str = paste(all_sort_vars, collapse = ", ")
-      arrange_call = paste0("data = dplyr::arrange(data, dplyr::across(dplyr::all_of(c(", paste0('"', all_sort_vars, '"', collapse = ", "), "))))")
+      all_sort_vars = all_sort_vars[!is.na(all_sort_vars) & all_sort_vars != ""] # Final clean
+      if (length(all_sort_vars) > 0) {
+        arrange_call = paste0("data = dplyr::arrange(data, dplyr::across(dplyr::all_of(c(", paste0('"', all_sort_vars, '"', collapse = ", "), "))))")
+      }
     }
   }
 
@@ -3342,6 +3356,7 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 
 ```
 ### END OF FILE: t_replace.R
@@ -3541,7 +3556,7 @@ t_sort = function(rest_of_cmd, cmd_obj, cmd_df, line_num, type = "sort") {
 
   varlist = stringi::stri_trim_both(rest_of_cmd)
   vars = stringi::stri_split_regex(varlist, "\\s+")[[1]]
-  vars = vars[vars != ""]
+  vars = vars[vars != ""] # Filter out empty strings from splitting
 
   if (length(vars) == 0) {
     return("# sort/gsort command with no effectively parsed variables.")
@@ -3549,15 +3564,15 @@ t_sort = function(rest_of_cmd, cmd_obj, cmd_df, line_num, type = "sort") {
 
   if (type == "sort") {
     # Plain sort is ascending for all variables
-    # Using dplyr::arrange for consistency with gsort and reliability
-    sort_vars_r = paste(vars, collapse = ", ") # pass as bare names
-    r_code_str = paste0("data = dplyr::arrange(data, ", sort_vars_r, ")")
+    # Using dplyr::arrange with dplyr::across(dplyr::all_of(...)) for consistency and robustness
+    sort_vars_r = paste0('dplyr::all_of(c("', paste(vars, collapse='", "'), '"))')
+    r_code_str = paste0("data = dplyr::arrange(data, dplyr::across(", sort_vars_r, "))")
 
   } else if (type == "gsort") {
     # gsort allows specifying ascending (+) or descending (-) for each variable
     # +var (ascending, default if no sign)
     # -var (descending)
-    # dplyr: arrange(var1, desc(var2), ...) is more flexible here
+    # dplyr: arrange(var1, desc(var2), ...)
     arrange_expressions = character(length(vars))
     for (i in seq_along(vars)) {
       var_spec = vars[i]
