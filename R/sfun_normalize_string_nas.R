@@ -3,8 +3,14 @@
 
 sfun_normalize_string_nas = function(df) {
   restore.point("sfun_normalize_string_nas")
-  # Apply to each character column
-  df = dplyr::mutate(df, dplyr::across(where(is.character), ~dplyr::if_else(is.na(.), "", .)))
+  # Iterate over columns and apply conversion for character columns
+  for (col_name in names(df)) {
+    if (is.character(df[[col_name]])) {
+      # Use base R for assignment to ensure robustness
+      df[[col_name]][is.na(df[[col_name]])] = ""
+    }
+  }
   return(df)
 }
+
 

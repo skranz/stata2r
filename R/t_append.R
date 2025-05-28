@@ -52,6 +52,8 @@ t_append = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   # Perform bind_rows
   r_code_lines = c(r_code_lines, paste0("data = dplyr::bind_rows(", temp_master_data_var, ", ", temp_using_data_var, ")"))
+  # Ensure NAs in newly created character columns are converted to "" after bind_rows
+  r_code_lines = c(r_code_lines, paste0("data = sfun_normalize_string_nas(data)"))
 
   # Clean up temporary variables
   r_code_lines = c(r_code_lines, paste0("rm(", temp_using_data_var, ", ", temp_master_data_var, ")"))
@@ -71,4 +73,5 @@ t_append = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   return(r_code_str)
 }
+
 
