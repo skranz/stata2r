@@ -89,7 +89,9 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstring\\(([^)]+)\\)", "as.character($1)")
     # Random number generator functions
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bruniform\\(\\)", "stats::runif(as.numeric(dplyr::n()))") # Stata runiform()
-    # Date functions (placeholder, as actual implementation is complex)
+    # Date functions
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bdate\\(([^,]+),([^,]+),([^)]+)\\)", "sfun_stata_date($1, $2, $3)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bdate\\(([^,]+),([^)]+)\\)", "sfun_stata_date($1, $2)")
   }
 
   # Step 6: Translate Stata '+' operator to sfun_stata_add for polymorphic behavior
