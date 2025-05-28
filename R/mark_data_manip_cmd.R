@@ -27,7 +27,7 @@ mark_data_manip_cmd = function(cmd_df) {
   # `display` can be used to show `r()` results. If those results are not part of data manip chain, ignore.
   # Non-data modifying commands or pure display commands.
   # These are marked FALSE even if they slip through the stata_data_manip_cmds list logic.
-  non_manip_display_cmds = c("list", "display", "describe", "help", "about", "query", "set more off", "set rmsg on") # etc.
+  non_manip_display_cmds = c("list", "display", "describe", "help", "about", "query", "set more off", "set rmsg on", "format") # etc.
   cmd_df$do_translate[cmd_df$stata_cmd %in% non_manip_display_cmds] = FALSE
 
   # If stata_cmd is NA (e.g. empty line or parse error), don't translate
