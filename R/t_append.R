@@ -19,7 +19,8 @@ t_append = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   options_str = stringi::stri_trim_both(append_match[1,3]) # NA if no options
 
   # Resolve the `using filename` - can be a path string or a macro
-  using_source_r_expr = resolve_stata_filename(raw_filename_token, cmd_df, line_num, default_base_dir_var = "data_dir")
+  # Changed default_base_dir_var to "working_dir" for consistency with Stata's default file paths
+  using_source_r_expr = resolve_stata_filename(raw_filename_token, cmd_df, line_num, default_base_dir_var = "working_dir")
 
   # Stata append requires variable names to match or be harmonized.
   # dplyr::bind_rows matches columns by name. Differences are filled with NA. This is similar to Stata.
