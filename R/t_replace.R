@@ -30,7 +30,9 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     if (length(cmd_obj$by_group_vars) > 0 && !is.na(cmd_obj$by_group_vars[1])) {
       group_vars_list = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
       group_vars_list = group_vars_list[group_vars_list != ""]
-      group_vars_r_vec_str = paste0('c("', paste0(group_vars_list, collapse='", "'), '")')
+      if (length(group_vars_list) > 0) { # Ensure group_vars_list is not empty before forming string
+        group_vars_r_vec_str = paste0('c("', paste0(group_vars_list, collapse='", "'), '")')
+      }
     }
 
     sort_vars_list = character(0)
@@ -79,7 +81,7 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       r_code_lines = c(r_code_lines, "data = data %>%")
   }
 
-  if (!is.null(group_vars_r_vec_str) && length(group_vars_list) > 0) {
+  if (!is.null(group_vars_r_vec_str)) { # Check if group_vars_r_vec_str is not NULL
       r_code_lines = c(r_code_lines, paste0("  dplyr::group_by(dplyr::across(", group_vars_r_vec_str, ")) %>%"))
       r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", var_to_replace, " = ", calc_expr, ") %>%"))
       r_code_lines = c(r_code_lines, "  dplyr::ungroup()")

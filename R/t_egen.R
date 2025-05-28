@@ -136,7 +136,9 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     if (length(cmd_obj$by_group_vars) > 0 && !is.na(cmd_obj$by_group_vars[1])) {
       by_vars_list_unquoted = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
       by_vars_list_unquoted = by_vars_list_unquoted[by_vars_list_unquoted != ""]
-      by_vars_for_group_by = paste0('c("', paste0(by_vars_list_unquoted, collapse='", "'), '")')
+      if (length(by_vars_list_unquoted) > 0) { # Ensure by_vars_list_unquoted is not empty
+        by_vars_for_group_by = paste0('c("', paste0(by_vars_list_unquoted, collapse='", "'), '")')
+      }
     }
 
     sort_vars_list = character(0)
@@ -161,7 +163,9 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     if (!is.na(by_opt_match[1,1])) {
       by_vars_list_unquoted = stringi::stri_split_regex(stringi::stri_trim_both(by_opt_match[1,2]), "\\s+")[[1]]
       by_vars_list_unquoted = by_vars_list_unquoted[by_vars_list_unquoted != ""]
-      by_vars_for_group_by = paste0('c("', paste0(by_vars_list_unquoted, collapse='", "'), '")')
+      if (length(by_vars_list_unquoted) > 0) { # Ensure by_vars_list_unquoted is not empty
+        by_vars_for_group_by = paste0('c("', paste0(by_vars_list_unquoted, collapse='", "'), '")')
+      }
     }
   }
 

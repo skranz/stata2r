@@ -36,7 +36,9 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     if (length(cmd_obj$by_group_vars) > 0 && !is.na(cmd_obj$by_group_vars[1])) {
       group_vars_list = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
       group_vars_list = group_vars_list[group_vars_list != ""]
-      group_vars_r_vec_str = paste0('c("', paste0(group_vars_list, collapse='", "'), '")')
+      if (length(group_vars_list) > 0) { # Ensure group_vars_list is not empty before forming string
+        group_vars_r_vec_str = paste0('c("', paste0(group_vars_list, collapse='", "'), '")')
+      }
     }
 
     sort_vars_list = character(0)
@@ -83,7 +85,7 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Step 2: Build the R code string using pipes for the mutate operation
   r_code_lines = c()
 
-  # Start with data or data after arrange, and add the first pipe
+  # Start with data and add the first pipe
   if (arrange_call != "") {
       r_code_lines = c(r_code_lines, arrange_call)
       r_code_lines = c(r_code_lines, "data = data %>%")
@@ -92,7 +94,7 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
 
   # Add grouping and mutate steps
-  if (!is.null(group_vars_r_vec_str) && length(group_vars_list) > 0) {
+  if (!is.null(group_vars_r_vec_str)) { # Check if group_vars_r_vec_str is not NULL
       r_code_lines = c(r_code_lines, paste0("  dplyr::group_by(dplyr::across(", group_vars_r_vec_str, ")) %>%"))
       r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(", new_var, " = ", calc_expr, ") %>%"))
       r_code_lines = c(r_code_lines, "  dplyr::ungroup()")
