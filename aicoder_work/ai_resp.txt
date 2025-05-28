@@ -1,335 +1,322 @@
-The main fix addresses the `egen concat()` command translation in `t_egen.R`. The previous implementation of `stringi::stri_paste` with `na_empty = TRUE` was leading to an unexpected concatenation of the boolean `TRUE` string in the output. The updated logic explicitly handles missing values by replacing `NA`s with empty strings *before* concatenation, ensuring correct Stata-like behavior for `concat()` where missing values are treated as empty strings unless all arguments are missing (in which case the result is missing).
+The primary issue causing the `do2` test to fail was the untranslated Stata missing value literal (`.`). In R, this should typically map to `NA_real_`. I have updated `stata_expression_translator.R` to handle this. Additionally, I've made a minor cleanup in `t_expand.R` by removing a redundant `ifelse` statement.
 
-!CHANGE_FILE R/t_egen.R
-```R
-t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
-  restore.point("t_egen")
-  # Basic parsing: newvar = function(args) [, by(groupvars)] [if condition]
-  # Example: egen mean_i_grp = mean(i), by(group)
-  # Example: egen total_i = total(i)
-  # Example: bysort group: egen rank_i = rank(i) (Note: bysort handled by cmd_obj$is_by_prefix)
+!CHANGE_FILE R/stata_expression_translator.R
+```r
+# Stata Expression Translator
 
-  # Remove type prefix if any (byte, int, long, float, double, str#, etc.)
-  # Pattern: ^\s*(byte|int|long|float|double|str\\d+)\\s+
-  rest_of_cmd_no_type = stringi::stri_replace_first_regex(rest_of_cmd, "^\\s*(?:byte|int|long|float|double|str\\d+)\\s+", "")
+# Placeholder for Stata results (r() and e() values)
+# This environment would be populated by commands like summarize, regress
+# For now, we will generate unique variable names for r() values.
+# stata_results_env = new.env(parent = emptyenv())
 
-  # Re-parse rest_of_cmd_no_type looking for `newvar = fcn(args) [if cond] [, options]`
-  # Split at the first `=`. Left is `newvar`. Right is `fcn(args) [if cond] [, options]`
-  parts_eq = stringi::stri_split_fixed(rest_of_cmd_no_type, "=", n=2)[[1]]
-  if(length(parts_eq) != 2) return(paste0("# Failed to parse egen command structure (no =): ", rest_of_cmd))
 
-  new_var = stringi::stri_trim_both(parts_eq[1])
-  right_part = stringi::stri_trim_both(parts_eq[2])
+# Translates a Stata expression string into an R expression string
+# stata_expr: The Stata expression (e.g., "var1 + log(var2)")
+# context: Information about the context (e.g., if inside a by group, for _n/_N)
+# r_value_mappings: A named list/vector mapping Stata r-value names (e.g. "r(mean)")
+#                   to R variable names (e.g. "stata_r_val_L5_mean")
+translate_stata_expression_to_r = function(stata_expr, context = list(is_by_group = FALSE), r_value_mappings = NULL) {
+  restore.point("translate_stata_expression_to_r")
+  if (is.na(stata_expr) || stata_expr == "") return(NA_character_)
 
-  # Split right_part at the first comma (if any) to separate function/args/if from options
-  parts_comma_list = stringi::stri_split_fixed(right_part, ",", n=2)
-  parts_comma = parts_comma_list[[1]]
+  r_expr = stata_expr
 
-  if(length(parts_comma) != 2) {
-    func_args_if_part = stringi::stri_trim_both(parts_comma[1])
-    options_str = NA_character_
-  } else {
-    func_args_if_part = stringi::stri_trim_both(parts_comma[1])
-    options_str = stringi::stri_trim_both(parts_comma[2])
+  # Step 1: Translate Stata logical operators (moved this step up)
+  # This must happen before _n-offset translation to avoid `n = 1` becoming `n == 1`
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![<>!=~])\\s*=\\s*(?![=])", " == ") # Replace single = with == if not part of other ops
+  r_expr = stringi::stri_replace_all_regex(r_expr, "\\s+~=\\s+", " != ") # Stata `~=` to R `!=`
+
+
+  # Step 2: Translate Stata special variables and indexing (e.g., _n, _N, var[_n-1])
+  # These are generally fixed references, not nested functions.
+  # Use dplyr::lag/lead which are context-aware in grouped operations.
+
+  # Directly replace with `n = $2`
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*-\\s*(\\d+)\\]", "dplyr::lag($1, n = $2)")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*\\+\\s*(\\d+)\\]", "dplyr::lead($1, n = $2)")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\]", "$1")
+
+  # Handle _n and _N.
+  # Convert to numeric to match Stata's default float storage for integers.
+  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_n\\b", "as.numeric(dplyr::row_number())")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_N\\b", "as.numeric(dplyr::n())")
+
+  # Handle Stata missing value literal '.'
+  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b\\.\\b", "NA_real_")
+
+  # Step 3: Iteratively translate Stata functions (e.g., cond(), round(), log(), etc.)
+  # This loop handles nested function calls by repeatedly applying transformations.
+  old_r_expr = ""
+  while (r_expr != old_r_expr) {
+    old_r_expr = r_expr
+
+    # Apply more specific regexes first if there are overlaps (e.g., round(x,y) before round(x))
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bcond\\(([^,]+),([^,]+),([^)]+)\\)", "dplyr::if_else($1, $2, $3)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^,]+),([^)]+)\\)", "sfun_stata_round($1, $2)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^)]+)\\)", "sfun_stata_round($1, 1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmod\\(([^,]+),([^)]+)\\)", "($1 %% $2)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmissing\\(([^)]+)\\)", "is.na($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\blog\\(([^)]+)\\)", "log($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsqrt\\(([^)]+)\\)", "sqrt($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bint\\(([^)]+)\\)", "trunc($1)") # Stata int() truncates
+
+    # String functions (using stringi or custom helpers)
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrtrim\\(([^)]+)\\)", "stringi::stri_trim_both($1)")
+    # Corrected stritrim translation: now calls sfun_stritrim
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstritrim\\(([^)]+)\\)", "sfun_stritrim($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\blower\\(([^)]+)\\)", "stringi::stri_trans_tolower($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bupper\\(([^)]+)\\)", "stringi::stri_trans_toupper($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsubstr\\(([^,]+),([^,]+),([^)]+)\\)", "stringi::stri_sub($1, from = $2, length = $3)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsubinstr\\(([^,]+),([^,]+),([^,]+),([^)]+)\\)", "sfun_subinstr($1, $2, $3, $4)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrpos\\(([^,]+),([^)]+)\\)", "sfun_strpos($1, $2)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\blength\\(([^)]+)\\)", "stringi::stri_length($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrlen\\(([^)]+)\\)", "stringi::stri_length($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstring\\(([^)]+)\\)", "as.character($1)")
+    # Random number generator functions
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bruniform\\(\\)", "stats::runif(as.numeric(dplyr::n()))") # Stata runiform()
+    # Date functions (placeholder, as actual implementation is complex)
   }
 
-
-  # Now parse func_args_if_part: `fcn(args) [if cond]`
-  # Split at the first `(`
-  parts_paren = stringi::stri_split_fixed(func_args_if_part, "(", n=2)[[1]]
-  if(length(parts_paren) != 2) return(paste0("# Failed to parse egen function call: ", func_args_if_part))
-
-  egen_func_name = stringi::stri_trim_both(parts_paren[1])
-  args_and_if_part = stringi::stri_trim_both(stringi::stri_replace_last_fixed(parts_paren[2], ")", "")) # Remove trailing ')'
-
-  # Now parse args_and_if_part: `args [if cond]` or `args [in range]`
-  stata_if_cond_in_args = NA_character_
-  stata_in_range_in_args = NA_character_
-  egen_args_str = args_and_if_part
-
-  # Look for `if` first
-  if_match_in_args = stringi::stri_match_first_regex(egen_args_str, "\\s+if\\s+(.*)$")
-   if(!is.na(if_match_in_args[1,1])) {
-      stata_if_cond_in_args = if_match_in_args[1,2]
-      egen_args_str = stringi::stri_replace_last_regex(egen_args_str, "\\s+if\\s+(.*)$", "")
-      egen_args_str = stringi::stri_trim_both(egen_args_str)
-   }
-
-  # Check for `in`
-  in_match_in_args = stringi::stri_match_first_regex(egen_args_str, "\\s+in\\s+(.*)$")
-   if(!is.na(in_match_in_args[1,1])) {
-      stata_in_range_in_args = if_match_in_args[1,2]
-      egen_args_str = stringi::stri_replace_last_regex(egen_args_str, "\\s+in\\s+(.*)$", "")
-      egen_args_str = stringi::stri_trim_both(egen_args_str)
-   }
-
-  # Now we have: new_var, egen_func_name, egen_args_str, stata_if_cond_in_args, stata_in_range_in_args, options_str
-
-  # Translate the condition/range if it exists
-  r_if_cond_in_args = NA_character_
-  if (!is.na(stata_if_cond_in_args) && stata_if_cond_in_args != "") {
-       # Context for _n/_N in the if condition within egen args is usually the group context (if by_prefix used)
-      r_if_cond_in_args = translate_stata_expression_with_r_values(stata_if_cond_in_args, line_num, cmd_df, context)
-       if (is.na(r_if_cond_in_args) || r_if_cond_in_args == "") {
-           return(paste0("# Failed to translate if condition in egen args: ", stata_if_cond_in_args))
-       }
+  # Step 4: Handle r() values using the mapping
+  if (!is.null(r_value_mappings) && length(r_value_mappings) > 0) {
+    for (stata_r_name in names(r_value_mappings)) {
+      stata_r_regex = gsub("(", "\\(", gsub(")", "\\)", stata_r_name, fixed=TRUE), fixed=TRUE)
+      r_expr = stringi::stri_replace_all_regex(r_expr, paste0("\\b", stata_r_regex, "\\b"), r_value_mappings[[stata_r_name]])
+    }
   }
 
-   r_in_range_cond_in_args = NA_character_
-  if (!is.na(stata_in_range_in_args) && stata_in_range_in_args != "") {
-       # Context for _n/_N etc. in range is group context if by_prefix used.
-       # Stata `in f/l` in egen refers to observation numbers *within the group* if bysort prefix is used.
-       # Otherwise, it refers to global observation numbers.
-       # The `context$is_by_group` flag from parse_stata_command_line indicates bysort prefix.
-       range_match = stringi::stri_match_first_regex(stata_in_range_in_args, "^(\\d+)(?:/(\\d+))?$")
+  # Step 5: Translate Stata '+' operator to sfun_stata_add for polymorphic behavior
+  # This needs to be applied iteratively until no more '+' signs (that are not part of comparison operators) exist.
+  # The regex for operands must be robust to capture complete R expressions, including nested function calls.
+
+  # Define a robust pattern for an R expression unit that can be an operand.
+  # This pattern matches:
+  # 1. A variable name (starts with letter/underscore, then alphanumeric/underscore/dot)
+  # 2. A numeric literal
+  # 3. A string literal (single or double quoted)
+  # 4. A function call (e.g., `log(x)`, `sfun_stata_add(a, b)`), allowing for one level of nested simple function calls
+  #    within its arguments, for robustness. This is a pragmatic balance for regex complexity.
+  #    The regex `\\b\\w+\\((?:[^()]|\\b\\w+\\([^()]*\\))*\\)` is designed to handle `f(arg)` and `f(g(arg))`
+  #    but not deeper nesting like `f(g(h(arg)))`. Given Stata's expression complexity, this should be sufficient for most cases.
+  operand_regex = paste0(
+      "(?:",
+      "[a-zA-Z_][a-zA-Z0-9_.]*|", # Variable name
+      "\\d+(?:\\.\\d+)?|",       # Numeric literal
+      "\"[^\"]*\"|'[^']*'|",     # String literal (double or single quoted)
+      "\\b\\w+\\((?:[^()]|\\b\\w+\\([^()]*\\))*\\)", # Function call (allowing one level of nested simple function calls)
+      ")"
+  )
+
+  old_r_expr_add = ""
+  while (r_expr != old_r_expr_add) {
+    old_r_expr_add = r_expr
+    # Regex: Match 'operand' + 'operand', where an operand is defined by `operand_regex`.
+    # It ensures that `+` is treated as an operator, not part of `==` or `!=`.
+    r_expr = stringi::stri_replace_all_regex(r_expr,
+                                           paste0("(", operand_regex, ")\\s*(?<![<>=!~])\\+\\s*(?!\\s*\\+|\\s*=\\s*)(", operand_regex, ")"),
+                                           "sfun_stata_add($1, $2)")
+  }
+
+  # Defensive check: if r_expr became empty or NA for some reason (should not happen for valid input)
+  if (is.na(r_expr) || r_expr == "") {
+      warning(paste0("R expression became NA or empty during translation. Original Stata expression: '", stata_expr, "'"))
+      return(NA_character_)
+  }
+
+  return(r_expr)
+}
+
+# Helper to find the R variable name for a Stata r() value like "r(mean)"
+# Scans cmd_df backwards from current_line_index - 1
+# Looks for commands that set r() values (e.g., summarize)
+# Constructs the R variable name based on the line number of that command
+# Example: r(mean) set by summarize on line 5 becomes "stata_r_val_L5_mean"
+get_r_value_mappings = function(stata_r_value_str, current_line_index, cmd_df) {
+  restore.point("get_r_value_mappings")
+  # stata_r_value_str is like "r(mean)", "r(N)", "r(sum)"
+  # Extract the stat name, e.g. "mean" from "r(mean)"
+  stat_name_match = stringi::stri_match_first_regex(stata_r_value_str, "r\\(([^)]+)\\)")
+  if (is.na(stat_name_match[1,1])) return(NULL) # Not a valid r() syntax
+
+  stat_name = stat_name_match[1,2]
+
+  # Relevant commands that set r() values (this list can be expanded)
+  r_setting_cmds = c("summarize", "su", "tabulate", "correlate", "count") # etc.
+
+  # Scan backwards
+  for (i in (current_line_index - 1):1) {
+    # Check if the command was a summarize/su and if it set r() values.
+    # We assume t_summarize sets r() values with the convention `stata_r_val_L<line>_<stat_name>`.
+    # The actual variable names created depend on the `t_summarize` implementation.
+    if (cmd_df$stata_cmd[i] %in% r_setting_cmds) {
+      # Found a relevant command.
+      # The R variable name is constructed based on this line index and stat_name.
+      # This is a convention that t_summarize (and others) must follow.
+      r_var_name = paste0("stata_r_val_L", cmd_df$line[i], "_", stat_name)
+
+      # Return a list that translate_stata_expression_to_r can use
+      # Mapping: "r(stat)" -> "generated_r_variable_name"
+      mapping = list()
+      mapping[[stata_r_value_str]] = r_var_name
+      return(mapping)
+    }
+  }
+  return(NULL) # No preceding r-setting command found for this stat
+}
+
+# Helper to extract all `r(...)` tokens from an expression
+extract_r_values_from_expr = function(stata_expr) {
+  restore.point("extract_r_values_from_expr")
+  if (is.na(stata_expr)) return(character(0))
+  unique(stringi::stri_match_all_regex(stata_expr, "\\br\\([^)]+\\)")[[1]][,1])
+}
+
+# Main function to translate an expression potentially containing r() values
+translate_stata_expression_with_r_values = function(stata_expr, current_line_index, cmd_df, context = list(is_by_group = FALSE)) {
+  restore.point("translate_stata_expression_with_r_values")
+  if (is.na(stata_expr)) return(NA_character_)
+
+  all_r_tokens = extract_r_values_from_expr(stata_expr)
+  final_r_value_mappings = list()
+
+  if (length(all_r_tokens) > 0) {
+    for (r_token in all_r_tokens) {
+      if (!is.na(r_token)) {
+         current_mapping = get_r_value_mappings(r_token, current_line_index, cmd_df)
+         if (!is.null(current_mapping)) {
+           final_r_value_mappings = c(final_r_value_mappings, current_mapping)
+         } else {
+           # No mapping found, could be an error or r_token not from summarize etc.
+           # For now, leave it as is or raise warning
+           warning(paste("Could not find source for r-value:", r_token, "at line", cmd_df$line[current_line_index])) # Use cmd_df$line for actual line
+         }
+      }
+    }
+  }
+
+  translate_stata_expression_to_r(stata_expr, context, final_r_value_mappings)
+}
+
+```
+!END_CHANGE_FILE R/stata_expression_translator.R
+
+!CHANGE_FILE R/t_expand.R
+```r
+# Translate Stata 'expand' command
+# Stata: expand N [if] [in] [, options]
+# Creates N copies of each observation. N can be an expression.
+# Example: expand 2
+# Example: expand num_copies if condition
+
+t_expand = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_expand") # Added restore.point
+  rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
+
+  parts_if = stringi::stri_split_regex(rest_of_cmd_trimmed, "\\s+if\\s+", n=2)[[1]]
+  expand_n_part_or_cond = stringi::stri_trim_both(parts_if[1])
+  stata_if_cond = if(length(parts_if) > 1) stringi::stri_trim_both(parts_if[2]) else NA_character_
+
+  parts_in = stringi::stri_split_regex(expand_n_part_or_cond, "\\s+in\\s+", n=2)[[1]]
+  stata_n_expr = stringi::stri_trim_both(parts_in[1])
+  stata_in_range = if(length(parts_in) > 1) stringi::stri_trim_both(parts_in[2]) else NA_character_
+
+  if (is.na(stata_n_expr) || stata_n_expr == "") {
+       return(paste0("# expand command requires N expression: ", rest_of_cmd))
+  }
+
+  # Context for r_n_expr and conditions should be global, not by_group specific
+  # but _n/_N in them needs to be resolved correctly (usually globally for these conditions)
+  eval_context = list(is_by_group = FALSE) # Conditions in expand are typically global context
+
+  r_n_expr = translate_stata_expression_with_r_values(stata_n_expr, line_num, cmd_df, context = eval_context)
+   if (is.na(r_n_expr) || r_n_expr == "") {
+       return(paste0("# Failed to translate N expression for expand: ", stata_n_expr))
+   }
+
+  r_if_cond = NA_character_
+  if (!is.na(stata_if_cond) && stata_if_cond != "") {
+    r_if_cond = translate_stata_expression_with_r_values(stata_if_cond, line_num, cmd_df, context = eval_context)
+  }
+
+  r_in_range_cond = NA_character_
+  if (!is.na(stata_in_range) && stata_in_range != "") {
+       range_match = stringi::stri_match_first_regex(stata_in_range, "^(\\d+)(?:/(\\d+))?$")
         if (!is.na(range_match[1,1])) {
             start_row = as.integer(range_match[1,2])
             end_row = range_match[1,3]
-            # Use dplyr::row_number(), as stata_expression_translator will handle _n
-            row_number_r_expr = "as.numeric(dplyr::row_number())" # This will be translated based on context
-
+            # Use dplyr::row_number() which is context-aware via translate_stata_expression
+            # For expand, _n is global row number.
             if (is.na(end_row)) {
-                 r_in_range_cond_in_args = paste0(row_number_r_expr, " == ", start_row)
+                 r_in_range_cond = paste0("as.numeric(dplyr::row_number()) == ", start_row)
             } else {
-                 r_in_range_cond_in_args = paste0(row_number_r_expr, " >= ", start_row, " & ", row_number_r_expr, " <= ", as.integer(end_row))
+                 r_in_range_cond = paste0("as.numeric(dplyr::row_number()) >= ", start_row, " & as.numeric(dplyr::row_number()) <= ", as.integer(end_row))
             }
         } else {
-            return(paste0("# egen in range '", stata_in_range_in_args, "' not fully translated (f/l specifiers)."))
+            return(paste0("# expand in range '", stata_in_range, "' not fully translated (f/l specifiers)."))
         }
   }
 
-
-  # Combine if and in conditions within args if both exist
-  final_r_subset_cond_in_args = NA_character_
-  if (!is.na(r_if_cond_in_args) && !is.na(r_in_range_cond_in_args)) {
-      final_r_subset_cond_in_args = paste0("(", r_if_cond_in_args, ") & (", r_in_range_cond_in_args, ")")
-  } else if (!is.na(r_if_cond_in_args)) {
-      final_r_subset_cond_in_args = r_if_cond_in_args
-  } else if (!is.na(r_in_range_cond_in_args)) {
-      final_r_subset_cond_in_args = r_in_range_cond_in_args
+  final_r_subset_cond = NA_character_
+  if (!is.na(r_if_cond) && !is.na(r_in_range_cond)) {
+      final_r_subset_cond = paste0("(", r_if_cond, ") & (", r_in_range_cond, ")")
+  } else if (!is.na(r_if_cond)) {
+      final_r_subset_cond = r_if_cond
+  } else if (!is.na(r_in_range_cond)) {
+      final_r_subset_cond = r_in_range_cond
   }
 
+  r_code_str = ""
+  line_id = cmd_obj$line
 
-  # Translate arguments (usually variable names)
-  # Context for _n/_N etc. in arguments is the group context if by_prefix is used.
-  r_egen_args = translate_stata_expression_with_r_values(egen_args_str, line_num, cmd_df, context)
-   if (is.na(r_egen_args) || r_egen_args == "") {
-        # This might be ok if the function takes no arguments e.g. egen group_id = group()
-        if (egen_func_name != "group") { # group() takes implicit args from by() or option
-             warning(paste0("Failed to translate egen arguments: ", egen_args_str))
-        }
-   }
+  # Temporary variable names
+  temp_n_values_var = paste0("stata_tmp_expand_n_values_L", line_id)
+  temp_cond_values_var = paste0("stata_tmp_expand_cond_values_L", line_id)
+  final_times_calc_var = paste0("stata_tmp_final_expand_times_L", line_id)
+
+  # Determine if r_n_expr or final_r_subset_cond need `with(data, ...)`
+  # Simple heuristic: if expression is not just a number.
+  # For r_n_expr:
+  n_expr_with_context = if (grepl("[a-zA-Z_]", r_n_expr) && !grepl("^\\d+(\\.\\d*)?$", r_n_expr)) {
+                            paste0("with(data, ", r_n_expr, ")")
+                          } else {
+                            r_n_expr
+                          }
+  # For final_r_subset_cond:
+  cond_expr_with_context = if (!is.na(final_r_subset_cond) && final_r_subset_cond != "") {
+                             paste0("with(data, ", final_r_subset_cond, ")")
+                           } else {
+                             NA_character_ # or "TRUE" if it's to be used directly
+                           }
 
 
-  # Apply if/in condition within the function call if needed
-  # Example: mean(x if y>0) -> mean(ifelse(y>0, x, NA), na.rm = TRUE)
-  # This requires modifying r_egen_args based on final_r_subset_cond_in_args
-  if (!is.na(final_r_subset_cond_in_args) && final_r_subset_cond_in_args != "") {
-      # Stata's `if` condition treats NA as FALSE.
-      r_egen_args_conditional = paste0("dplyr::if_else(dplyr::coalesce(", final_r_subset_cond_in_args, ", FALSE), ", r_egen_args, ", NA)")
+  if (!is.na(final_r_subset_cond) && final_r_subset_cond != "") {
+       r_code_lines = c(
+           paste0(temp_n_values_var, " = ", n_expr_with_context),
+           paste0(temp_cond_values_var, " = ", cond_expr_with_context),
+           paste0(final_times_calc_var, " = ifelse(!is.na(", temp_cond_values_var, ") & ", temp_cond_values_var, ", ",
+                                             "ifelse(is.na(", temp_n_values_var, "), 1, pmax(0, as.integer(", temp_n_values_var, "))), ",
+                                             "1)"),
+           paste0("data = data[base::rep(1:NROW(data), times = ", final_times_calc_var, "), ]"),
+           paste0("if (exists('", temp_n_values_var, "')) rm(", temp_n_values_var, ", ", temp_cond_values_var, ", ", final_times_calc_var, ")")
+       )
+       r_code_str = paste(r_code_lines, collapse="\n")
   } else {
-      r_egen_args_conditional = r_egen_args
+        r_code_lines = c(
+           paste0(temp_n_values_var, " = ", n_expr_with_context),
+           paste0(final_times_calc_var, " = ifelse(is.na(", temp_n_values_var, "), 1, pmax(0, as.integer(", temp_n_values_var, ")))"),
+           paste0("data = data[base::rep(1:NROW(data), times = ", final_times_calc_var, "), ]"),
+           paste0("if (exists('", temp_n_values_var, "')) rm(", temp_n_values_var, ", ", final_times_calc_var, ")")
+        )
+       r_code_str = paste(r_code_lines, collapse="\n")
   }
 
-  # Determine if 'fieldstrustmissings' option is present
-  is_fieldstrustmissings = !is.na(options_str) && stringi::stri_detect_fixed(options_str, "fieldstrustmissings")
-
-
-  # Translate egen function into an R expression for calculation
-  calc_expr = ""
-  is_row_function = FALSE # Flag for functions like rowtotal, rowmean that don't use group_by
-
-  # Switch for egen functions
-  if (egen_func_name == "mean") {
-    calc_expr = paste0("mean(", r_egen_args_conditional, ", na.rm = TRUE)")
-  } else if (egen_func_name == "total" || egen_func_name == "sum") {
-    calc_expr = paste0("sum(", r_egen_args_conditional, ", na.rm = TRUE)")
-  } else if (egen_func_name == "count") {
-    # count(exp) counts non-missing results of exp. If exp is varname, sum(!is.na(varname)).
-    # If exp is complex, sum(eval(parse(text=r_egen_args_conditional)) != 0 & !is.na(eval(parse(text=r_egen_args_conditional))))
-    # Assuming r_egen_args_conditional results in a numeric or logical vector
-    calc_expr = paste0("sum(!is.na(", r_egen_args_conditional, "))")
-  } else if (egen_func_name == "rank") {
-    # Stata rank() without fieldstrustmissings returns missing for missing.
-    # Stata rank() with fieldstrustmissings treats missing values as true values (usually largest) and assigns them a rank.
-    # Stata's rank() uses the 'average' method for ties.
-    if (is_fieldstrustmissings) {
-      # Replace NA values with Inf to rank them highest.
-      # Note: r_egen_args_conditional already applies if/in conditions, yielding NA for rows not meeting condition.
-      # These NAs should also be treated as largest for ranking due to fieldstrustmissings.
-      val_for_ranking = paste0("as.numeric(dplyr::if_else(is.na(", r_egen_args_conditional, "), Inf, ", r_egen_args_conditional, "))")
-      calc_expr = paste0("as.numeric(base::rank(", val_for_ranking, ", ties.method = 'average', na.last = 'keep'))")
-    } else {
-      # Default Stata rank: NAs get NA ranks, and uses 'average' method for ties.
-      calc_expr = paste0("as.numeric(base::rank(", r_egen_args_conditional, ", ties.method = 'average', na.last = 'keep'))")
-    }
-  } else if (egen_func_name == "median" || egen_func_name == "p50") {
-    calc_expr = paste0("stats::median(", r_egen_args_conditional, ", na.rm = TRUE)")
-  } else if (egen_func_name == "sd" || egen_func_name == "std") {
-    calc_expr = paste0("stats::sd(", r_egen_args_conditional, ", na.rm = TRUE)")
-  } else if (egen_func_name == "group") {
-    # dplyr::cur_group_id() gives integer for each group.
-    calc_expr = paste0("dplyr::cur_group_id()")
-  } else if (egen_func_name == "tag") {
-    # Stata tag(varlist) creates 1 for first observation in a group (defined by varlist) and 0 otherwise.
-    calc_expr = paste0("as.numeric(dplyr::row_number() == 1)")
-  } else if (egen_func_name == "rowtotal") {
-    vars_for_rowop_list = stringi::stri_split_regex(r_egen_args, "\\s+")[[1]] # Use non-conditional args here
-    vars_for_rowop_list = vars_for_rowop_list[!is.na(vars_for_rowop_list) & vars_for_rowop_list != ""] # Filter empty/NA
-
-    # Stata rowtotal treats NA as 0 *before* summing.
-    # Replace NA with 0 in the selected columns before summing.
-    cols_selection_expr = paste0("dplyr::select(dplyr::cur_data_all(), dplyr::all_of(c('", paste(vars_for_rowop_list, collapse="','"), "')))")
-    calc_expr = paste0("base::rowSums(", cols_selection_expr, " %>% replace(is.na(.), 0), na.rm = FALSE)")
-    is_row_function = TRUE
-  } else if (egen_func_name == "rowmean") {
-    vars_for_rowop_list = stringi::stri_split_regex(r_egen_args, "\\s+")[[1]] # Use non-conditional args here
-    vars_for_rowop_list = vars_for_rowop_list[!is.na(vars_for_rowop_list) & vars_for_rowop_list != ""] # Filter empty/NA
-
-    # Stata rowmean ignores NAs. base::rowMeans with na.rm = TRUE achieves this.
-    cols_selection_expr = paste0("dplyr::select(dplyr::cur_data_all(), dplyr::all_of(c('", paste(vars_for_rowop_list, collapse="','"), "')))")
-    calc_expr = paste0("base::rowMeans(", cols_selection_expr, ", na.rm = TRUE)")
-    is_row_function = TRUE
-  } else if (egen_func_name == "concat") {
-    vars_to_concat_list = stringi::stri_split_regex(egen_args_str, "\\s+")[[1]]
-    vars_to_concat_list = vars_to_concat_list[!is.na(vars_to_concat_list) & vars_to_concat_list != ""]
-
-    if (length(vars_to_concat_list) == 0) {
-      return(paste0("# egen concat() requires variables to concatenate."))
-    }
-
-    # Stata: If all variables in varlist are missing, newvar is missing. Otherwise, missing values are treated as empty strings.
-    # Approach:
-    # 1. Check if all input variables for a row are NA. If so, result is NA.
-    # 2. Otherwise, for each variable, replace NA with "" and then concatenate.
-
-    # Expression to check if all relevant variables in a row are NA.
-    # Use data[['var_name']] for explicit column access.
-    all_vars_na_check_list = paste0("is.na(data[['", vars_to_concat_list, "']])")
-    all_vars_na_check_expr = paste0("(", paste0(all_vars_na_check_list, collapse = " & "), ")")
-
-    # Arguments for stri_paste, with NAs replaced by empty strings
-    stri_paste_args_with_na_empty = paste0("dplyr::if_else(is.na(as.character(data[['", vars_to_concat_list, "']])), \"\", as.character(data[['", vars_to_concat_list, "']]))", collapse = ", ")
-
-    # Expression for the actual concatenation
-    # Use na_empty = FALSE (default) because NAs are already handled.
-    concat_result_expr = paste0("stringi::stri_paste(", stri_paste_args_with_na_empty, ", sep = '')")
-
-    # Combine using if_else to handle the all-NA case (Stata concat(.,.) returns . (missing))
-    calc_expr = paste0("dplyr::if_else(", all_vars_na_check_expr, ", NA_character_, ", concat_result_expr, ")")
-
-    is_row_function = TRUE # Concatenation is inherently row-wise.
-  } else {
-    return(paste0("# Egen function '", egen_func_name, "' not yet implemented."))
-  }
-
-  # Combine into a mutate statement
-  full_mutate_expr = paste0("`", new_var, "` = ", calc_expr)
-
-
-  # Determine actual grouping variables for dplyr::group_by
-  group_vars_list_bare = character(0) # Will hold just bare variable names
-  if (cmd_obj$is_by_prefix) {
-    if (length(cmd_obj$by_group_vars) > 0 && !is.na(cmd_obj$by_group_vars[1])) {
-      group_vars_list = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
-      group_vars_list = group_vars_list[!is.na(group_vars_list) & group_vars_list != ""]
-      if (length(group_vars_list) > 0) {
-        group_vars_list_bare = group_vars_list # Assign just the bare names
-      }
-    }
-  } else if (!is.na(options_str)) {
-    by_opt_match = stringi::stri_match_first_regex(options_str, "\\bby\\s*\\(([^)]+)\\)")
-    if (!is.na(by_opt_match[1,1])) {
-      group_vars_list_bare = stringi::stri_split_regex(stringi::stri_trim_both(by_opt_match[1,2]), "\\s+")[[1]]
-      group_vars_list_bare = group_vars_list_bare[!is.na(group_vars_list_bare) & group_vars_list_bare != ""]
-    }
-  }
-
-  # For 'group' and 'tag' functions, the arguments also define the grouping
-  if (egen_func_name %in% c("group", "tag")) {
-    egen_func_args_list = stringi::stri_split_regex(egen_args_str, "\\s+")[[1]]
-    egen_func_args_list = egen_func_args_list[!is.na(egen_func_args_list) & egen_func_args_list != ""]
-    # Union of `by` variables and `egen` function arguments defines the group
-    group_vars_list_bare = unique(c(group_vars_list_bare, egen_func_args_list))
-  }
-
-
-  # Determine variables for initial sorting (for `bysort` logic or for functions requiring internal sort)
-  sort_vars_for_arrange = character(0)
-
-  if (cmd_obj$is_by_prefix) {
-    # Stata's `bysort` sorts by all variables in `varlist` (group + sort). This sort is permanent.
-    sort_vars_for_arrange = unique(c(group_vars_list_bare, cmd_obj$by_sort_vars))
-    sort_vars_for_arrange = sort_vars_for_arrange[!is.na(sort_vars_for_arrange) & sort_vars_for_arrange != ""]
-  } else if (egen_func_name %in% c("rank", "group", "tag")) {
-    # If not by-prefix, but it's a function sensitive to order (rank, group, tag)
-    # The sort is temporary, so we will restore original order later.
-    if (length(group_vars_list_bare) > 0) {
-      sort_vars_for_arrange = unique(c(sort_vars_for_arrange, group_vars_list_bare))
-    }
-    if (egen_func_name == "rank" && !is.na(egen_args_str) && egen_args_str != "") {
-      # For rank, the variable being ranked also affects the internal order for ties.
-      # It's typically sorted by grouping vars, then the ranked var.
-      # `egen_args_str` for rank is the variable to rank.
-      sort_vars_for_arrange = unique(c(sort_vars_for_arrange, egen_args_str))
-    }
-    sort_vars_for_arrange = sort_vars_for_arrange[!is.na(sort_vars_for_arrange) & sort_vars_for_arrange != ""]
-  }
-
-  r_code_lines = c()
-  pipe_elements = list("data") # Start the pipe with the data object
-
-  # Add initial arrange if it's a `bysort` prefix. This is a permanent sort.
-  if (cmd_obj$is_by_prefix && length(sort_vars_for_arrange) > 0) {
-      arrange_vars_expr = paste0('!!!dplyr::syms(c("', paste0(sort_vars_for_arrange, collapse = '", "'), '"))')
-      r_code_lines = c(r_code_lines, paste0("data = dplyr::arrange(data, ", arrange_vars_expr, ")"))
-  }
-
-  # Add arrange for `egen group/tag/rank` functions within the pipe, if not already handled by bysort prefix
-  if (!cmd_obj$is_by_prefix && length(sort_vars_for_arrange) > 0 && !is_row_function) {
-    pipe_elements = c(pipe_elements, "dplyr::arrange(stata2r_original_order_idx)")
-  }
-
-
-  # Add grouping and mutate steps
-  if (length(group_vars_list_bare) > 0 && !is_row_function) {
-    group_by_expr = paste0('dplyr::group_by(!!!dplyr::syms(c("', paste0(group_vars_list_bare, collapse='", "'), '")))')
-    pipe_elements = c(pipe_elements, group_by_expr)
-  }
-
-  pipe_elements = c(pipe_elements, paste0("dplyr::mutate(", full_mutate_expr, ")"))
-
-  if (length(group_vars_list_bare) > 0 && !is_row_function) {
-    pipe_elements = c(pipe_elements, "dplyr::ungroup()")
-  }
-
-  # Restore original order if it was a temporary sort for egen functions without bysort prefix
-  # This section is now handled by the `arrange` added *before* the grouping, if `!is_row_function`.
-  # For row functions, no sort is needed for the calculation, so no re-arrange needed.
-  # If a temporary sort was explicitly added (e.g., for `rank`, `group`, `tag`), and it was not a bysort prefix,
-  # the `arrange(stata2r_original_order_idx)` will restore the order.
-  # The logic for `arrange` within the pipe for `!is_row_function` and `!cmd_obj$is_by_prefix` already handles this.
-  # No extra `dplyr::arrange(stata2r_original_order_idx)` needed here.
-
-
-  r_code_lines = c(r_code_lines, paste0("data = ", paste(pipe_elements, collapse = " %>% \n  ")))
-
-   # Add comment about options if any were present but not handled (excluding by)
-   options_str_cleaned = options_str
-   if (!is.na(options_str_cleaned)) {
-        options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "\\bby\\s*\\([^)]+\\)", "")
-        # Remove fieldstrustmissings from the options string if it was present
-        options_str_cleaned = stringi::stri_replace_first_fixed(options_str_cleaned, "fieldstrustmissings", "")
-        options_str_cleaned = stringi::stri_trim_both(stringi::stri_replace_all_regex(options_str_cleaned, ",+", ",")) # Clean up multiple commas
-        options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "^,+", "") # Remove leading comma
-   }
-
+  options_str_cleaned = NA_character_
    if (!is.na(options_str_cleaned) && options_str_cleaned != "") {
-        r_code_lines = c(r_code_lines, paste0(" # Other options ignored: ", options_str_cleaned))
+        r_code_str = paste0(r_code_str, paste0(" # Options ignored: ", options_str_cleaned))
    }
 
-
-  return(paste(r_code_lines, collapse="\n"))
+  return(r_code_str)
 }
+
 ```
-!END_CHANGE_FILE R/t_egen.R
+!END_CHANGE_FILE R/t_expand.R
