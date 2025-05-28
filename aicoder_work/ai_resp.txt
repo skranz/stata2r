@@ -1,6 +1,4 @@
-The main issue causing the `do2` test to fail is a discrepancy in the number of rows between the R-generated dataset and the Stata reference dataset after line 70. A detailed analysis shows that the `main_data_temp.dta` file (which is the input for the merge at line 70) provided in the reference `inst/cases/do2/do_data` directory already contains 53 rows, while a step-by-step trace of the `do2.do` script starting with `test_data.dta` (50 rows) implies that `main_data_temp.dta` should have 31 rows. This suggests an inconsistency in the test reference data itself rather than a flaw in the R translation logic for `keep`, `drop`, or `merge` commands, which appear to be correctly implemented according to standard Stata behavior.
-
-Since the task is to "correct the current code base" and not to modify the test data, and the translation logic for the relevant commands appears sound, no functional changes are introduced to the core translation functions (`t_merge`, `t_keep`, `t_drop`, etc.). Instead, the `aic_do_test.R` script is enhanced to provide a more explicit warning message when a row count mismatch is detected, guiding future debugging or test data refinement. This ensures that the code correctly reflects the intended Stata behavior, while also making the test output more informative about the nature of the failure.
+The main change addresses a crucial difference in how Stata and dplyr handle missing values in `if` conditions for filtering (i.e., `keep if` and `drop if` commands). Stata treats missing values in a condition as `FALSE`, whereas `dplyr::filter` by default drops rows where the condition evaluates to `NA`. By explicitly using `dplyr::coalesce(condition, FALSE)`, the R translation now correctly mimics Stata's behavior, which should resolve row count discrepancies in tests involving filtering with missing data.
 
 !CHANGE_FILE aic_do_test.R
 ```R
@@ -351,3 +349,107 @@ compare_df = function(df1, df2,
 }
 ```
 !END_CHANGE_FILE aic_do_test.R
+
+!CHANGE_FILE R/t_drop.R
+```R
+# Translate Stata 'drop' command
+# Can be `drop varlist` or `drop if condition` or `drop in range`
+
+t_drop = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_drop") # Added restore.point
+  rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
+
+  is_if_drop = stringi::stri_startswith_fixed(rest_of_cmd_trimmed, "if ")
+  is_in_drop = stringi::stri_startswith_fixed(rest_of_cmd_trimmed, "in ")
+
+  if (is_if_drop) {
+    # drop if condition
+    stata_if_cond = stringi::stri_sub(rest_of_cmd_trimmed, from = 4)
+    r_if_cond = translate_stata_expression_with_r_values(stata_if_cond, line_num, cmd_df, context)
+    # Using dplyr::filter, treating NA in condition as FALSE (Stata behavior)
+    r_code_str = paste0("data = dplyr::filter(data, !dplyr::coalesce(", r_if_cond, ", FALSE))")
+  } else if (is_in_drop) {
+    # drop in range
+    range_str = stringi::stri_sub(rest_of_cmd_trimmed, from = 4)
+    range_match = stringi::stri_match_first_regex(range_str, "^(\\d+)(?:/(\\d+))?$")
+    if (!is.na(range_match[1,1])) {
+      start_row = as.integer(range_match[1,2])
+      end_row = range_match[1,3]
+      if (is.na(end_row)) {
+        slice_expr = paste0("-",start_row) # Drop single row
+      } else {
+        slice_expr = paste0("-(", start_row, ":", as.integer(end_row), ")") # Drop range
+      }
+      # Using dplyr::slice
+      r_code_str = paste0("data = dplyr::slice(data, ", slice_expr, ")")
+    } else {
+      r_code_str = paste0("# drop in range '", range_str, "' not fully translated (f/l specifiers).")
+    }
+  } else {
+    # drop varlist
+    vars_to_drop = stringi::stri_split_regex(rest_of_cmd_trimmed, "\\s+")[[1]]
+    vars_to_drop = vars_to_drop[vars_to_drop != ""]
+
+    if (length(vars_to_drop) == 0) {
+      return("# drop command with no variables specified.")
+    }
+    # Using dplyr::select
+    r_code_str = paste0("data = dplyr::select(data, -dplyr::any_of(c('", paste(vars_to_drop, collapse="','"), "')))")
+  }
+
+  return(r_code_str)
+}
+```
+!END_CHANGE_FILE R/t_drop.R
+
+!CHANGE_FILE R/t_keep.R
+```R
+# Translate Stata 'keep' command
+# Can be `keep varlist` or `keep if condition` or `keep in range`
+
+t_keep = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_keep") # Added restore.point
+  rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
+
+  is_if_keep = stringi::stri_startswith_fixed(rest_of_cmd_trimmed, "if ")
+  is_in_keep = stringi::stri_startswith_fixed(rest_of_cmd_trimmed, "in ")
+
+  if (is_if_keep) {
+    # keep if condition
+    stata_if_cond = stringi::stri_sub(rest_of_cmd_trimmed, from = 4)
+    r_if_cond = translate_stata_expression_with_r_values(stata_if_cond, line_num, cmd_df, context)
+    # Using dplyr::filter, treating NA in condition as FALSE (Stata behavior)
+    r_code_str = paste0("data = dplyr::filter(data, dplyr::coalesce(", r_if_cond, ", FALSE))")
+  } else if (is_in_keep) {
+    # keep in range
+    range_str = stringi::stri_sub(rest_of_cmd_trimmed, from = 4)
+    range_match = stringi::stri_match_first_regex(range_str, "^(\\d+)(?:/(\\d+))?$")
+    if (!is.na(range_match[1,1])) {
+      start_row = as.integer(range_match[1,2])
+      end_row = range_match[1,3]
+      if (is.na(end_row)) {
+        slice_expr = paste0(start_row) # Keep single row
+      } else {
+        slice_expr = paste0(start_row, ":", as.integer(end_row)) # Keep range
+      }
+      # Using dplyr::slice
+      r_code_str = paste0("data = dplyr::slice(data, ", slice_expr, ")")
+    } else {
+      r_code_str = paste0("# keep in range '", range_str, "' not fully translated (f/l specifiers).")
+    }
+  } else {
+    # keep varlist
+    vars_to_keep = stringi::stri_split_regex(rest_of_cmd_trimmed, "\\s+")[[1]]
+    vars_to_keep = vars_to_keep[vars_to_keep != ""]
+
+    if (length(vars_to_keep) == 0) {
+      return("# keep command with no variables specified.")
+    }
+    # Using dplyr::select
+    r_code_str = paste0("data = dplyr::select(data, dplyr::all_of(c('", paste(vars_to_keep, collapse="','"), "')))")
+  }
+
+  return(r_code_str)
+}
+```
+!END_CHANGE_FILE R/t_keep.R
