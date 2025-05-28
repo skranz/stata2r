@@ -30,7 +30,11 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       varname_str = stringi::stri_replace_last_regex(rest_no_if_in, ",\\s*(.*)$", "")
       varname_str = stringi::stri_trim_both(varname_str)
   } else {
-      varname_str = rest_no_if_in
+      # This case implies `decode varname` without `, gen(newvar)` which is invalid for decode.
+      # Stata syntax is `decode varname, gen(newvar)`. The comma is mandatory before options.
+      # So, if no comma, there are no options, and thus no gen().
+      # This means `gen_var` will be NA, and the error will be thrown later.
+      return(paste0("# decode command requires gen() in options: ", rest_of_cmd))
   }
 
    if (is.na(varname_str) || varname_str == "") {
@@ -40,7 +44,8 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Parse options, specifically `gen()`
   gen_var = NA_character_
   if (!is.na(options_str)) {
-      gen_opt_match = stringi::stri_match_first_regex(options_str, "\\bgen\\s*\\(([^)]+)\\)")
+      # Modified regex to accept 'gen' or 'generate'
+      gen_opt_match = stringi::stri_match_first_regex(options_str, "\\b(?:gen|generate)\\s*\\(([^)]+)\\)")
       if (!is.na(gen_opt_match[1,1])) {
            gen_vars_str = stringi::stri_trim_both(gen_opt_match[1,2])
            gen_vars_list = stringi::stri_split_regex(gen_vars_str, "\\s+")[[1]]
@@ -61,11 +66,6 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
            return(paste0("# Failed to translate if/in condition for decode: ", stata_if_in_cond))
        }
   }
-
-  # R equivalent: as.character(labelled::to_factor(varname)) or similar
-  # Stata decode uses value labels attached to the numeric variable (often created by encode).
-  # haven package reads value labels into a "labelled" class. labelled::to_factor converts this.
-  # as.character() converts the factor to strings.
 
   # Temporary variable names
   decoded_values_tmp_var = paste0("stata_tmp_decoded_values_L", cmd_obj$line)
@@ -101,7 +101,7 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
    options_str_cleaned = options_str
    if (!is.na(options_str_cleaned)) {
-        options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "\\bgen\\s*\\([^)]+\\)", "")
+        options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "\\b(?:gen|generate)\\s*\\([^)]+\\)", "")
         options_str_cleaned = stringi::stri_trim_both(stringi::stri_replace_all_regex(options_str_cleaned, ",+", ","))
         options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "^,+", "")
    }
