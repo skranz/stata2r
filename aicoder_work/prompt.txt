@@ -319,7 +319,8 @@ compare_df = function(df1, df2,
 
     } else {
       # For non-numeric, direct comparison, NA/NA is TRUE
-      neq = v1 != v2 | xor(is.na(v1), is.na(v2))
+      # Coerce to character to avoid type mismatch errors if one is numeric and other is character
+      neq = as.character(v1) != as.character(v2) | xor(is.na(v1), is.na(v2))
     }
     which(neq)
   })
@@ -330,10 +331,11 @@ compare_df = function(df1, df2,
     # build a compact summary with at most sample_n_diff rows per column
     sampler = function(idx, cl) {
       head_idx = head(idx, sample_n_diff)
+      # Ensure values are coerced to character for consistent output in the diff table
       data.frame(row = head_idx,
                  column = cl,
-                 df1_value = df1[[cl]][head_idx],
-                 df2_value = df2[[cl]][head_idx],
+                 df1_value = as.character(df1[[cl]][head_idx]), # Coerce to character
+                 df2_value = as.character(df2[[cl]][head_idx]), # Coerce to character
                  stringsAsFactors = FALSE)
     }
     diff_tbl = do.call(rbind, Map(sampler, value_diffs, names(value_diffs)))
@@ -1388,10 +1390,10 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   # Step 3: Translate Stata logical operators and missing value comparisons.
   # These must happen after handling `r()` values so `r(mean)` is already `stata_r_val_Lxx_mean`.
-  # Stata `X == .` -> R `is.na(X)`
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*==\\s*NA_real_", "is.na($1)")
-  # Stata `X != .` -> R `!is.na($1)`
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*!=\\s*NA_real_", "!is.na($1)") # Use stri_replace_all_regex for safety
+  # Stata `X == .` -> R `sfun_missing(X)`
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*==\\s*NA_real_", "sfun_missing($1)")
+  # Stata `X != .` -> R `!sfun_missing($1)`
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*!=\\s*NA_real_", "!sfun_missing($1)")
 
   r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![<>!=~])\\s*=\\s*(?![=])", " == ") # Replace single = with == if not part of other ops
   r_expr = stringi::stri_replace_all_regex(r_expr, "\\s+~=\\s+", " != ") # Stata `~=` to R `!=`
@@ -1490,7 +1492,6 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   return(r_expr)
 }
-
 
 ```
 ### END OF FILE: stata_expression_translator.R
@@ -3554,7 +3555,7 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Look for options after the if/in part or after rules
   options_match = stringi::stri_match_first_regex(rules_and_rest, ",\\s*(.*)$")
   if (!is.na(options_match[1,1])) {
-      options_str = stringi::stri_trim_both(options_match[1,2])
+      options_str = stringi::stri_trim_both(options_match[1,1])
       rules_part = stringi::stri_replace_last_regex(rules_and_rest, ",\\s*(.*)$", "")
       rules_part = stringi::stri_trim_both(rules_part)
   } else {
@@ -3591,46 +3592,55 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       new_vars = vars_to_recode
   }
 
-  # Determine if the target variable(s) should be string type
-  any_rule_implies_string = FALSE
+  # --- Determine the target variable type and collect labels if applicable ---
+  target_var_will_be_string_in_R = FALSE
+  target_var_is_numeric_with_labels = FALSE
+  collected_labels = list() # Store numeric_value = "label" pairs
+
   for (rule_raw in recode_rules_raw) {
       rule_str_trimmed = stringi::stri_trim_both(rule_raw)
       parts_eq = stringi::stri_split_fixed(rule_str_trimmed, "=", n=2)[[1]]
       if (length(parts_eq) != 2) next # Skip malformed rules
       new_part_raw = stringi::stri_trim_both(parts_eq[2])
 
-      # A rule implies string type if:
-      # 1. The new value is a string literal (e.g., "new_string_value").
-      # 2. The new value is a numeric value with an attached string label (e.g., 1 "label").
+      # Check for plain string literal (e.g., "new_string_value")
       if ( (stringi::stri_startswith_fixed(new_part_raw, '"') && stringi::stri_endswith_fixed(new_part_raw, '"')) ||
            (stringi::stri_startswith_fixed(new_part_raw, "'") && stringi::stri_endswith_fixed(new_part_raw, "'")) ) {
-          any_rule_implies_string = TRUE
-          break
+          target_var_will_be_string_in_R = TRUE
+          break # If any rule implies string, the whole var becomes string
       }
+
       # Check for 'value "label"' syntax
       label_match = stringi::stri_match_first_regex(new_part_raw, "^\\s*([^\\s]+)\\s+(?:\"([^\"]*)\"|'([^']*)')\\s*$")
       if (!is.na(label_match[1,1])) {
-          any_rule_implies_string = TRUE
-          break
+          target_var_is_numeric_with_labels = TRUE
+          numeric_val_part = stringi::stri_trim_both(label_match[1,2])
+          string_label_part = ifelse(!is.na(label_match[1,3]), label_match[1,3], label_match[1,4])
+
+          # Convert numeric value to R numeric (handling Stata's missing values)
+          r_numeric_val = NA_real_
+          if (numeric_val_part == ".") r_numeric_val = NA_real_
+          else if (stringi::stri_detect_regex(numeric_val_part, "^\\.[a-zA-Z]$")) r_numeric_val = NA_real_
+          else r_numeric_val = as.numeric(numeric_val_part)
+
+          if (!is.na(r_numeric_val)) {
+            collected_labels[[string_label_part]] = r_numeric_val
+          }
       }
   }
 
+  # If any rule forces string, then it's string. Otherwise, if any rule has labels, it's numeric with labels.
+  # Otherwise, it's plain numeric.
+  final_r_var_type_is_string = target_var_will_be_string_in_R
+  final_r_var_type_is_labelled_numeric = !target_var_will_be_string_in_R && target_var_is_numeric_with_labels
 
   # Translate the if/in condition for subsetting
   r_subset_cond = NA_character_
-  data_source_for_recode = "data"
-  r_code_prefix = "" # Code to create subset if needed
-
   if (!is.na(stata_if_in_cond) && stata_if_in_cond != "") {
-      # Stata recode applies if/in to select observations *to be recoded*.
-      # Observations not meeting if/in condition are left unchanged.
-      # This means the R code needs to apply the recoding conditionally.
       r_subset_cond = translate_stata_expression_with_r_values(stata_if_in_cond, line_num, cmd_df, context = list(is_by_group = FALSE))
       if (is.na(r_subset_cond) || r_subset_cond == "") {
            return(paste0("# Failed to translate if/in condition for recode: ", stata_if_in_cond))
        }
-      # The actual recoding logic (case_when/ifelse) will incorporate this condition.
-      # No need for a separate subset dataframe here.
   }
 
 
@@ -3639,8 +3649,8 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # old_value can be: single value, range (val1/val2, val1 thru val2), list (val1 val2), else, missing (.)
   # new_value can be: single value, copy (use original value), missing (.)
 
-  translate_recode_rule = function(rule_str, source_var_r, target_is_string) {
-      restore.point("translate_recode_rule")
+  translate_recode_rule = function(rule_str, source_var_r, final_r_var_type_is_string) {
+      restore.point("translate_recode_rule_inner")
       rule_str = stringi::stri_trim_both(rule_str)
       parts_eq = stringi::stri_split_fixed(rule_str, "=", n=2)[[1]]
       if (length(parts_eq) != 2) {
@@ -3654,9 +3664,9 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       if (old_part_raw == "else") {
           r_condition = "TRUE" # This rule is the fallback
       } else if (old_part_raw == "missing" || stringi::stri_detect_regex(old_part_raw, "^\\.\\w?$")) { # Added regex for .a, .b, etc.
-           r_condition = paste0("is.na(", source_var_r, ")") # Missing value rule (all Stata missing types to R's NA)
+           r_condition = paste0("sfun_missing(", source_var_r, ")") # Missing value rule (all Stata missing types to R's NA)
       } else if (old_part_raw == "nonmissing") {
-           r_condition = paste0("!is.na(", source_var_r, ")") # Non-missing value rule
+           r_condition = paste0("!sfun_missing(", source_var_r, ")") # Non-missing value rule
       } else if (grepl("\\s+thru\\s+", old_part_raw)) {
            # Range: val1 thru val2
            range_parts = stringi::stri_split_regex(old_part_raw, "\\s+thru\\s+", n=2)[[1]]
@@ -3696,7 +3706,7 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       if (new_part_raw == "copy") {
           r_new_value = source_var_r # Use the original variable value
           # If target is string but source is not, need to convert source to string
-          if (target_is_string) {
+          if (final_r_var_type_is_string) {
             r_new_value = paste0("as.character(", r_new_value, ")")
           }
       } else {
@@ -3704,20 +3714,20 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
           label_match = stringi::stri_match_first_regex(new_part_raw, "^\\s*([^\\s]+)\\s+(?:\"([^\"]*)\"|'([^']*)')\\s*$")
           if (!is.na(label_match[1,1])) {
               # It's a "value label" syntax
-              string_label_part = ifelse(!is.na(label_match[1,3]), label_match[1,3], label_match[1,4])
               numeric_val_part = stringi::stri_trim_both(label_match[1,2])
-
-              if (target_is_string) {
-                  r_new_value = quote_for_r_literal(string_label_part) # Return the label as a string literal
+              # If target is string, return the label as a string literal
+              if (final_r_var_type_is_string) {
+                  string_label_part = ifelse(!is.na(label_match[1,3]), label_match[1,3], label_match[1,4])
+                  r_new_value = quote_for_r_literal(string_label_part)
               } else {
-                  # If target is numeric, return the numeric value, translated
+                  # If target is numeric (possibly labelled numeric), return the numeric value, translated
                   r_new_value = translate_stata_expression_to_r(numeric_val_part, context=list(is_by_group=FALSE))
               }
           } else {
               # It's a plain expression or literal (numeric or string)
               r_new_value = translate_stata_expression_to_r(new_part_raw, context=list(is_by_group=FALSE))
               # If target is string, ensure the expression result is cast to string
-              if (target_is_string) {
+              if (final_r_var_type_is_string) {
                   # This is the crucial change for Stata's missing value conversion to empty string
                   if (r_new_value == "NA_real_") {
                       r_new_value = '""' # Stata recode for missing numeric to empty string for string variables
@@ -3734,13 +3744,16 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Generate case_when expression for each variable
   mutate_exprs = character(length(vars_to_recode))
+  r_code_lines = c()
+
   for (k in seq_along(vars_to_recode)) {
       old_var = vars_to_recode[k]
       new_var = new_vars[k]
       source_var_r = old_var # R variable name for the source column
 
       # Translate all rules for this variable
-      r_rules = sapply(recode_rules_raw, translate_recode_rule, source_var_r = source_var_r, target_is_string = any_rule_implies_string)
+      # Pass the determined target type
+      r_rules = sapply(recode_rules_raw, translate_recode_rule, source_var_r = source_var_r, final_r_var_type_is_string = final_r_var_type_is_string)
 
       # Combine rules into a case_when statement
       case_when_expr = paste0("dplyr::case_when(\n    ", paste(r_rules, collapse = ",\n    "), "\n  )")
@@ -3764,7 +3777,26 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   mutate_exprs_str = paste(mutate_exprs, collapse = ",\n  ")
 
   # Build the final R code using dplyr::mutate
-  r_code_lines = c(paste0("data = dplyr::mutate(data, ", mutate_exprs_str, ")")) # Changed to dplyr::mutate
+  r_code_lines = c(r_code_lines, paste0("data = dplyr::mutate(data, ", mutate_exprs_str, ")"))
+
+  # Apply labels if the target variable is determined to be numeric with labels
+  if (final_r_var_type_is_labelled_numeric && length(collected_labels) > 0) {
+      # Ensure collected_labels is a named numeric vector
+      # Use unlist and unique to handle potential duplicate labels from multiple rules
+      unique_labels = unique(unlist(collected_labels))
+      numeric_values = unname(unique_labels)
+      label_names = names(unique_labels)
+
+      labels_vector_r_code = paste0("stats::setNames(c(", paste(numeric_values, collapse=", "), "), c(", paste0('"', label_names, '"', collapse=", "), "))")
+
+      for (new_var in new_vars) {
+          # Need to update the labels attribute directly, as haven::labelled only sets it on creation
+          r_code_lines = c(r_code_lines, paste0("attr(data$`", new_var, "`, \"labels\") = ", labels_vector_r_code))
+          # Ensure it remains a labelled class, or re-apply haven::labelled
+          # For simplicity, if it was just mutated to numeric, this attribute should suffice
+          # If it was already a labelled numeric, this will update/overwrite its labels.
+      }
+  }
 
 
   r_code_str = paste(r_code_lines, collapse="\n")
@@ -5036,9 +5068,9 @@ stata_r_val_L27_mean = mean(data[['value2']], na.rm = TRUE)
 
  28 do:  gen value2_dev_from_mean = value2 - r(mean) if !missing(value2) & r(mean) != .
  28 r:  data = data %>% 
-  dplyr::mutate(`value2_dev_from_mean` = dplyr::if_else(dplyr::coalesce(!sfun_missing(value2) & !is.na(stata_r_val_L27_mean), FALSE), value2 - stata_r_val_L27_mean, NA_real_)) 
+  dplyr::mutate(`value2_dev_from_mean` = dplyr::if_else(dplyr::coalesce(!sfun_missing(value2) & !sfun_missing(stata_r_val_L27_mean), FALSE), value2 - stata_r_val_L27_mean, NA_real_)) 
 data = data %>% 
-  dplyr::mutate(`value2_dev_from_mean` = dplyr::if_else(dplyr::coalesce(!sfun_missing(value2) & !is.na(stata_r_val_L27_mean), FALSE), value2 - stata_r_val_L27_mean, NA_real_))
+  dplyr::mutate(`value2_dev_from_mean` = dplyr::if_else(dplyr::coalesce(!sfun_missing(value2) & !sfun_missing(stata_r_val_L27_mean), FALSE), value2 - stata_r_val_L27_mean, NA_real_))
 
  29 do:  gen obs_date = date(date_str, "YMD", 2050)
  29 r:  data = data %>% 
@@ -5219,20 +5251,227 @@ rm(stata_tmp_decoded_values_L45, stata_tmp_original_values_L45)
 
  46 do:  recode value2 (0/1=1 "Very Low") (2/4=2 "Low-Mid") (nonmissing=3 "High") (missing = .a), gen(value2_cat_str)
  46 r:  data = dplyr::mutate(data, `value2_cat_str` = dplyr::case_when(
-    value2 >= 0 & value2 <= 1 ~ "Very Low",
-    value2 >= 2 & value2 <= 4 ~ "Low-Mid",
-    !is.na(value2) ~ "High",
-    is.na(value2) ~ ""
-  )) 
-data = dplyr::mutate(data, `value2_cat_str` = dplyr::case_when(
-    value2 >= 0 & value2 <= 1 ~ "Very Low",
-    value2 >= 2 & value2 <= 4 ~ "Low-Mid",
-    !is.na(value2) ~ "High",
-    is.na(value2) ~ ""
+    value2 >= 0 & value2 <= 1 ~ 1,
+    value2 >= 2 & value2 <= 4 ~ 2,
+    !sfun_missing(value2) ~ 3,
+    sfun_missing(value2) ~ NA_real_
   ))
-Error in vec_equal(e1, e2) : 
-  Can't combine `..1` <character> and `..2` <double>.
+attr(data$`value2_cat_str`, "labels") = stats::setNames(c(1, 2, 3), c("")) 
+data = dplyr::mutate(data, `value2_cat_str` = dplyr::case_when(
+    value2 >= 0 & value2 <= 1 ~ 1,
+    value2 >= 2 & value2 <= 4 ~ 2,
+    !sfun_missing(value2) ~ 3,
+    sfun_missing(value2) ~ NA_real_
+  ))
 
+attr(data$`value2_cat_str`, "labels") = stats::setNames(c(1, 2, 3), c(""))
+
+ 47 do:  recode value2 (0/1=1) (2/4=2) (nonmissing=3) (missing = 99), gen(value2_cat_num)
+ 47 r:  data = dplyr::mutate(data, `value2_cat_num` = dplyr::case_when(
+    value2 >= 0 & value2 <= 1 ~ 1,
+    value2 >= 2 & value2 <= 4 ~ 2,
+    !sfun_missing(value2) ~ 3,
+    sfun_missing(value2) ~ 99
+  )) 
+data = dplyr::mutate(data, `value2_cat_num` = dplyr::case_when(
+    value2 >= 0 & value2 <= 1 ~ 1,
+    value2 >= 2 & value2 <= 4 ~ 2,
+    !sfun_missing(value2) ~ 3,
+    sfun_missing(value2) ~ 99
+  ))
+
+ 48 do:  sort group_clean value1
+ 48 r:  data = dplyr::arrange(data, !!!dplyr::syms(c("group_clean", "value1"))) 
+data = dplyr::arrange(data, !!!dplyr::syms(c("group_clean", "value1")))
+
+ 49 do:  gsort -value1 +id
+ 49 r:  data = dplyr::arrange(data, dplyr::desc(!!!dplyr::syms("value1")), !!!dplyr::syms("id")) 
+data = dplyr::arrange(data, dplyr::desc(!!!dplyr::syms("value1")), !!!dplyr::syms("id"))
+
+ 50 do:  drop random_uniform_draw int_value1 rounded_value1
+ 50 r:  data = dplyr::select(data, -dplyr::any_of(c('random_uniform_draw','int_value1','rounded_value1'))) 
+data = dplyr::select(data, -dplyr::any_of(c('random_uniform_draw','int_value1','rounded_value1')))
+
+ 51 do:  keep if value2 < 12 | missing(value2)
+ 51 r:  data = dplyr::filter(data, value2 < 12 | sfun_missing(value2)) 
+data = dplyr::filter(data, value2 < 12 | sfun_missing(value2))
+
+ 52 do:  keep if _n <= 40
+ 52 r:  data = dplyr::filter(data, as.numeric(dplyr::row_number()) <= 40) 
+data = dplyr::filter(data, as.numeric(dplyr::row_number()) <= 40)
+
+ 53 do:  drop if mod(id, 4) == 0 & value1 > 50
+ 53 r:  data = dplyr::filter(data, !((id %%  4) == 0 & value1 > 50)) 
+data = dplyr::filter(data, !((id %%  4) == 0 & value1 > 50))
+
+ 54 do:  keep id group_orig value1 value1_log value2 value2_squared group_clean obs_date num_val_from_str value2_cat_str mean_overall_value1 total_value2_by_group group_code_num
+ 54 r:  data = dplyr::select(data, dplyr::all_of(c('id','group_orig','value1','value1_log','value2','value2_squared','group_clean','obs_date','num_val_from_str','value2_cat_str','mean_overall_value1','total_value2_by_group','group_code_num'))) 
+data = dplyr::select(data, dplyr::all_of(c('id','group_orig','value1','value1_log','value2','value2_squared','group_clean','obs_date','num_val_from_str','value2_cat_str','mean_overall_value1','total_value2_by_group','group_code_num')))
+
+ 55 do:  rename group_orig orig_group_name
+ 55 r:  data = collapse::frename(data, `group_orig` = `orig_group_name`) 
+data = collapse::frename(data, `group_orig` = `orig_group_name`)
+
+ 56 do:  rename value1_log log_val1
+ 56 r:  data = collapse::frename(data, `value1_log` = `log_val1`) 
+data = collapse::frename(data, `value1_log` = `log_val1`)
+
+ 57 do:  order id orig_group_name group_clean log_val1
+ 57 r:  data = dplyr::select(data, id, orig_group_name, group_clean, log_val1, dplyr::everything()) 
+data = dplyr::select(data, id, orig_group_name, group_clean, log_val1, dplyr::everything())
+
+ 58 do:  gen high_value1_indicator = (value1 > mean_overall_value1) if !missing(value1) & !missing(mean_overall_value1)
+ 58 r:  data = data %>% 
+  dplyr::mutate(`high_value1_indicator` = dplyr::if_else(dplyr::coalesce(!sfun_missing(value1) & !sfun_missing(mean_overall_value1), FALSE), as.numeric((value1 > mean_overall_value1)), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`high_value1_indicator` = dplyr::if_else(dplyr::coalesce(!sfun_missing(value1) & !sfun_missing(mean_overall_value1), FALSE), as.numeric((value1 > mean_overall_value1)), NA_real_))
+
+ 59 do:  gen observation_seq_num = _n
+ 59 r:  data = data %>% 
+  dplyr::mutate(`observation_seq_num` = as.numeric(dplyr::row_number())) 
+data = data %>% 
+  dplyr::mutate(`observation_seq_num` = as.numeric(dplyr::row_number()))
+
+ 60 do:  gen total_obs_count = _N
+ 60 r:  data = data %>% 
+  dplyr::mutate(`total_obs_count` = as.numeric(dplyr::n())) 
+data = data %>% 
+  dplyr::mutate(`total_obs_count` = as.numeric(dplyr::n()))
+
+ 61 do:  replace value1 = cond(missing(value1), mean_overall_value1, cond(value1 > 60, value1*1.05, value1*0.95))
+ 61 r:  data = data %>% 
+  dplyr::mutate(`value1` = as.numeric(dplyr::if_else(sfun_missing(value1),  mean_overall_value1,  dplyr::if_else(value1 > 60,  value1*1.05,  value1*0.95)))) 
+data = data %>% 
+  dplyr::mutate(`value1` = as.numeric(dplyr::if_else(sfun_missing(value1),  mean_overall_value1,  dplyr::if_else(value1 > 60,  value1*1.05,  value1*0.95))))
+
+ 62 do:  compress
+ 62 r:  # Stata command 'compress ' not yet fully translated. 
+# Stata command 'compress ' not yet fully translated.
+
+ 63 do:  save "main_data_temp.dta", replace
+ 63 r:  haven::write_dta(data, path = file.path(stata2r_env$working_dir, "main_data_temp.dta")) # Options ignored: replace 
+haven::write_dta(data, path = file.path(stata2r_env$working_dir, "main_data_temp.dta")) # Options ignored: replace
+
+ 64 do:  use "extra_data.dta", clear
+ 64 r:  data = haven::read_dta(file.path(stata2r_env$working_dir, "extra_data.dta")) %>%
+  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used 
+data = haven::read_dta(file.path(stata2r_env$working_dir, "extra_data.dta")) %>%
+  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used
+
+ 65 do:  rename category_code extra_cat_code
+ 65 r:  data = collapse::frename(data, `category_code` = `extra_cat_code`) 
+data = collapse::frename(data, `category_code` = `extra_cat_code`)
+
+ 66 do:  sort id
+ 66 r:  data = dplyr::arrange(data, !!!dplyr::syms(c("id"))) 
+data = dplyr::arrange(data, !!!dplyr::syms(c("id")))
+
+ 67 do:  save "extra_data_temp.dta", replace
+ 67 r:  haven::write_dta(data, path = file.path(stata2r_env$working_dir, "extra_data_temp.dta")) # Options ignored: replace 
+haven::write_dta(data, path = file.path(stata2r_env$working_dir, "extra_data_temp.dta")) # Options ignored: replace
+
+ 68 do:  use "main_data_temp.dta", clear
+ 68 r:  data = haven::read_dta(file.path(stata2r_env$working_dir, "main_data_temp.dta")) %>%
+  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used 
+data = haven::read_dta(file.path(stata2r_env$working_dir, "main_data_temp.dta")) %>%
+  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used
+
+ 69 do:  sort id
+ 69 r:  data = dplyr::arrange(data, !!!dplyr::syms(c("id"))) 
+data = dplyr::arrange(data, !!!dplyr::syms(c("id")))
+
+ 70 do:  merge 1:1 id using "extra_data_temp.dta", nogen
+ 70 r:  stata_tmp_using_data_L70 = haven::read_dta(file.path(stata2r_env$data_dir, "extra_data_temp.dta"))
+common_cols = intersect(names(data), names(stata_tmp_using_data_L70))
+common_cols_not_by = setdiff(common_cols, c("id"))
+if (length(common_cols_not_by) > 0) { stata_tmp_using_data_L70 = dplyr::select(stata_tmp_using_data_L70, -dplyr::all_of(common_cols_not_by)) }
+data = dplyr::left_join(data, stata_tmp_using_data_L70, by = c("id"), indicator = "_merge_status_tmp_L70")
+data = dplyr::mutate(data, `_merge` = dplyr::case_when(
+  `_merge_status_tmp_L70` == "left_only" ~ 1L,
+  `_merge_status_tmp_L70` == "right_only" ~ 2L,
+  `_merge_status_tmp_L70` == "both" ~ 3L,
+  TRUE ~ NA_integer_ # Should not happen if join is successful, but for safety
+))
+data = dplyr::select(data, -dplyr::any_of('_merge_status_tmp_L70'))
+rm(stata_tmp_using_data_L70, common_cols, common_cols_not_by)
+# Stata merge type: 1:1, keep(match master)
+ # Other options ignored: nogen 
+stata_tmp_using_data_L70 = haven::read_dta(file.path(stata2r_env$data_dir, "extra_data_temp.dta"))
+
+Error: '~/aicoder/stata2r/inst/cases/do2/do_data/extra_data_temp.dta' does not exist.
+common_cols = intersect(names(data), names(stata_tmp_using_data_L70))
+
+Error: object 'stata_tmp_using_data_L70' not found
+common_cols_not_by = setdiff(common_cols, c("id"))
+
+Error: object 'common_cols' not found
+if (length(common_cols_not_by) > 0) { stata_tmp_using_data_L70 = dplyr::select(stata_tmp_using_data_L70, -dplyr::all_of(common_cols_not_by)) }
+
+Error: object 'common_cols_not_by' not found
+data = dplyr::left_join(data, stata_tmp_using_data_L70, by = c("id"), indicator = "_merge_status_tmp_L70")
+
+Error: object 'stata_tmp_using_data_L70' not found
+data = dplyr::mutate(data, `_merge` = dplyr::case_when(
+  `_merge_status_tmp_L70` == "left_only" ~ 1L,
+  `_merge_status_tmp_L70` == "right_only" ~ 2L,
+  `_merge_status_tmp_L70` == "both" ~ 3L,
+  TRUE ~ NA_integer_ # Should not happen if join is successful, but for safety
+))
+
+Error: Problem with `mutate()` column `_merge`.
+ℹ `_merge = dplyr::case_when(...)`.
+✖ object '_merge_status_tmp_L70' not found
+Caused by error:
+! object '_merge_status_tmp_L70' not found
+data = dplyr::select(data, -dplyr::any_of('_merge_status_tmp_L70'))
+
+rm(stata_tmp_using_data_L70, common_cols, common_cols_not_by)
+
+Warning: object 'stata_tmp_using_data_L70' not found
+Warning: object 'common_cols' not found
+Warning: object 'common_cols_not_by' not found
+# Stata merge type: 1:1, keep(match master)
+
+ # Other options ignored: nogen
+
+Error executing R code for Stata line  70 :  stata_tmp_using_data_L70 = haven::read_dta(file.path(stata2r_env$data_dir, "extra_data_temp.dta"))
+
+Error: '~/aicoder/stata2r/inst/cases/do2/do_data/extra_data_temp.dta' does not exist.
+common_cols = intersect(names(data), names(stata_tmp_using_data_L70))
+
+Error: object 'stata_tmp_using_data_L70' not found
+common_cols_not_by = setdiff(common_cols, c("id"))
+
+Error: object 'common_cols' not found
+if (length(common_cols_not_by) > 0) { stata_tmp_using_data_L70 = dplyr::select(stata_tmp_using_data_L70, -dplyr::all_of(common_cols_not_by)) }
+
+Error: object 'common_cols_not_by' not found
+data = dplyr::left_join(data, stata_tmp_using_data_L70, by = c("id"), indicator = "_merge_status_tmp_L70")
+
+Error: object 'stata_tmp_using_data_L70' not found
+data = dplyr::mutate(data, `_merge` = dplyr::case_when(
+  `_merge_status_tmp_L70` == "left_only" ~ 1L,
+  `_merge_status_tmp_L70` == "right_only" ~ 2L,
+  `_merge_status_tmp_L70` == "both" ~ 3L,
+  TRUE ~ NA_integer_ # Should not happen if join is successful, but for safety
+))
+
+Error: Problem with `mutate()` column `_merge`.
+ℹ `_merge = dplyr::case_when(...)`.
+✖ object '_merge_status_tmp_L70' not found
+Caused by error:
+! object '_merge_status_tmp_L70' not found
+data = dplyr::select(data, -dplyr::any_of('_merge_status_tmp_L70'))
+
+rm(stata_tmp_using_data_L70, common_cols, common_cols_not_by)
+
+Warning: object 'stata_tmp_using_data_L70' not found
+Warning: object 'common_cols' not found
+Warning: object 'common_cols_not_by' not found
+# Stata merge type: 1:1, keep(match master)
+
+ # Other options ignored: nogen
+ 
 
 ##############################
 # YOUR TASK
