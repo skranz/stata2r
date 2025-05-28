@@ -221,7 +221,7 @@ rm(stata_tmp_encoded_full_L21)
  22 r:  data = dplyr::mutate(data, `group_str` = NA_character_)
 ## Decode values using haven::as_factor
 stata_tmp_original_values_L22 = with(data, data$`group_code`)
-stata_tmp_decoded_values_L22 = as.character(haven::as_factor(stata_tmp_original_values_L22, levels = 'labels'))
+stata_tmp_decoded_values_L22 = as.character(haven::as_factor(stata_tmp_original_values_L22))
 stata_tmp_decoded_values_L22 = dplyr::if_else(is.na(stata_tmp_decoded_values_L22), dplyr::if_else(is.na(stata_tmp_original_values_L22), "", as.character(stata_tmp_original_values_L22)), stata_tmp_decoded_values_L22)
 data = dplyr::mutate(data, `group_str` = stata_tmp_decoded_values_L22)
 rm(stata_tmp_decoded_values_L22, stata_tmp_original_values_L22) 
@@ -231,7 +231,7 @@ data = dplyr::mutate(data, `group_str` = NA_character_)
 
 stata_tmp_original_values_L22 = with(data, data$`group_code`)
 
-stata_tmp_decoded_values_L22 = as.character(haven::as_factor(stata_tmp_original_values_L22, levels = 'labels'))
+stata_tmp_decoded_values_L22 = as.character(haven::as_factor(stata_tmp_original_values_L22))
 
 stata_tmp_decoded_values_L22 = dplyr::if_else(is.na(stata_tmp_decoded_values_L22), dplyr::if_else(is.na(stata_tmp_original_values_L22), "", as.character(stata_tmp_original_values_L22)), stata_tmp_decoded_values_L22)
 
@@ -702,14 +702,14 @@ data[['group_code_num']] = stata_tmp_encoded_full_L41
 rm(stata_tmp_encoded_full_L41)
 
  42 do:  label define group_label_map 1 "alpha" 2 "beta" 3 "gamma" 4 "unknown", replace
- 42 r:  if (!exists('stata2r_env$label_defs')) stata2r_env$label_defs = list()
+ 42 r:  if (!exists("label_defs", envir = stata2r_env)) stata2r_env$label_defs = list()
 stata2r_env$label_defs$`group_label_map` = stats::setNames(c(1, 2, 3, 4), c("alpha", "beta", "gamma", "unknown")) 
-if (!exists('stata2r_env$label_defs')) stata2r_env$label_defs = list()
+if (!exists("label_defs", envir = stata2r_env)) stata2r_env$label_defs = list()
 
 stata2r_env$label_defs$`group_label_map` = stats::setNames(c(1, 2, 3, 4), c("alpha", "beta", "gamma", "unknown"))
 
  43 do:  label values group_code_num group_label_map
- 43 r:  if (!exists('stata2r_env$label_defs')) stata2r_env$label_defs = list()
+ 43 r:  if (!exists("label_defs", envir = stata2r_env)) stata2r_env$label_defs = list()
 label_map_to_apply = stata2r_env$label_defs$`group_label_map`
 if (!is.null(label_map_to_apply)) {
   existing_var_label = attr(data[['group_code_num']], 'label')
@@ -720,7 +720,7 @@ if (!is.null(label_map_to_apply)) {
   warning(paste0('Label definition `group_label_map` not found for `label values` command on line 43. Labels removed from ', 'group_code_num',' if any.'))
   data[['group_code_num']] = haven::zap_labels(data[['group_code_num']])
 } 
-if (!exists('stata2r_env$label_defs')) stata2r_env$label_defs = list()
+if (!exists("label_defs", envir = stata2r_env)) stata2r_env$label_defs = list()
 
 label_map_to_apply = stata2r_env$label_defs$`group_label_map`
 
@@ -734,66 +734,19 @@ if (!is.null(label_map_to_apply)) {
   data[['group_code_num']] = haven::zap_labels(data[['group_code_num']])
 }
 
-Warning: Label definition `group_label_map` not found for `label values` command on line 43. Labels removed from group_code_num if any.
- 44 do:  label variable group_code_num "Numeric code for cleaned group"
- 44 r:  attr(data$`group_code_num`, "label") = "Numeric code for cleaned group" 
-attr(data$`group_code_num`, "label") = "Numeric code for cleaned group"
+Error: `label` must be a character vector of length one.
+Error executing R code for Stata line  43 :  if (!exists("label_defs", envir = stata2r_env)) stata2r_env$label_defs = list()
 
- 45 do:  decode group_code_num, generate(group_from_decode)
- 45 r:  data = dplyr::mutate(data, `group_from_decode` = NA_character_)
-## Decode values using haven::as_factor
-stata_tmp_original_values_L45 = with(data, data$`group_code_num`)
-stata_tmp_decoded_values_L45 = as.character(haven::as_factor(stata_tmp_original_values_L45, levels = 'labels'))
-stata_tmp_decoded_values_L45 = dplyr::if_else(is.na(stata_tmp_decoded_values_L45), dplyr::if_else(is.na(stata_tmp_original_values_L45), "", as.character(stata_tmp_original_values_L45)), stata_tmp_decoded_values_L45)
-data = dplyr::mutate(data, `group_from_decode` = stata_tmp_decoded_values_L45)
-rm(stata_tmp_decoded_values_L45, stata_tmp_original_values_L45) 
-data = dplyr::mutate(data, `group_from_decode` = NA_character_)
+label_map_to_apply = stata2r_env$label_defs$`group_label_map`
 
-## Decode values using haven::as_factor
+if (!is.null(label_map_to_apply)) {
+  existing_var_label = attr(data[['group_code_num']], 'label')
+  stata_tmp_labelled_L43_group_code_num = haven::labelled(data[['group_code_num']], labels = label_map_to_apply, label = existing_var_label)
+  data[['group_code_num']] = stata_tmp_labelled_L43_group_code_num
+  rm(stata_tmp_labelled_L43_group_code_num)
+} else {
+  warning(paste0('Label definition `group_label_map` not found for `label values` command on line 43. Labels removed from ', 'group_code_num',' if any.'))
+  data[['group_code_num']] = haven::zap_labels(data[['group_code_num']])
+}
 
-stata_tmp_original_values_L45 = with(data, data$`group_code_num`)
-
-stata_tmp_decoded_values_L45 = as.character(haven::as_factor(stata_tmp_original_values_L45, levels = 'labels'))
-
-Error: Arguments in `...` must be used.
-✖ Problematic argument:
-• levels = "labels"
-ℹ Did you misspell an argument name?
-stata_tmp_decoded_values_L45 = dplyr::if_else(is.na(stata_tmp_decoded_values_L45), dplyr::if_else(is.na(stata_tmp_original_values_L45), "", as.character(stata_tmp_original_values_L45)), stata_tmp_decoded_values_L45)
-
-Error: object 'stata_tmp_decoded_values_L45' not found
-data = dplyr::mutate(data, `group_from_decode` = stata_tmp_decoded_values_L45)
-
-Error: Problem with `mutate()` column `group_from_decode`.
-ℹ `group_from_decode = stata_tmp_decoded_values_L45`.
-✖ object 'stata_tmp_decoded_values_L45' not found
-Caused by error in `mask$eval_all_mutate()`:
-! object 'stata_tmp_decoded_values_L45' not found
-rm(stata_tmp_decoded_values_L45, stata_tmp_original_values_L45)
-
-Warning: object 'stata_tmp_decoded_values_L45' not found
-Error executing R code for Stata line  45 :  data = dplyr::mutate(data, `group_from_decode` = NA_character_)
-
-## Decode values using haven::as_factor
-
-stata_tmp_original_values_L45 = with(data, data$`group_code_num`)
-
-stata_tmp_decoded_values_L45 = as.character(haven::as_factor(stata_tmp_original_values_L45, levels = 'labels'))
-
-Error: Arguments in `...` must be used.
-✖ Problematic argument:
-• levels = "labels"
-ℹ Did you misspell an argument name?
-stata_tmp_decoded_values_L45 = dplyr::if_else(is.na(stata_tmp_decoded_values_L45), dplyr::if_else(is.na(stata_tmp_original_values_L45), "", as.character(stata_tmp_original_values_L45)), stata_tmp_decoded_values_L45)
-
-Error: object 'stata_tmp_decoded_values_L45' not found
-data = dplyr::mutate(data, `group_from_decode` = stata_tmp_decoded_values_L45)
-
-Error: Problem with `mutate()` column `group_from_decode`.
-ℹ `group_from_decode = stata_tmp_decoded_values_L45`.
-✖ object 'stata_tmp_decoded_values_L45' not found
-Caused by error in `mask$eval_all_mutate()`:
-! object 'stata_tmp_decoded_values_L45' not found
-rm(stata_tmp_decoded_values_L45, stata_tmp_original_values_L45)
-
-Warning: object 'stata_tmp_decoded_values_L45' not found 
+Error: `label` must be a character vector of length one. 
