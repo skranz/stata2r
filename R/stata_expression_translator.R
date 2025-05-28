@@ -38,7 +38,8 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_N\\b", "as.numeric(dplyr::n())")
 
   # Handle Stata missing value literal '.'
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b\\.\\b", "NA_real_")
+  # Refined regex: match a dot not preceded or followed by a digit.
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(?<!\\d)\\.(?!\\d)", "NA_real_")
 
   # Step 3: Iteratively translate Stata functions (e.g., cond(), round(), log(), etc.)
   # This loop handles nested function calls by repeatedly applying transformations.
