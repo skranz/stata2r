@@ -901,8 +901,8 @@ data = dplyr::arrange(data, !!!dplyr::syms(c("id")))
 
  70 do:  merge 1:1 id using "extra_data_temp.dta", nogen
  70 r:  stata_tmp_using_data_L70 = haven::read_dta(file.path(stata2r_env$working_dir, "extra_data_temp.dta"))
-if (any(duplicated(data[, c("id"), drop=FALSE]))) { stop('Merge 1:1 failed: Duplicate keys found in master dataset (data).') }
-if (any(duplicated(stata_tmp_using_data_L70[, c("id"), drop=FALSE]))) { stop('Merge 1:1 failed: Duplicate keys found in using dataset (', file.path(stata2r_env$working_dir, "extra_data_temp.dta"), ').') }
+if (any(base::duplicated(dplyr::select(data, dplyr::all_of(c("id")))))) { stop('Merge 1:1 failed: Duplicate keys found in master dataset (data).') }
+if (any(base::duplicated(dplyr::select(stata_tmp_using_data_L70, dplyr::all_of(c("id")))))) { stop('Merge 1:1 failed: Duplicate keys found in using dataset (', file.path(stata2r_env$working_dir, "extra_data_temp.dta"), ').') }
 data = dplyr::mutate(data, `id` = as.numeric(`id`))
 stata_tmp_using_data_L70 = dplyr::mutate(stata_tmp_using_data_L70, `id` = as.numeric(`id`))
 common_cols = intersect(names(data), names(stata_tmp_using_data_L70))
@@ -915,9 +915,9 @@ rm(stata_tmp_using_data_L70, common_cols, common_cols_not_by)
 # Stata merge type: 1:1, keep(match master), nogenerate 
 stata_tmp_using_data_L70 = haven::read_dta(file.path(stata2r_env$working_dir, "extra_data_temp.dta"))
 
-if (any(duplicated(data[, c("id"), drop=FALSE]))) { stop('Merge 1:1 failed: Duplicate keys found in master dataset (data).') }
+if (any(base::duplicated(dplyr::select(data, dplyr::all_of(c("id")))))) { stop('Merge 1:1 failed: Duplicate keys found in master dataset (data).') }
 
-if (any(duplicated(stata_tmp_using_data_L70[, c("id"), drop=FALSE]))) { stop('Merge 1:1 failed: Duplicate keys found in using dataset (', file.path(stata2r_env$working_dir, "extra_data_temp.dta"), ').') }
+if (any(base::duplicated(dplyr::select(stata_tmp_using_data_L70, dplyr::all_of(c("id")))))) { stop('Merge 1:1 failed: Duplicate keys found in using dataset (', file.path(stata2r_env$working_dir, "extra_data_temp.dta"), ').') }
 
 data = dplyr::mutate(data, `id` = as.numeric(`id`))
 
