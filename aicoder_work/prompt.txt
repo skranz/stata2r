@@ -292,6 +292,7 @@ compare_df = function(df1, df2,
   out
 }
 
+
 ```
 ### END OF FILE: aic_do_test.R
 
@@ -381,6 +382,7 @@ do_cmd_to_r = function(cmd_obj, line, cmd_df) { # Corrected signature: added cmd
 }
 
 
+
 ```
 ### END OF FILE: do_cmd_to_r.R
 
@@ -425,8 +427,8 @@ do_parse = function(do_code) {
       rest_of_cmd = parsed_info$rest_of_cmd,
       is_by_prefix = parsed_info$is_by_prefix,
       # Store by_group_vars and by_sort_vars as comma-separated strings
-      by_group_vars = if (is.na(parsed_info$by_group_vars[1])) NA_character_ else paste(parsed_info$by_group_vars, collapse=","),
-      by_sort_vars = if (is.na(parsed_info$by_sort_vars[1])) NA_character_ else paste(parsed_info$by_sort_vars, collapse=","),
+      by_group_vars = if (length(parsed_info$by_group_vars)>0) paste(parsed_info$by_group_vars, collapse=",") else NA_character_,
+      by_sort_vars = if (length(parsed_info$by_sort_vars)>0) paste(parsed_info$by_sort_vars, collapse=",") else NA_character_,
       stringsAsFactors = FALSE
     )
   })
@@ -434,6 +436,7 @@ do_parse = function(do_code) {
   cmd_df = dplyr::bind_rows(cmd_list)
   return(cmd_df)
 }
+
 
 
 ```
@@ -477,6 +480,7 @@ do_to_r = function(do_code, return_df = FALSE) {
   r_code = paste0(r_df, r_df$r_code)
   return(list(r_df=r_df, r_code=r_code))
 }
+
 ```
 ### END OF FILE: main.R
 
@@ -533,6 +537,7 @@ mark_data_manip_cmd = function(cmd_df) {
 }
 
 
+
 ```
 ### END OF FILE: mark_data_manip_cmd.R
 
@@ -553,6 +558,7 @@ sfun_missing = function(x) {
 # Example usage if you wanted to call this explicitly:
 # data = data %>% dplyr::mutate(new_var = sfun_missing(old_var))
 # However, direct translation to is.na() is preferred in generated code for simplicity.
+
 
 ```
 ### END OF FILE: sfun_missing.R
@@ -599,6 +605,7 @@ sfun_stata_add = function(x, y) {
   }
 }
 
+
 ```
 ### END OF FILE: sfun_stata_add.R
 
@@ -628,6 +635,7 @@ sfun_stata_round = function(x, unit = 1) {
 # sfun_stata_round(2.35, 0.1) # Expected: 2.4
 # sfun_stata_round(c(2.5, -2.5, NA, 5.25), 0.5) # Expected: c(2.5, -2.5, NA, 5.5) # Stata: round(5.25, .5) is 5.5. My formula: sign(5.25)*floor(abs(5.25)/.5 + .5)*.5 = 1*floor(10.5+0.5)*.5 = 1*floor(11)*.5 = 1*11*.5 = 5.5
 
+
 ```
 ### END OF FILE: sfun_stata_round.R
 
@@ -640,6 +648,7 @@ sfun_strip_stata_attributes = function(x) {
   # actually all calls to it should be removed from code
   return(x)
 }
+
 
 
 ```
@@ -659,6 +668,7 @@ sfun_stritrim = function(s) {
   s = stringi::stri_replace_all_regex(s, "\\s+", " ")
   return(s)
 }
+
 
 
 ```
@@ -684,6 +694,7 @@ sfun_strpos = function(haystack, needle) {
 # sfun_strpos("this is a test", "is")  # Expected: 3
 # sfun_strpos("this is a test", "not") # Expected: 0
 # sfun_strpos(c("apple", "banana", "apricot"), "ap") # Expected: c(1, 0, 1)
+
 
 ```
 ### END OF FILE: sfun_strpos.R
@@ -719,6 +730,7 @@ sfun_subinstr = function(s1, s2, s3, n) {
     return(stringi::stri_replace_all_fixed(s1, s2, s3))
   }
 }
+
 
 ```
 ### END OF FILE: sfun_subinstr.R
@@ -908,8 +920,8 @@ parse_stata_command_line = function(line_text) {
         stata_cmd = NA_character_,
         rest_of_cmd = NA_character_,
         is_by_prefix = is_by_prefix_val,
-        by_group_vars = if(length(by_group_vars)>0) by_group_vars else NA_character_,
-        by_sort_vars = if(length(by_sort_vars)>0) by_sort_vars else NA_character_
+        by_group_vars = if(length(by_group_vars)>0) by_group_vars else character(0),
+        by_sort_vars = if(length(by_sort_vars)>0) by_sort_vars else character(0)
       ))
   }
 
@@ -931,8 +943,8 @@ parse_stata_command_line = function(line_text) {
     stata_cmd = stata_cmd,
     rest_of_cmd = rest_of_cmd,
     is_by_prefix = is_by_prefix_val, # True if "by prefix:" was found AND command is not bysort
-    by_group_vars = if(length(by_group_vars)>0) by_group_vars else NA_character_,
-    by_sort_vars = if(length(by_sort_vars)>0) by_sort_vars else NA_character_
+    by_group_vars = if(length(by_group_vars)>0) by_group_vars else character(0),
+    by_sort_vars = if(length(by_sort_vars)>0) by_sort_vars else character(0)
   ))
 }
 
@@ -1008,6 +1020,7 @@ resolve_stata_filename = function(raw_filename_token, cmd_df, line_num, default_
     }
   }
 }
+
 
 ```
 ### END OF FILE: stata_cmd_utils.R
@@ -1199,6 +1212,7 @@ translate_stata_expression_with_r_values = function(stata_expr, current_line_ind
 }
 
 
+
 ```
 ### END OF FILE: stata_expression_translator.R
 
@@ -1209,6 +1223,7 @@ translate_stata_expression_with_r_values = function(stata_expr, current_line_ind
 # Possible replacements for Stata functions that cannot easily
 # directly translated to R functions.
 # Start each function with prefix s_
+
 ```
 ### END OF FILE: stata_fun.R
 
@@ -1235,6 +1250,7 @@ is_stata_expr_string_type = function(stata_expr) {
   FALSE
 }
 
+
 ```
 ### END OF FILE: stata_type_utils.R
 
@@ -1244,6 +1260,7 @@ is_stata_expr_string_type = function(stata_expr) {
 ```
 # Global environment to store package-wide settings, e.g., data directory
 stata2r_env = new.env(parent=emptyenv())
+
 
 ```
 ### END OF FILE: stata2r_globals.R
@@ -1290,6 +1307,7 @@ t_append = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   return(r_code_str)
 }
+
 
 ```
 ### END OF FILE: t_append.R
@@ -1461,6 +1479,7 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   return(r_code_str)
 }
 
+
 ```
 ### END OF FILE: t_collapse.R
 
@@ -1548,7 +1567,7 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
    r_code_lines = c(r_code_lines,
       paste0("## Decode values using haven::as_factor"),
       # Calculate decoded values using with(data, ...) to ensure varname_str is found
-      paste0(decoded_values_tmp_var, " = with(data, as.character(haven::as_factor(", varname_str, ", levels = 'labels')))")
+      paste0(decoded_values_tmp_var, " = with(data, as.character(haven::as_factor(data$", varname_str, ", levels = 'labels')))")
    )
 
   # Apply the if/in condition for replacement
@@ -1582,6 +1601,7 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
+
 
 ```
 ### END OF FILE: t_decode.R
@@ -1735,6 +1755,7 @@ t_destring = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   return(r_code_str)
 }
 
+
 ```
 ### END OF FILE: t_destring.R
 
@@ -1789,6 +1810,7 @@ t_drop = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
+
 
 ```
 ### END OF FILE: t_drop.R
@@ -1963,6 +1985,7 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   return(r_code_str)
 }
 
+
 ```
 ### END OF FILE: t_duplicates.R
 
@@ -2105,14 +2128,14 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   by_vars_list_unquoted = character(0) # Initialize for use in combined_grouping_vars
 
   if (cmd_obj$is_by_prefix) {
-    if (!is.na(cmd_obj$by_group_vars)) {
+    if (length(cmd_obj$by_group_vars) > 0 && !is.na(cmd_obj$by_group_vars[1])) {
       by_vars_list_unquoted = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
       by_vars_list_unquoted = by_vars_list_unquoted[by_vars_list_unquoted != ""]
       by_vars_for_group_by = paste0('c("', paste0(by_vars_list_unquoted, collapse='", "'), '")')
     }
 
     sort_vars_list = character(0)
-    if (!is.na(cmd_obj$by_sort_vars)) {
+    if (length(cmd_obj$by_sort_vars) > 0 && !is.na(cmd_obj$by_sort_vars[1])) {
       sort_vars_list = stringi::stri_split_fixed(cmd_obj$by_sort_vars, ",")[[1]]
       sort_vars_list = sort_vars_list[sort_vars_list != ""]
     }
@@ -2235,6 +2258,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   return(paste(r_code_lines, collapse="\n"))
 }
 
+
 ```
 ### END OF FILE: t_egen.R
 
@@ -2342,7 +2366,7 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
        r_code_lines = c(r_code_lines,
            paste0("## Calculate condition flag for encode"),
            # Stata 'if' treats missing as false. Ensure logical vector for subsetting.
-           paste0(satisfies_cond_tmp_var, " = dplyr::coalesce(with(data, ", r_if_in_cond, "), FALSE) & !is.na(with(data, ", r_if_in_cond, "))"),
+           paste0(satisfies_cond_tmp_var, " = dplyr::coalesce(with(data, ", r_if_in_cond, "), FALSE)"),
            # Assign only for rows meeting the condition
            paste0("data[['", gen_var, "']][", satisfies_cond_tmp_var, "] = ", encoded_values_full_tmp_var, "[", satisfies_cond_tmp_var, "]"),
            paste0("rm(", satisfies_cond_tmp_var, ")")
@@ -2372,6 +2396,7 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
+
 
 ```
 ### END OF FILE: t_encode.R
@@ -2497,6 +2522,7 @@ t_expand = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   return(r_code_str)
 }
 
+
 ```
 ### END OF FILE: t_expand.R
 
@@ -2524,7 +2550,7 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Context for expression translation (e.g. _n, _N behavior)
   # is_by_group TRUE if cmd_obj$by_group_vars is not NA
-  current_context = list(is_by_group = cmd_obj$is_by_prefix && !is.na(cmd_obj$by_group_vars))
+  current_context = list(is_by_group = cmd_obj$is_by_prefix && length(cmd_obj$by_group_vars) > 0 && !is.na(cmd_obj$by_group_vars[1]))
   r_expr = translate_stata_expression_with_r_values(stata_expr, line_num, cmd_df, current_context)
 
   r_if_cond = NA_character_
@@ -2539,14 +2565,14 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   group_vars_list = character(0) # Initialize for use in all_sort_vars
 
   if (cmd_obj$is_by_prefix) {
-    if (!is.na(cmd_obj$by_group_vars)) {
+    if (length(cmd_obj$by_group_vars) > 0 && !is.na(cmd_obj$by_group_vars[1])) {
       group_vars_list = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
       group_vars_list = group_vars_list[group_vars_list != ""]
       group_vars_r_vec_str = paste0('c("', paste0(group_vars_list, collapse='", "'), '")')
     }
 
     sort_vars_list = character(0)
-    if (!is.na(cmd_obj$by_sort_vars)) {
+    if (length(cmd_obj$by_sort_vars) > 0 && !is.na(cmd_obj$by_sort_vars[1])) {
       sort_vars_list = stringi::stri_split_fixed(cmd_obj$by_sort_vars, ",")[[1]]
       sort_vars_list = sort_vars_list[sort_vars_list != ""]
     }
@@ -2555,7 +2581,7 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     if (length(sort_vars_list) > 0) {
       all_sort_vars = c(if(length(group_vars_list)>0) group_vars_list else character(0), sort_vars_list)
       all_sort_vars_str = paste(all_sort_vars, collapse = ", ")
-      arrange_call = paste0("dplyr::arrange(data, ", all_sort_vars_str, ")")
+      arrange_call = paste0("data = dplyr::arrange(data, ", all_sort_vars_str, ")")
     }
   }
 
@@ -2591,7 +2617,8 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Start with data or data after arrange, and add the first pipe
   if (arrange_call != "") {
-      r_code_lines = c(r_code_lines, paste0("data = ", arrange_call, " %>%"))
+      r_code_lines = c(r_code_lines, arrange_call)
+      r_code_lines = c(r_code_lines, "data = data %>%")
   } else {
       r_code_lines = c(r_code_lines, "data = data %>%")
   }
@@ -2609,6 +2636,7 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 
 ```
 ### END OF FILE: t_generate.R
@@ -2664,6 +2692,7 @@ t_keep = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
+
 
 ```
 ### END OF FILE: t_keep.R
@@ -2816,6 +2845,7 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   return(paste(r_code_lines, collapse="\n"))
 }
 
+
 ```
 ### END OF FILE: t_merge.R
 
@@ -2863,6 +2893,7 @@ t_order = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   return(r_code_str)
 }
 
+
 ```
 ### END OF FILE: t_order.R
 
@@ -2895,12 +2926,6 @@ t_preserve_restore = function(cmd_obj, type = "preserve") { # line_num implicitl
   # For now, let's use unique variable names based on line number. This is not a stack,
   # it means a `restore` must correspond to a specific `preserve`'s variable. This is not how Stata works.
 
-  # Stata's preserve/restore works like a stack.
-  # The generated R code should try to use a list as a stack.
-  # `stata_preserve_stack_L<line_num_of_do_to_r_call>` perhaps.
-  # This is hard because `main.R` doesn't pass state.
-  # So, the generated code must create and manage this stack itself.
-
   r_code_lines = c(
     "if (!exists('stata_data_preserve_stack_G')) stata_data_preserve_stack_G = list() # Global stack for preserve/restore"
   )
@@ -2924,6 +2949,7 @@ t_preserve_restore = function(cmd_obj, type = "preserve") { # line_num implicitl
 
   return(paste(r_code_lines, collapse = "\n"))
 }
+
 
 ```
 ### END OF FILE: t_preserve_restore.R
@@ -2997,7 +3023,7 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       gen_opt_match = stringi::stri_match_first_regex(options_str, "\\bgen\\s*\\(([^)]+)\\)")
       if (!is.na(gen_opt_match[1,1])) {
            gen_vars = stringi::stri_trim_both(gen_opt_match[1,2])
-      }
+       }
   }
 
   new_vars = NULL
@@ -3137,6 +3163,7 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   return(r_code_str)
 }
 
+
 ```
 ### END OF FILE: t_recode.R
 
@@ -3169,6 +3196,7 @@ t_rename = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   return(r_code_str)
 }
 
+
 ```
 ### END OF FILE: t_rename.R
 
@@ -3191,7 +3219,7 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   stata_expr = stringi::stri_trim_both(match[1,3])
   stata_if_cond = stringi::stri_trim_both(match[1,4]) # Might be NA
 
-  current_context = list(is_by_group = cmd_obj$is_by_prefix && !is.na(cmd_obj$by_group_vars))
+  current_context = list(is_by_group = cmd_obj$is_by_prefix && length(cmd_obj$by_group_vars) > 0 && !is.na(cmd_obj$by_group_vars[1]))
   r_expr = translate_stata_expression_with_r_values(stata_expr, line_num, cmd_df, current_context)
 
   r_if_cond = NA_character_
@@ -3205,14 +3233,14 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   group_vars_list = character(0) # Initialize for use in all_sort_vars
 
   if (cmd_obj$is_by_prefix) {
-    if (!is.na(cmd_obj$by_group_vars)) {
+    if (length(cmd_obj$by_group_vars) > 0 && !is.na(cmd_obj$by_group_vars[1])) {
       group_vars_list = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
       group_vars_list = group_vars_list[group_vars_list != ""]
       group_vars_r_vec_str = paste0('c("', paste0(group_vars_list, collapse='", "'), '")')
     }
 
     sort_vars_list = character(0)
-    if (!is.na(cmd_obj$by_sort_vars)) {
+    if (length(cmd_obj$by_sort_vars) > 0 && !is.na(cmd_obj$by_sort_vars[1])) {
       sort_vars_list = stringi::stri_split_fixed(cmd_obj$by_sort_vars, ",")[[1]]
       sort_vars_list = sort_vars_list[sort_vars_list != ""]
     }
@@ -3220,7 +3248,7 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     if (length(sort_vars_list) > 0) {
       all_sort_vars = c(if(length(group_vars_list)>0) group_vars_list else character(0), sort_vars_list)
       all_sort_vars_str = paste(all_sort_vars, collapse = ", ")
-      arrange_call = paste0("dplyr::arrange(data, ", all_sort_vars_str, ")")
+      arrange_call = paste0("data = dplyr::arrange(data, ", all_sort_vars_str, ")")
     }
   }
 
@@ -3251,7 +3279,8 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   r_code_lines = c()
 
   if (arrange_call != "") {
-      r_code_lines = c(r_code_lines, paste0("data = ", arrange_call, " %>%"))
+      r_code_lines = c(r_code_lines, arrange_call)
+      r_code_lines = c(r_code_lines, "data = data %>%")
   } else {
       r_code_lines = c(r_code_lines, "data = data %>%")
   }
@@ -3266,6 +3295,7 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 
 ```
 ### END OF FILE: t_replace.R
@@ -3408,6 +3438,7 @@ t_reshape = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   return(r_code_str)
 }
 
+
 ```
 ### END OF FILE: t_reshape.R
 
@@ -3444,6 +3475,7 @@ t_save = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   return(r_code)
 }
+
 
 ```
 ### END OF FILE: t_save.R
@@ -3500,6 +3532,7 @@ t_sort = function(rest_of_cmd, cmd_obj, cmd_df, line_num, type = "sort") {
 
   return(r_code_str)
 }
+
 
 ```
 ### END OF FILE: t_sort.R
@@ -3593,6 +3626,7 @@ t_summarize = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   return(paste(r_code_lines, collapse="\n"))
 }
 
+
 ```
 ### END OF FILE: t_summarize.R
 
@@ -3626,6 +3660,7 @@ t_tempfile = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 
 ```
 ### END OF FILE: t_tempfile.R
@@ -3666,6 +3701,7 @@ t_use = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   return(r_code)
 }
+
 
 ```
 ### END OF FILE: t_use.R
