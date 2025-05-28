@@ -17,8 +17,13 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   r_expr = stata_expr
 
-  # Step 1: Translate Stata logical operators (moved this step up)
-  # This must happen before _n-offset translation to avoid `n = 1` becoming `n == 1`
+  # Step 1: Translate Stata logical operators and missing value comparisons
+  # These must happen before handling `.` to `NA_real_` because `X == .` is special.
+  # Stata `X == .` -> R `is.na(X)`
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*==\\s*\\.", "is.na($1)")
+  # Stata `X != .` -> R `!is.na($1)`
+  r_expr = stringi::stri_all_regex_replace(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*!=\\s*\\.", "!is.na($1)") # Use stri_all_regex_replace for safety
+
   r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![<>!=~])\\s*=\\s*(?![=])", " == ") # Replace single = with == if not part of other ops
   r_expr = stringi::stri_replace_all_regex(r_expr, "\\s+~=\\s+", " != ") # Stata `~=` to R `!=`
 
@@ -37,7 +42,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_n\\b", "as.numeric(dplyr::row_number())")
   r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_N\\b", "as.numeric(dplyr::n())")
 
-  # Handle Stata missing value literal '.'
+  # Handle Stata missing value literal '.' (now that X == . and X != . are handled)
   # Refined regex: match a dot not preceded or followed by a digit.
   r_expr = stringi::stri_replace_all_regex(r_expr, "(?<!\\d)\\.(?!\\d)", "NA_real_")
 
@@ -196,5 +201,4 @@ translate_stata_expression_with_r_values = function(stata_expr, current_line_ind
 
   translate_stata_expression_to_r(stata_expr, context, final_r_value_mappings)
 }
-
 
