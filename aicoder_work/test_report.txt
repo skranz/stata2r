@@ -43,8 +43,8 @@ data = haven::read_dta(file.path(stata2r_env$working_dir, "data.dta")) %>%
   dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used
 
  2 do:  sort group i
- 2 r:  data = dplyr::arrange(data, dplyr::across(dplyr::all_of(c("group", "i")))) 
-data = dplyr::arrange(data, dplyr::across(dplyr::all_of(c("group", "i"))))
+ 2 r:  data = dplyr::arrange(data, !!!dplyr::syms(c("group", "i"))) 
+data = dplyr::arrange(data, !!!dplyr::syms(c("group", "i")))
 
  3 do:  keep in 1/39
  3 r:  data = dplyr::slice(data, 1:39) 
@@ -60,53 +60,98 @@ data = dplyr::slice(data, 1:39)
 
  6 do:  by group: gen seq = _n
  6 r:  data = data %>% 
-  dplyr::group_by(dplyr::all_of(c("group"))) %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group"))) %>% 
   dplyr::mutate(`seq` = as.numeric(dplyr::row_number())) %>% 
   dplyr::ungroup() 
 data = data %>% 
-  dplyr::group_by(dplyr::all_of(c("group"))) %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group"))) %>% 
   dplyr::mutate(`seq` = as.numeric(dplyr::row_number())) %>% 
   dplyr::ungroup()
 
-Error: After Stata line  6 , R data set differs from Stata reference.
+ 7 do:  gen logi = log(i)
+ 7 r:  data = data %>% 
+  dplyr::mutate(`logi` = log(i)) 
+data = data %>% 
+  dplyr::mutate(`logi` = log(i))
 
-Data set from Stata (do_df):
-tibble [39 × 3] (S3: tbl_df/tbl/data.frame)
- $ i    : num [1:39] 10 13 16 19 20 21 22 27 31 34 ...
-  ..- attr(*, "label")= chr "i"
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ group: chr [1:39] "A" "A" "A" "A" ...
-  ..- attr(*, "label")= chr "group"
-  ..- attr(*, "format.stata")= chr "%1s"
- $ seq  : num [1:39] 1 2 3 4 5 6 7 8 9 10 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- - attr(*, "label")= chr "Written by R."
-NULL
+ 8 do:  gen sqrt_i = sqrt(i)
+ 8 r:  data = data %>% 
+  dplyr::mutate(`sqrt_i` = sqrt(i)) 
+data = data %>% 
+  dplyr::mutate(`sqrt_i` = sqrt(i))
 
-Data set from R (r_df):
-tibble [39 × 5] (S3: tbl_df/tbl/data.frame)
- $ i                         : num [1:39] 10 13 16 19 20 21 22 27 31 34 ...
-  ..- attr(*, "label")= chr "i"
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ group                     : chr [1:39] "A" "A" "A" "A" ...
-  ..- attr(*, "label")= chr "group"
-  ..- attr(*, "format.stata")= chr "%1s"
- $ stata2r_original_order_idx: int [1:39] 10 13 16 19 20 21 22 27 31 34 ...
- $ dplyr::all_of(c("group")) : chr [1:39] "group" "group" "group" "group" ...
- $ seq                       : num [1:39] 1 2 3 4 5 6 7 8 9 10 ...
-NULL
+ 9 do:  gen group_num = cond(group=="A",1,cond(group=="B",2,3))
+ 9 r:  data = data %>% 
+  dplyr::mutate(`group_num` = as.numeric(dplyr::if_else(group=="A", 1, dplyr::if_else(group=="B", 2, 3)))) 
+data = data %>% 
+  dplyr::mutate(`group_num` = as.numeric(dplyr::if_else(group=="A", 1, dplyr::if_else(group=="B", 2, 3))))
 
-Differences:List of 3
- $ identical      : logi FALSE
- $ column_mismatch:List of 2
-  ..$ missing_in_do_df: chr "dplyr::all_of(c(\"group\"))"
-  ..$ missing_in_r_df : chr(0) 
- $ value_mismatch :'data.frame':	5 obs. of  4 variables:
-  ..$ row      : int [1:5] 14 15 16 17 18
-  ..$ column   : chr [1:5] "seq" "seq" "seq" "seq" ...
-  ..$ df1_value: num [1:5] 1 2 3 4 5
-  ..$ df2_value: num [1:5] 14 15 16 17 18
-NULL
+ 10 do:  egen mean_i_grp = mean(i), by(group)
+ 10 r:  data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group"))) %>% 
+  dplyr::mutate(`mean_i_grp` = mean(i, na.rm = TRUE)) %>% 
+  dplyr::ungroup() 
+data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group"))) %>% 
+  dplyr::mutate(`mean_i_grp` = mean(i, na.rm = TRUE)) %>% 
+  dplyr::ungroup()
+
+ 11 do:  egen total_i = total(i)
+ 11 r:  data = data %>% 
+  dplyr::mutate(`total_i` = sum(i, na.rm = TRUE)) 
+data = data %>% 
+  dplyr::mutate(`total_i` = sum(i, na.rm = TRUE))
+
+ 12 do:  bysort group: egen rank_i = rank(i)
+ 12 r:  data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group"))) %>% 
+  dplyr::mutate(`rank_i` = dplyr::min_rank(i)) %>% 
+  dplyr::ungroup() 
+data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group"))) %>% 
+  dplyr::mutate(`rank_i` = dplyr::min_rank(i)) %>% 
+  dplyr::ungroup()
+
+ 13 do:  gen flag = (i>20) if group=="A"
+ 13 r:  data = data %>% 
+  dplyr::mutate(`flag` = dplyr::if_else(dplyr::coalesce(group=="A", FALSE), as.numeric((i>20)), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`flag` = dplyr::if_else(dplyr::coalesce(group=="A", FALSE), as.numeric((i>20)), NA_real_))
+
+ 14 do:  replace flag = 0 if missing(flag)
+ 14 r:  data = data %>% 
+  dplyr::mutate(`flag` = dplyr::if_else(dplyr::coalesce(is.na(flag), FALSE), 0, data$`flag`)) 
+data = data %>% 
+  dplyr::mutate(`flag` = dplyr::if_else(dplyr::coalesce(is.na(flag), FALSE), 0, data$`flag`))
+
+ 15 do:  keep if flag==1 | group=="B"
+ 15 r:  data = dplyr::filter(data, flag==1 | group=="B") 
+data = dplyr::filter(data, flag==1 | group=="B")
+
+ 16 do:  drop if i>35
+ 16 r:  data = dplyr::filter(data, !(i>35)) 
+data = dplyr::filter(data, !(i>35))
+
+ 17 do:  collapse (mean) i (sum) total_i_sum = i, by(group)
+ 17 r:  data = data %>% 
+  collapse::fgroup_by(group) %>% 
+  collapse::fsummarise(`i` = collapse::fmean(i, na.rm = TRUE),
+  `t` = collapse::fsum(t, na.rm = TRUE)) %>% 
+  collapse::fungroup() 
+data = data %>% 
+  collapse::fgroup_by(group) %>% 
+  collapse::fsummarise(`i` = collapse::fmean(i, na.rm = TRUE),
+  `t` = collapse::fsum(t, na.rm = TRUE)) %>% 
+  collapse::fungroup()
+
+Error: length(x) must match length(g)
+Error executing R code for Stata line  17 :  data = data %>% 
+  collapse::fgroup_by(group) %>% 
+  collapse::fsummarise(`i` = collapse::fmean(i, na.rm = TRUE),
+  `t` = collapse::fsum(t, na.rm = TRUE)) %>% 
+  collapse::fungroup()
+
+Error: length(x) must match length(g) 
 
 
 ---
@@ -242,116 +287,183 @@ data = data %>%
 
  18 do:  egen total_value2_by_group = total(value2), by(group_clean)
  18 r:  data = data %>% 
-  dplyr::group_by(dplyr::all_of(c("group_clean"))) %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
   dplyr::mutate(`total_value2_by_group` = sum(value2, na.rm = TRUE)) %>% 
   dplyr::ungroup() 
 data = data %>% 
-  dplyr::group_by(dplyr::all_of(c("group_clean"))) %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
   dplyr::mutate(`total_value2_by_group` = sum(value2, na.rm = TRUE)) %>% 
   dplyr::ungroup()
 
-Error: After Stata line  18 , R data set differs from Stata reference.
+ 19 do:  egen median_value1_by_group = median(value1), by(group_clean)
+ 19 r:  data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`median_value1_by_group` = stats::median(value1, na.rm = TRUE)) %>% 
+  dplyr::ungroup() 
+data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`median_value1_by_group` = stats::median(value1, na.rm = TRUE)) %>% 
+  dplyr::ungroup()
+
+ 20 do:  egen group_numeric_id = group(group_clean)
+ 20 r:  data = data %>% 
+  dplyr::arrange(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`group_numeric_id` = dplyr::cur_group_id()) %>% 
+  dplyr::ungroup() %>% 
+  dplyr::arrange(stata2r_original_order_idx) 
+data = data %>% 
+  dplyr::arrange(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`group_numeric_id` = dplyr::cur_group_id()) %>% 
+  dplyr::ungroup() %>% 
+  dplyr::arrange(stata2r_original_order_idx)
+
+ 21 do:  egen tag_first_in_group = tag(group_clean)
+ 21 r:  data = data %>% 
+  dplyr::arrange(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`tag_first_in_group` = as.integer(dplyr::row_number() == 1)) %>% 
+  dplyr::ungroup() %>% 
+  dplyr::arrange(stata2r_original_order_idx) 
+data = data %>% 
+  dplyr::arrange(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`tag_first_in_group` = as.integer(dplyr::row_number() == 1)) %>% 
+  dplyr::ungroup() %>% 
+  dplyr::arrange(stata2r_original_order_idx)
+
+ 22 do:  egen count_obs_in_group = count(id), by(group_clean)
+ 22 r:  data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`count_obs_in_group` = sum(!is.na(id))) %>% 
+  dplyr::ungroup() 
+data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`count_obs_in_group` = sum(!is.na(id))) %>% 
+  dplyr::ungroup()
+
+ 23 do:  egen rank_value1_in_group = rank(value1), by(group_clean) fieldstrustmissings
+ 23 r:  data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`rank_value1_in_group` = base::rank(value1, ties.method = 'min', na.last = TRUE)) %>% 
+  dplyr::ungroup() 
+data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`rank_value1_in_group` = base::rank(value1, ties.method = 'min', na.last = TRUE)) %>% 
+  dplyr::ungroup()
+
+Error: After Stata line  23 , R data set differs from Stata reference.
 
 Data set from Stata (do_df):
-tibble [50 × 20] (S3: tbl_df/tbl/data.frame)
- $ id                   : num [1:50] 1 2 3 4 5 6 7 8 9 10 ...
+tibble [50 × 24] (S3: tbl_df/tbl/data.frame)
+ $ id                    : num [1:50] 1 2 3 4 5 6 7 8 9 10 ...
   ..- attr(*, "label")= chr "id"
   ..- attr(*, "format.stata")= chr "%9.0g"
- $ group_orig           : chr [1:50] " Gamma" " Gamma" "Beta" "Beta" ...
+ $ group_orig            : chr [1:50] " Gamma" " Gamma" "Beta" "Beta" ...
   ..- attr(*, "label")= chr "group_orig"
   ..- attr(*, "format.stata")= chr "%6s"
- $ value1               : num [1:50] 73.9 NA 52.8 29.8 44.2 ...
+ $ value1                : num [1:50] 73.9 NA 52.8 29.8 44.2 ...
   ..- attr(*, "label")= chr "value1"
   ..- attr(*, "format.stata")= chr "%9.0g"
- $ value2               : num [1:50] 4 3 NA 10 3 2 3 6 6 8 ...
+ $ value2                : num [1:50] 4 3 NA 10 3 2 3 6 6 8 ...
   ..- attr(*, "label")= chr "value2"
   ..- attr(*, "format.stata")= chr "%9.0g"
- $ date_str             : chr [1:50] "2020-09-21" "2022-08-26" "2022-02-09" "2021-05-20" ...
+ $ date_str              : chr [1:50] "2020-09-21" "2022-08-26" "2022-02-09" "2021-05-20" ...
   ..- attr(*, "label")= chr "date_str"
   ..- attr(*, "format.stata")= chr "%10s"
- $ num_str              : chr [1:50] "166" "181" "101" "136" ...
+ $ num_str               : chr [1:50] "166" "181" "101" "136" ...
   ..- attr(*, "label")= chr "num_str"
   ..- attr(*, "format.stata")= chr "%3s"
- $ mixed_var            : chr [1:50] "apple" "42" "10" "20" ...
+ $ mixed_var             : chr [1:50] "apple" "42" "10" "20" ...
   ..- attr(*, "label")= chr "mixed_var"
   ..- attr(*, "format.stata")= chr "%6s"
- $ value1_log           : num [1:50] 4.3 NA 3.97 3.39 3.79 ...
+ $ value1_log            : num [1:50] 4.3 NA 3.97 3.39 3.79 ...
   ..- attr(*, "format.stata")= chr "%9.0g"
- $ value2_squared       : num [1:50] 16 9 NA 100 9 4 9 36 36 64 ...
+ $ value2_squared        : num [1:50] 16 9 NA 100 9 4 9 36 36 64 ...
   ..- attr(*, "format.stata")= chr "%9.0g"
- $ int_value1           : num [1:50] 73 NA 52 29 44 NA 41 20 31 70 ...
+ $ int_value1            : num [1:50] 73 NA 52 29 44 NA 41 20 31 70 ...
   ..- attr(*, "format.stata")= chr "%9.0g"
- $ rounded_value1       : num [1:50] 73.9 NA 52.8 29.8 44.2 ...
+ $ rounded_value1        : num [1:50] 73.9 NA 52.8 29.8 44.2 ...
   ..- attr(*, "format.stata")= chr "%9.0g"
- $ random_uniform_draw  : num [1:50] 0.3489 0.2669 0.1366 0.0286 0.8689 ...
+ $ random_uniform_draw   : num [1:50] 0.3489 0.2669 0.1366 0.0286 0.8689 ...
   ..- attr(*, "format.stata")= chr "%9.0g"
- $ id_plus_value2       : num [1:50] 5 5 NA NA 8 8 10 14 15 NA ...
+ $ id_plus_value2        : num [1:50] 5 5 NA NA 8 8 10 14 15 NA ...
   ..- attr(*, "format.stata")= chr "%9.0g"
- $ group_clean          : chr [1:50] "gamma" "gamma" "beta" "beta" ...
+ $ group_clean           : chr [1:50] "gamma" "gamma" "beta" "beta" ...
   ..- attr(*, "format.stata")= chr "%9s"
- $ group_abbr           : chr [1:50] "gam" "gam" "bet" "bet" ...
+ $ group_abbr            : chr [1:50] "gam" "gam" "bet" "bet" ...
   ..- attr(*, "format.stata")= chr "%9s"
- $ contact_info         : chr [1:50] "gamma:166" "gamma:181" "delta:101" "delta:136" ...
+ $ contact_info          : chr [1:50] "gamma:166" "gamma:181" "delta:101" "delta:136" ...
   ..- attr(*, "format.stata")= chr "%9s"
- $ str_len_group        : num [1:50] 5 5 4 4 5 4 5 5 4 5 ...
+ $ str_len_group         : num [1:50] 5 5 4 4 5 4 5 5 4 5 ...
   ..- attr(*, "format.stata")= chr "%9.0g"
- $ mean_overall_value1  : num [1:50] 66.8 66.8 66.8 66.8 66.8 ...
+ $ mean_overall_value1   : num [1:50] 66.8 66.8 66.8 66.8 66.8 ...
   ..- attr(*, "format.stata")= chr "%9.0g"
- $ sd_overall_value1    : num [1:50] 38 38 38 38 38 ...
+ $ sd_overall_value1     : num [1:50] 38 38 38 38 38 ...
   ..- attr(*, "format.stata")= chr "%9.0g"
- $ total_value2_by_group: num [1:50] 49 49 86 86 49 86 71 71 86 49 ...
+ $ total_value2_by_group : num [1:50] 49 49 86 86 49 86 71 71 86 49 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ median_value1_by_group: num [1:50] 44.2 44.2 47.3 47.3 44.2 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ group_numeric_id      : num [1:50] 3 3 2 2 3 2 1 1 2 3 ...
+  ..- attr(*, "label")= chr "group(group_clean)"
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ tag_first_in_group    : num [1:50] 1 0 1 0 0 0 1 0 0 0 ...
+  ..- attr(*, "label")= chr "tag(group_clean)"
+  ..- attr(*, "format.stata")= chr "%8.0g"
+ $ count_obs_in_group    : num [1:50] 11 11 20 20 11 20 16 16 20 11 ...
   ..- attr(*, "format.stata")= chr "%9.0g"
  - attr(*, "label")= chr "Written by R."
 NULL
 
 Data set from R (r_df):
-tibble [50 × 22] (S3: tbl_df/tbl/data.frame)
- $ id                             : num [1:50] 1 2 3 4 5 6 7 8 9 10 ...
+tibble [50 × 26] (S3: tbl_df/tbl/data.frame)
+ $ id                        : num [1:50] 1 2 3 4 5 6 7 8 9 10 ...
   ..- attr(*, "label")= chr "id"
   ..- attr(*, "format.stata")= chr "%9.0g"
- $ group_orig                     : chr [1:50] " Gamma" " Gamma" "Beta" "Beta" ...
+ $ group_orig                : chr [1:50] " Gamma" " Gamma" "Beta" "Beta" ...
   ..- attr(*, "label")= chr "group_orig"
   ..- attr(*, "format.stata")= chr "%6s"
- $ value1                         : num [1:50] 73.9 NA 52.8 29.8 44.2 ...
- $ value2                         : num [1:50] 4 3 NA 10 3 2 3 6 6 8 ...
+ $ value1                    : num [1:50] 73.9 NA 52.8 29.8 44.2 ...
+ $ value2                    : num [1:50] 4 3 NA 10 3 2 3 6 6 8 ...
   ..- attr(*, "label")= chr "value2"
   ..- attr(*, "format.stata")= chr "%9.0g"
- $ date_str                       : chr [1:50] "2020-09-21" "2022-08-26" "2022-02-09" "2021-05-20" ...
+ $ date_str                  : chr [1:50] "2020-09-21" "2022-08-26" "2022-02-09" "2021-05-20" ...
   ..- attr(*, "label")= chr "date_str"
   ..- attr(*, "format.stata")= chr "%10s"
- $ num_str                        : chr [1:50] "166" "181" "101" "136" ...
+ $ num_str                   : chr [1:50] "166" "181" "101" "136" ...
   ..- attr(*, "label")= chr "num_str"
   ..- attr(*, "format.stata")= chr "%3s"
- $ mixed_var                      : chr [1:50] "apple" "42" "10" "20" ...
+ $ mixed_var                 : chr [1:50] "apple" "42" "10" "20" ...
   ..- attr(*, "label")= chr "mixed_var"
   ..- attr(*, "format.stata")= chr "%6s"
- $ stata2r_original_order_idx     : int [1:50] 1 2 3 4 5 6 7 8 9 10 ...
- $ value1_log                     : num [1:50] 4.3 NA 3.97 3.39 3.79 ...
- $ value2_squared                 : num [1:50] 16 9 NA 100 9 4 9 36 36 64 ...
+ $ stata2r_original_order_idx: int [1:50] 1 2 3 4 5 6 7 8 9 10 ...
+ $ value1_log                : num [1:50] 4.3 NA 3.97 3.39 3.79 ...
+ $ value2_squared            : num [1:50] 16 9 NA 100 9 4 9 36 36 64 ...
   ..- attr(*, "label")= chr "value2"
   ..- attr(*, "format.stata")= chr "%9.0g"
- $ int_value1                     : num [1:50] 73 NA 52 29 44 NA 41 20 31 70 ...
- $ rounded_value1                 : num [1:50] 73.9 NA 52.8 29.8 44.2 NA 41.7 20 31.9 70.1 ...
- $ random_uniform_draw            : num [1:50] 0.622 0.617 0.261 0.913 0.218 ...
- $ id_plus_value2                 : num [1:50] 5 5 NA NA 8 8 10 14 15 NA ...
- $ group_clean                    : chr [1:50] "gamma" "gamma" "beta" "beta" ...
- $ group_abbr                     : chr [1:50] "gam" "gam" "bet" "bet" ...
- $ contact_info                   : chr [1:50] "gamma:166" "gamma:181" "delta:101" "delta:136" ...
- $ str_len_group                  : int [1:50] 5 5 4 4 5 4 5 5 4 5 ...
- $ mean_overall_value1            : num [1:50] 66.8 66.8 66.8 66.8 66.8 ...
- $ sd_overall_value1              : num [1:50] 38 38 38 38 38 ...
- $ dplyr::all_of(c("group_clean")): chr [1:50] "group_clean" "group_clean" "group_clean" "group_clean" ...
- $ total_value2_by_group          : num [1:50] 224 224 224 224 224 224 224 224 224 224 ...
+ $ int_value1                : num [1:50] 73 NA 52 29 44 NA 41 20 31 70 ...
+ $ rounded_value1            : num [1:50] 73.9 NA 52.8 29.8 44.2 NA 41.7 20 31.9 70.1 ...
+ $ random_uniform_draw       : num [1:50] 0.279 0.687 0.381 0.259 0.818 ...
+ $ id_plus_value2            : num [1:50] 5 5 NA NA 8 8 10 14 15 NA ...
+ $ group_clean               : chr [1:50] "gamma" "gamma" "beta" "beta" ...
+ $ group_abbr                : chr [1:50] "gam" "gam" "bet" "bet" ...
+ $ contact_info              : chr [1:50] "gamma:166" "gamma:181" "delta:101" "delta:136" ...
+ $ str_len_group             : int [1:50] 5 5 4 4 5 4 5 5 4 5 ...
+ $ mean_overall_value1       : num [1:50] 66.8 66.8 66.8 66.8 66.8 ...
+ $ sd_overall_value1         : num [1:50] 38 38 38 38 38 ...
+ $ total_value2_by_group     : num [1:50] 49 49 86 86 49 86 71 71 86 49 ...
+ $ median_value1_by_group    : num [1:50] 44.2 44.2 47.3 47.3 44.2 ...
+ $ group_numeric_id          : int [1:50] 3 3 2 2 3 2 1 1 2 3 ...
+ $ tag_first_in_group        : int [1:50] 1 0 1 0 0 0 1 0 0 0 ...
+ $ count_obs_in_group        : int [1:50] 11 11 20 20 11 20 16 16 20 11 ...
+ $ rank_value1_in_group      : int [1:50] 8 10 12 4 5 19 3 1 5 7 ...
 NULL
 
-Differences:List of 3
+Differences:List of 2
  $ identical      : logi FALSE
  $ column_mismatch:List of 2
-  ..$ missing_in_do_df: chr "dplyr::all_of(c(\"group_clean\"))"
+  ..$ missing_in_do_df: chr "rank_value1_in_group"
   ..$ missing_in_r_df : chr(0) 
- $ value_mismatch :'data.frame':	5 obs. of  4 variables:
-  ..$ row      : int [1:5] 1 2 3 4 5
-  ..$ column   : chr [1:5] "total_value2_by_group" "total_value2_by_group" "total_value2_by_group" "total_value2_by_group" ...
-  ..$ df1_value: num [1:5] 49 49 86 86 49
-  ..$ df2_value: num [1:5] 224 224 224 224 224
 NULL
