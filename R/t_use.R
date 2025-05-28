@@ -14,8 +14,10 @@ t_use = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   raw_filename_token = parts[1,2]
   clear_opt = parts[1,3] # NA if not present, "clear" if present
 
-  # FIX: Change default_base_dir_var to "data_dir" for 'use' command
-  filename_r_expr = resolve_stata_filename(raw_filename_token, cmd_df, line_num, default_base_dir_var = "data_dir")
+  # Stata 'use filename' defaults to look in current working directory.
+  # The 'working_dir' in stata2r_env represents this.
+  # 'data_dir' is primarily for reference comparison files, or when explicitly specified via `using`.
+  filename_r_expr = resolve_stata_filename(raw_filename_token, cmd_df, line_num, default_base_dir_var = "working_dir")
 
   r_code = paste0("data = haven::read_dta(", filename_r_expr, ")")
 
