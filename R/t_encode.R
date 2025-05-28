@@ -29,11 +29,9 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       varname_str = stringi::stri_trim_both(varname_str)
   } else {
       # This case implies `encode varname` without `, gen(newvar)` which is invalid for encode.
-      # However, parsing might mean options_str is NA if only gen() is present without a leading comma after varname.
-      # Stata syntax is `encode varname, gen(newvar)`
-      # For robustness, assume if options_str is NA, it's a parse issue or invalid Stata.
-      # The original code handled `varname_str = rest_no_if_in` here, which is likely incorrect
-      # if options are mandatory. Let's ensure gen() is found.
+      # Stata syntax is `encode varname, gen(newvar)`. The comma is mandatory before options.
+      # So, if no comma, there are no options, and thus no gen().
+      # This means `gen_var` will be NA, and the error will be thrown later.
       return(paste0("# encode command requires gen() in options: ", rest_of_cmd))
   }
 
@@ -41,10 +39,11 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
        return(paste0("# encode command requires varname: ", rest_of_cmd))
    }
 
-  # Parse options, specifically `gen()`
+  # Parse options, specifically `gen()` or `generate()`
   gen_var = NA_character_
   if (!is.na(options_str)) {
-      gen_opt_match = stringi::stri_match_first_regex(options_str, "\\bgen\\s*\\(([^)]+)\\)")
+      # Modified regex to accept 'gen' or 'generate'
+      gen_opt_match = stringi::stri_match_first_regex(options_str, "\\b(?:gen|generate)\\s*\\(([^)]+)\\)")
       if (!is.na(gen_opt_match[1,1])) {
            gen_vars_str = stringi::stri_trim_both(gen_opt_match[1,2])
            gen_vars_list = stringi::stri_split_regex(gen_vars_str, "\\s+")[[1]]
@@ -117,7 +116,8 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Add comment about other options if any were present but not handled (excluding gen)
    options_str_cleaned = options_str
    if (!is.na(options_str_cleaned)) {
-        options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "\\bgen\\s*\\([^)]+\\)", "")
+        # Modify regex to remove both 'gen' and 'generate' forms
+        options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "\\b(?:gen|generate)\\s*\\([^)]+\\)", "")
         options_str_cleaned = stringi::stri_trim_both(stringi::stri_replace_all_regex(options_str_cleaned, ",+", ","))
         options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "^,+", "") # Remove leading comma
    }
