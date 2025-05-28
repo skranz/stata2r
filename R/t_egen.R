@@ -182,9 +182,9 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     # Assuming r_egen_args_conditional results in a numeric or logical vector
     calc_expr = paste0("sum(!is.na(", r_egen_args_conditional, "))")
   } else if (egen_func_name == "rank") {
-    # Stata rank puts missing values last. dplyr::min_rank by default puts NA last.
-    # Explicitly set na.last = "bottom" for clarity and consistency.
-    calc_expr = paste0("dplyr::min_rank(", r_egen_args_conditional, ", na.last = \"bottom\")")
+    # Stata rank puts missing values last.
+    # To emulate this with dplyr::min_rank, replace NA values with Inf before ranking.
+    calc_expr = paste0("dplyr::min_rank(ifelse(is.na(", r_egen_args_conditional, "), Inf, ", r_egen_args_conditional, "))")
   } else if (egen_func_name == "median" || egen_func_name == "p50") {
     calc_expr = paste0("stats::median(", r_egen_args_conditional, ", na.rm = TRUE)")
   } else if (egen_func_name == "sd" || egen_func_name == "std") {
