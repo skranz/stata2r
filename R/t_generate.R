@@ -74,7 +74,8 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
 
   if (!is.na(r_if_cond) && r_if_cond != "") {
-    calc_expr = paste0("dplyr::if_else(", r_if_cond, ", ", calculated_value_expr, ", ", na_for_if_else, ")")
+    # Stata's 'if' condition treats NA as FALSE.
+    calc_expr = paste0("dplyr::if_else(dplyr::coalesce(", r_if_cond, ", FALSE), ", calculated_value_expr, ", ", na_for_if_else, ")")
   } else {
     calc_expr = calculated_value_expr
   }
