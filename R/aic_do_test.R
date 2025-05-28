@@ -196,8 +196,20 @@ compare_df = function(df1, df2,
     df2 = df2[, sort(names(df2)), drop = FALSE]
   }
   if (ignore_row_order) {
-    df1 = dplyr::arrange(df1, dplyr::across(dplyr::everything()))
-    df2 = dplyr::arrange(df2, dplyr::across(dplyr::everything()))
+    # Changed from dplyr::arrange to base R order for robustness against dplyr/vctrs issues
+    # Ensure all columns are handled for ordering, and handle potential factors/labelled
+    # Convert to regular data.frame to simplify ordering, then convert back.
+    df1 = as.data.frame(df1)
+    df2 = as.data.frame(df2)
+    # Ensure numeric columns are treated consistently for ordering (e.g., NAs last)
+    # Stata's default sort behavior for numeric types places missing values last.
+    # For character, NA is also typically last.
+    if (NROW(df1) > 0 && NCOL(df1) > 0) {
+      df1 = df1[do.call(order, c(as.list(df1), list(na.last = TRUE))), , drop = FALSE]
+    }
+    if (NROW(df2) > 0 && NCOL(df2) > 0) {
+      df2 = df2[do.call(order, c(as.list(df2), list(na.last = TRUE))), , drop = FALSE]
+    }
   }
 
   out = list(identical=FALSE)

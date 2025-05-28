@@ -81,7 +81,8 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # --- Determine the target variable type and collect labels if applicable ---
   target_var_will_be_string_in_R = FALSE
   target_var_is_numeric_with_labels = FALSE
-  collected_labels = list() # Store numeric_value = "label" pairs
+  # Use a temporary list to collect labels (name=label string, value=numeric code)
+  collected_labels_temp = list() 
 
   for (rule_raw in recode_rules_raw) {
       rule_str_trimmed = stringi::stri_trim_both(rule_raw)
@@ -110,15 +111,39 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
           else r_numeric_val = as.numeric(numeric_val_part)
 
           if (!is.na(r_numeric_val)) {
-            collected_labels[[string_label_part]] = r_numeric_val
+            # Collect label: key is numeric value, value is label string
+            # This is for haven::labelled(..., labels = c(num_val = "label_str"))
+            collected_labels_temp[[as.character(r_numeric_val)]] = string_label_part
           }
       }
   }
 
-  # If any rule forces string, then it's string. Otherwise, if any rule has labels, it's numeric with labels.
-  # Otherwise, it's plain numeric.
-  final_r_var_type_is_string = target_var_will_be_string_in_R
-  final_r_var_type_is_labelled_numeric = !target_var_will_be_string_in_R && target_var_is_numeric_with_labels
+  # After loop, convert collected_labels_temp to the final named numeric vector for labels
+  final_labels_map = stats::setNames(numeric(0), character(0)) # Initialize empty named numeric vector
+  if (target_var_is_numeric_with_labels && length(collected_labels_temp) > 0) {
+      # The keys are numeric values, the values are label strings.
+      # haven::labelled expects numeric values as the vector, and labels as names.
+      # e.g., haven::labelled(x, labels = c("Label A" = 1, "Label B" = 2))
+      # So, the final format should be: numeric_value = "label_string"
+      # collected_labels_temp is already in this format.
+      
+      # Ensure unique labels and values for final map
+      # Create a unique map from value to label (last one wins for duplicates)
+      unique_values = unique(as.numeric(names(collected_labels_temp)))
+      for (val in unique_values) {
+          # Find all labels associated with this value, take the last one.
+          matching_labels = unlist(collected_labels_temp[names(collected_labels_temp) == as.character(val)])
+          if (length(matching_labels) > 0) {
+              final_labels_map[as.character(val)] = tail(matching_labels, 1)
+          }
+      }
+      # Reorder by numeric value for consistency, although not strictly necessary for functionality
+      final_labels_map = final_labels_map[order(as.numeric(names(final_labels_map)))]
+      # Now, convert back to haven::labelled format: `labels = c("label1" = value1, "label2" = value2)`
+      # This means the *names* are the labels, and the *values* are the numeric codes.
+      final_labels_map = stats::setNames(as.numeric(names(final_labels_map)), unname(final_labels_map))
+
+  }
 
   # Translate the if/in condition for subsetting
   r_subset_cond = NA_character_
@@ -266,14 +291,8 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   r_code_lines = c(r_code_lines, paste0("data = dplyr::mutate(data, ", mutate_exprs_str, ")"))
 
   # Apply labels if the target variable is determined to be numeric with labels
-  if (final_r_var_type_is_labelled_numeric && length(collected_labels) > 0) {
-      # Ensure collected_labels is a named numeric vector
-      # Use unlist and unique to handle potential duplicate labels from multiple rules
-      unique_labels = unique(unlist(collected_labels))
-      numeric_values = unname(unique_labels)
-      label_names = names(unique_labels)
-
-      labels_vector_r_code = paste0("stats::setNames(c(", paste(numeric_values, collapse=", "), "), c(", paste0('"', label_names, '"', collapse=", "), "))")
+  if (final_r_var_type_is_labelled_numeric && length(final_labels_map) > 0) {
+      labels_vector_r_code = paste0("stats::setNames(c(", paste(unname(final_labels_map), collapse=", "), "), c(", paste0('"', names(final_labels_map), '"', collapse=", "), "))")
 
       for (new_var in new_vars) {
           # Need to update the labels attribute directly, as haven::labelled only sets it on creation
