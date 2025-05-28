@@ -613,10 +613,68 @@ data = data %>%
 data = data %>% 
   dplyr::mutate(`obs_quarter` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), sfun_qofd(obs_date), NA_real_))
 
-Error: After Stata line  34 , R data set differs from Stata reference.
+ 35 do:  gen days_since_2021_start = obs_date - mdy(1,1,2021) if !missing(obs_date)
+ 35 r:  data = data %>% 
+  dplyr::mutate(`days_since_2021_start` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), obs_date - sfun_stata_mdy(1, 1, 2021), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`days_since_2021_start` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), obs_date - sfun_stata_mdy(1, 1, 2021), NA_real_))
+
+ 36 do:  gen is_weekend_day = (dow(obs_date) == 0 | dow(obs_date) == 6) if !missing(obs_date)
+ 36 r:  data = data %>% 
+  dplyr::mutate(`is_weekend_day` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), as.numeric((sfun_dow(obs_date) == 0 | sfun_dow(obs_date) == 6)), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`is_weekend_day` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), as.numeric((sfun_dow(obs_date) == 0 | sfun_dow(obs_date) == 6)), NA_real_))
+
+ 37 do:  destring num_str, generate(num_val_from_str) ignore("error")
+ 37 r:  data = dplyr::mutate(data, `num_val_from_str` = readr::parse_number(as.character(num_str))) # Other options ignored: ignore("error") 
+data = dplyr::mutate(data, `num_val_from_str` = readr::parse_number(as.character(num_str))) # Other options ignored: ignore("error")
+
+ 38 do:  replace num_val_from_str = 0 if missing(num_val_from_str)
+ 38 r:  data = data %>% 
+  dplyr::mutate(`num_val_from_str` = dplyr::if_else(dplyr::coalesce(sfun_missing(num_val_from_str), FALSE), 0, data$`num_val_from_str`)) 
+data = data %>% 
+  dplyr::mutate(`num_val_from_str` = dplyr::if_else(dplyr::coalesce(sfun_missing(num_val_from_str), FALSE), 0, data$`num_val_from_str`))
+
+ 39 do:  destring mixed_var, generate(mixed_val_num) force
+ 39 r:  data = dplyr::mutate(data, `mixed_val_num` = readr::parse_number(as.character(mixed_var))) # Other options ignored: force 
+data = dplyr::mutate(data, `mixed_val_num` = readr::parse_number(as.character(mixed_var))) # Other options ignored: force
+
+Warning: 12 parsing failures.
+row col expected actual
+  1  -- a number apple 
+  7  -- a number apple 
+  8  -- a number apple 
+ 16  -- a number banana
+ 20  -- a number banana
+... ... ........ ......
+See problems(...) for more details.
+
+Warning: Problem with `mutate()` column `mixed_val_num`.
+ℹ `mixed_val_num = readr::parse_number(as.character(mixed_var))`.
+ℹ 12 parsing failures.
+row col expected actual
+  1  -- a number apple 
+  7  -- a number apple 
+  8  -- a number apple 
+ 16  -- a number banana
+ 20  -- a number banana
+... ... ........ ......
+See problems(...) for more details.
+
+ 40 do:  gen mixed_var_as_str = string(mixed_val_num) if !missing(mixed_val_num)
+ 40 r:  data = data %>% 
+  dplyr::mutate(`mixed_var_as_str` = dplyr::if_else(dplyr::coalesce(!sfun_missing(mixed_val_num), FALSE), sfun_string(mixed_val_num), "")) 
+data = data %>% 
+  dplyr::mutate(`mixed_var_as_str` = dplyr::if_else(dplyr::coalesce(!sfun_missing(mixed_val_num), FALSE), sfun_string(mixed_val_num), ""))
+
+ 41 do:  encode group_clean, generate(group_code_num)
+ 41 r:  # encode requires gen() option: group_clean, generate(group_code_num) 
+# encode requires gen() option: group_clean, generate(group_code_num)
+
+Error: After Stata line  41 , R data set differs from Stata reference.
 
 Data set from Stata (do_df):
-tibble [50 × 33] (S3: tbl_df/tbl/data.frame)
+tibble [50 × 39] (S3: tbl_df/tbl/data.frame)
  $ id                    : num [1:50] 1 2 3 4 5 6 7 8 9 10 ...
   ..- attr(*, "label")= chr "id"
   ..- attr(*, "format.stata")= chr "%9.0g"
@@ -635,9 +693,15 @@ tibble [50 × 33] (S3: tbl_df/tbl/data.frame)
  $ num_str               : chr [1:50] "166" "181" "101" "136" ...
   ..- attr(*, "label")= chr "num_str"
   ..- attr(*, "format.stata")= chr "%3s"
+ $ num_val_from_str      : num [1:50] 166 181 101 136 162 175 112 141 160 169 ...
+  ..- attr(*, "label")= chr "num_str"
+  ..- attr(*, "format.stata")= chr "%10.0g"
  $ mixed_var             : chr [1:50] "apple" "42" "10" "20" ...
   ..- attr(*, "label")= chr "mixed_var"
   ..- attr(*, "format.stata")= chr "%6s"
+ $ mixed_val_num         : num [1:50] NA 42 10 20 55 42 NA NA 10 20 ...
+  ..- attr(*, "label")= chr "mixed_var"
+  ..- attr(*, "format.stata")= chr "%10.0g"
  $ value1_log            : num [1:50] 4.3 NA 3.97 3.39 3.79 ...
   ..- attr(*, "format.stata")= chr "%9.0g"
  $ value2_squared        : num [1:50] 16 9 NA 100 9 4 9 36 36 64 ...
@@ -691,11 +755,21 @@ tibble [50 × 33] (S3: tbl_df/tbl/data.frame)
   ..- attr(*, "format.stata")= chr "%9.0g"
  $ obs_quarter           : num [1:50] 242 250 248 245 242 250 242 251 247 247 ...
   ..- attr(*, "format.stata")= chr "%9.0g"
+ $ days_since_2021_start : num [1:50] -102 602 404 139 -117 563 -168 642 358 292 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ is_weekend_day        : num [1:50] 0 0 0 0 1 0 0 0 1 0 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ mixed_var_as_str      : chr [1:50] "" "42" "10" "20" ...
+  ..- attr(*, "format.stata")= chr "%9s"
+ $ group_code_num        : dbl+lbl [1:50] 3, 3, 2, 2, 3, 2, 1, 1, 2, 3, 2, 3, 3, 1, 4, 4, 1, 2, ...
+   ..@ format.stata: chr "%8.0g"
+   ..@ labels      : Named num [1:4] 1 2 3 4
+   .. ..- attr(*, "names")= chr [1:4] "alpha" "beta" "gamma" "na"
  - attr(*, "label")= chr "Written by R."
 NULL
 
 Data set from R (r_df):
-tibble [50 × 34] (S3: tbl_df/tbl/data.frame)
+tibble [50 × 39] (S3: tbl_df/tbl/data.frame)
  $ id                        : num [1:50] 1 2 3 4 5 6 7 8 9 10 ...
   ..- attr(*, "label")= chr "id"
   ..- attr(*, "format.stata")= chr "%9.0g"
@@ -722,7 +796,7 @@ tibble [50 × 34] (S3: tbl_df/tbl/data.frame)
   ..- attr(*, "format.stata")= chr "%9.0g"
  $ int_value1                : num [1:50] 73 NA 52 29 44 NA 41 20 31 70 ...
  $ rounded_value1            : num [1:50] 73.9 NA 52.8 29.8 44.2 NA 41.7 20 31.9 70.1 ...
- $ random_uniform_draw       : num [1:50] 0.651 0.318 0.66 0.635 0.761 ...
+ $ random_uniform_draw       : num [1:50] 0.814 0.523 0.406 0.012 0.188 ...
  $ id_plus_value2            : num [1:50] 5 5 NA NA 8 8 10 14 15 NA ...
  $ group_clean               : chr [1:50] "gamma" "gamma" "beta" "beta" ...
  $ group_abbr                : chr [1:50] "gam" "gam" "bet" "bet" ...
@@ -743,14 +817,22 @@ tibble [50 × 34] (S3: tbl_df/tbl/data.frame)
  $ obs_year                  : num [1:50] 2020 2022 2022 2021 2020 ...
  $ obs_month                 : num [1:50] 9 8 2 5 9 7 7 10 12 10 ...
  $ obs_day                   : num [1:50] 21 26 9 20 6 18 17 5 25 20 ...
- $ obs_quarter               : num [1:50] 3 3 1 2 3 3 3 4 4 4 ...
+ $ obs_quarter               : num [1:50] 242 250 248 245 242 250 242 251 247 247 ...
+ $ days_since_2021_start     : num [1:50] -102 602 404 139 -117 563 -168 642 358 292 ...
+ $ is_weekend_day            : num [1:50] 0 0 0 0 1 0 0 0 1 0 ...
+ $ num_val_from_str          : num [1:50] 166 181 101 136 162 175 112 141 160 169 ...
+ $ mixed_val_num             : num [1:50] NA 42 10 20 55 42 NA NA 10 20 ...
+  ..- attr(*, "problems")= tibble [12 × 4] (S3: tbl_df/tbl/data.frame)
+  .. ..$ row     : int [1:12] 1 7 8 16 20 29 32 36 37 38 ...
+  .. ..$ col     : int [1:12] NA NA NA NA NA NA NA NA NA NA ...
+  .. ..$ expected: chr [1:12] "a number" "a number" "a number" "a number" ...
+  .. ..$ actual  : chr [1:12] "apple" "apple" "apple" "banana" ...
+ $ mixed_var_as_str          : chr [1:50] "" "42" "10" "20" ...
 NULL
 
 Differences:List of 2
- $ identical     : logi FALSE
- $ value_mismatch:'data.frame':	5 obs. of  4 variables:
-  ..$ row      : int [1:5] 1 2 3 4 5
-  ..$ column   : chr [1:5] "obs_quarter" "obs_quarter" "obs_quarter" "obs_quarter" ...
-  ..$ df1_value: num [1:5] 242 250 248 245 242
-  ..$ df2_value: num [1:5] 3 3 1 2 3
+ $ identical      : logi FALSE
+ $ column_mismatch:List of 2
+  ..$ missing_in_do_df: chr(0) 
+  ..$ missing_in_r_df : chr "group_code_num"
 NULL

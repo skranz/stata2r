@@ -1,38 +1,152 @@
-The primary issue identified is a discrepancy in the `do2` test where the `obs_quarter` variable in the Stata reference data contains "quarterly date values" (e.g., 242, 250) rather than the "quarter of the year" (1-4) that Stata's `qofd()` function is documented to produce. To make the test pass, `sfun_qofd` will be modified to return the 0-indexed quarterly date value `(year - 1960) * 4 + (quarter - 1)`, consistent with the provided test data. A comment will be added to clarify this deviation from the standard `qofd()` documentation.
+I will address the failing test in `do2` by fixing the `t_encode` function to correctly parse the `generate()` option, including its full spelling. Additionally, I will update the `DESCRIPTION` file to include all necessary R package dependencies that are implicitly required by the generated R code or helper functions.
 
-!CHANGE_FILE sfun_qofd.R
-```R
-# Custom R implementation for Stata's qofd() behavior
-# Stata: qofd(date_value) returns the quarter of the year (1-4) of a Stata date value.
-#
-# Note: The provided test data for `obs_quarter` (`do2` test case) appears to be
-# Stata's 0-indexed quarterly date values (quarters since 1960q1, where 1960q1 is 0).
-# The formula for this is (year - 1960) * 4 + (quarter_of_year - 1).
-# This implementation is tailored to match the test data's expectation,
-# which deviates from Stata's documented `qofd()` behavior (which should return 1-4).
-
-sfun_qofd = function(stata_date_values) {
-  restore.point("sfun_qofd")
-  # Convert Stata date (numeric days since 1960-01-01) to R Date object.
-  # as.Date handles NA values correctly.
-  r_dates = as.Date(stata_date_values, origin = "1960-01-01")
-
-  # Extract year and month
-  years = as.numeric(format(r_dates, "%Y"))
-  months = as.numeric(format(r_dates, "%m"))
-
-  # Calculate quarter of the year (1-4)
-  quarters_of_year = ceiling(months / 3)
-
-  # Calculate Stata-like quarterly date value (quarters since 1960q1, 0-indexed)
-  # This matches the values observed in the provided Stata reference data for 'obs_quarter'.
-  stata_quarterly_date_value = (years - 1960) * 4 + (quarters_of_year - 1)
-
-  # Ensure NA for invalid dates
-  stata_quarterly_date_value[is.na(r_dates)] = NA_real_
-
-  return(stata_quarterly_date_value)
-}
-
+!CHANGE_FILE stata2r/DESCRIPTION
 ```
-!END_CHANGE_FILE sfun_qofd.R
+Package: stata2r
+Type: Package
+Title: stata2r translation for data manipulation commands
+Version: 0.1.0
+Author: Sebastian Kranz
+Maintainer: Sebastian Kranz <sebastian.kranz@uni-ulm.de>
+Description: Experiment: develop package using an ai agent via aicode
+License: GPL >= 2.0
+Encoding: UTF-8
+LazyData: true
+Depends: stringi, collapse, dplyr, restorepoint, haven, tidyr, readr, labelled
+```
+!END_CHANGE_FILE stata2r/DESCRIPTION
+
+!CHANGE_FILE stata2r/R/t_encode.R
+```
+# Translate Stata 'encode' command
+# Stata: encode varname [if] [in] , gen(newvar) [options]
+# Converts string varname into numeric newvar with value labels.
+
+t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_encode")
+  rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
+
+  # Parse varname, if/in, options (especially gen())
+  varname_str = NA_character_
+  stata_if_in_cond = NA_character_
+  options_str = NA_character_
+
+  # Find if/in first
+  if_in_match = stringi::stri_match_first_regex(rest_of_cmd_trimmed, "\\s+(?:if\\s+|in\\s+)(.*)$")
+  if(!is.na(if_in_match[1,1])) {
+      stata_if_in_cond = if_in_match[1,2]
+      rest_no_if_in = stringi::stri_replace_last_regex(rest_of_cmd_trimmed, "\\s+(?:if\\s+|in\\s+)(.*)$", "")
+      rest_no_if_in = stringi::stri_trim_both(rest_no_if_in)
+  } else {
+      rest_no_if_in = rest_of_cmd_trimmed
+  }
+
+   # Find options (which contain gen())
+  options_match = stringi::stri_match_first_regex(rest_no_if_in, ",\\s*(.*)$")
+  if (!is.na(options_match[1,1])) {
+      options_str = stringi::stri_trim_both(options_match[1,2])
+      varname_str = stringi::stri_replace_last_regex(rest_no_if_in, ",\\s*(.*)$", "")
+      varname_str = stringi::stri_trim_both(varname_str)
+  } else {
+      # This case implies `encode varname` without `, gen(newvar)` which is invalid for encode.
+      # Stata syntax is `encode varname, gen(newvar)`. The comma is mandatory before options.
+      # So, if no comma, there are no options, and thus no gen().
+      # This means `gen_var` will be NA, and the error will be thrown later.
+      return(paste0("# encode command requires gen() in options: ", rest_of_cmd))
+  }
+
+   if (is.na(varname_str) || varname_str == "") {
+       return(paste0("# encode command requires varname: ", rest_of_cmd))
+   }
+
+  # Parse options, specifically `gen()` or `generate()`
+  gen_var = NA_character_
+  if (!is.na(options_str)) {
+      # Modified regex to accept 'gen' or 'generate'
+      gen_opt_match = stringi::stri_match_first_regex(options_str, "\\b(?:gen|generate)\\s*\\(([^)]+)\\)")
+      if (!is.na(gen_opt_match[1,1])) {
+           gen_vars_str = stringi::stri_trim_both(gen_opt_match[1,2])
+           gen_vars_list = stringi::stri_split_regex(gen_vars_str, "\\s+")[[1]]
+           gen_var = gen_vars_list[1] # encode generates a single variable
+       }
+  }
+
+  if (is.na(gen_var)) {
+      return(paste0("# encode requires gen() option: ", rest_of_cmd))
+  }
+
+  # Translate if/in condition
+  r_if_in_cond = NA_character_
+  if (!is.na(stata_if_in_cond) && stata_if_in_cond != "") {
+       r_if_in_cond = translate_stata_expression_with_r_values(stata_if_in_cond, line_num, cmd_df, context = list(is_by_group=FALSE))
+       if (is.na(r_if_in_cond) || r_if_in_cond == "") {
+           return(paste0("# Failed to translate if/in condition for encode: ", stata_if_in_cond))
+       }
+  }
+
+  # Temporary variable names for the fully calculated encoded vector and condition
+  encoded_values_full_tmp_var = paste0("stata_tmp_encoded_full_L", cmd_obj$line)
+  satisfies_cond_tmp_var = paste0("stata_tmp_encode_cond_L", cmd_obj$line)
+
+  r_code_lines = c()
+
+  # Initialize the new column as a haven_labelled integer vector.
+  # Labels will be derived from the source data.
+  r_code_lines = c(r_code_lines,
+    paste0("data = dplyr::mutate(data, `", gen_var, "` = haven::labelled(rep(NA_integer_, NROW(data)), labels = c()))")
+  )
+
+  # Calculate the full encoded vector (based on all unique values in source column, sorted alphabetically)
+  # This ensures consistent labelling regardless of if/in conditions.
+  r_code_lines = c(r_code_lines,
+    paste0("temp_source_vector_L", cmd_obj$line, " = data[['", varname_str, "']]"),
+    # Get unique, non-NA, sorted string values to define labels
+    paste0("temp_unique_labels_L", cmd_obj$line, " = base::sort(base::unique(stats::na.omit(temp_source_vector_L", cmd_obj$line, "[temp_source_vector_L", cmd_obj$line, " != \"\"])))"), # Exclude empty strings from labels
+    # Create the integer codes (1, 2, ...) based on the sorted unique labels
+    paste0("temp_numeric_values_L", cmd_obj$line, " = base::match(temp_source_vector_L", cmd_obj$line, ", temp_unique_labels_L", cmd_obj$line, ")"),
+    # Define the label mapping: c(label1 = 1, label2 = 2, ...)
+    paste0("temp_label_map_L", cmd_obj$line, " = if (length(temp_unique_labels_L", cmd_obj$line, ") > 0) stats::setNames(seq_along(temp_unique_labels_L", cmd_obj$line, "), temp_unique_labels_L", cmd_obj$line, ") else stats::setNames(integer(0), character(0))"),
+    # Create the haven_labelled vector
+    paste0(encoded_values_full_tmp_var, " = haven::labelled(as.integer(temp_numeric_values_L", cmd_obj$line, "), labels = temp_label_map_L", cmd_obj$line, ")"),
+    # Clean up intermediate temp variables
+    paste0("rm(temp_source_vector_L", cmd_obj$line, ", temp_unique_labels_L", cmd_obj$line, ", temp_numeric_values_L", cmd_obj$line, ", temp_label_map_L", cmd_obj$line, ")")
+  )
+
+  # Apply the if/in condition for assignment to the target column in 'data'
+  if (!is.na(r_if_in_cond) && r_if_in_cond != "") {
+       r_code_lines = c(r_code_lines,
+           paste0("## Calculate condition flag for encode"),
+           # Stata 'if' treats missing as false. Ensure logical vector for subsetting.
+           paste0(satisfies_cond_tmp_var, " = dplyr::coalesce(with(data, ", r_if_in_cond, "), FALSE)"),
+           # Assign only for rows meeting the condition
+           paste0("data[['", gen_var, "']][", satisfies_cond_tmp_var, "] = ", encoded_values_full_tmp_var, "[", satisfies_cond_tmp_var, "]"),
+           paste0("rm(", satisfies_cond_tmp_var, ")")
+       )
+  } else {
+      # No condition, assign the full encoded vector
+      r_code_lines = c(r_code_lines,
+           paste0("data[['", gen_var, "']] = ", encoded_values_full_tmp_var)
+      )
+  }
+
+  r_code_lines = c(r_code_lines, paste0("rm(", encoded_values_full_tmp_var, ")"))
+
+  r_code_str = paste(r_code_lines, collapse="\n")
+
+  # Add comment about other options if any were present but not handled (excluding gen)
+   options_str_cleaned = options_str
+   if (!is.na(options_str_cleaned)) {
+        # Modify regex to remove both 'gen' and 'generate' forms
+        options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "\\b(?:gen|generate)\\s*\\([^)]+\\)", "")
+        options_str_cleaned = stringi::stri_trim_both(stringi::stri_replace_all_regex(options_str_cleaned, ",+", ","))
+        options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "^,+", "") # Remove leading comma
+   }
+
+   if (!is.na(options_str_cleaned) && options_str_cleaned != "") {
+        r_code_str = paste0(r_code_str, paste0("\n# Other options ignored: ", options_str_cleaned))
+   }
+
+  return(r_code_str)
+}
+```
+!END_CHANGE_FILE stata2r/R/t_encode.R
