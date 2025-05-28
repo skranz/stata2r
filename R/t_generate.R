@@ -76,14 +76,33 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
 
   # Step 1: Calculate the value for the new variable, potentially conditionally
+  calculated_value_expr_raw = r_expr # This is the R translation of stata_expr
+
+  # Apply type casting based on target variable's inferred type
+  if (target_var_will_be_string) {
+      # If Stata expression is numeric NA (.), it translates to NA_real_.
+      # When assigned to a string variable, Stata treats '.' as "".
+      if (calculated_value_expr_raw == "NA_real_") {
+          calculated_value_expr = '""'
+      } else if (stringi::stri_startswith_fixed(calculated_value_expr_raw, '"') || stringi::stri_startswith_fixed(calculated_value_expr_raw, "'")) {
+          # Already a string literal, no casting needed (assuming it's correctly translated)
+          calculated_value_expr = calculated_value_expr_raw
+      } else {
+          # Cast to character for other expressions (e.g., numeric variables, logicals)
+          calculated_value_expr = paste0("as.character(", calculated_value_expr_raw, ")")
+      }
+  } else { # Target variable will be numeric/logical
+      if (stringi::stri_detect_regex(stata_expr, "==|!=|~=|<=|>=|<|>|&|\\|")) {
+          # Logical expressions should result in numeric 0/1 (Stata's behavior)
+          calculated_value_expr = paste0("as.numeric(", calculated_value_expr_raw, ")")
+      } else {
+          # Default to the raw translated expression (should be numeric)
+          calculated_value_expr = calculated_value_expr_raw
+      }
+  }
+
   # The value to assign if the condition is false/missing.
   na_or_empty_str_for_false_cond = if (target_var_will_be_string) '""' else "NA_real_"
-
-  # The expression result itself might need casting, e.g. logical expr to numeric 0/1
-  calculated_value_expr = r_expr
-  if (!target_var_will_be_string && stringi::stri_detect_regex(stata_expr, "==|!=|~=|<=|>=|<|>|&|\\|")) {
-    calculated_value_expr = paste0("as.numeric(", r_expr, ")")
-  }
 
   if (!is.na(r_if_cond) && r_if_cond != "") {
     # Stata's 'if' condition treats NA as FALSE.

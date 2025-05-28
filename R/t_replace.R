@@ -75,23 +75,29 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
   # If not explicitly declared and not string expression, assume numeric.
 
-  # The value to assign if the condition is false/missing.
-  # For 'replace', if condition is false, the *original value* is kept, not NA or "".
-  # So, `na_or_empty_str_for_false_cond` is not needed in the `if_else` 'false' branch;
-  # instead, it's `data$`var_to_replace`.
+  # Step 1: Calculate the value for the new variable, potentially conditionally
+  calculated_value_expr_raw = r_expr # This is the R translation of stata_expr
 
-  # The expression result itself might need casting, e.g. logical expr to numeric 0/1
-  calculated_value_expr = r_expr
-  if (!target_var_will_be_string && stringi::stri_detect_regex(stata_expr, "==|!=|~=|<=|>=|<|>|&|\\|")) {
-    calculated_value_expr = paste0("as.numeric(", r_expr, ")")
-  }
-  # If target is string, ensure the expression result is cast to string and NA_real_ becomes ""
+  # Apply type casting based on target variable's inferred type
   if (target_var_will_be_string) {
-      if (calculated_value_expr == "NA_real_") {
-          calculated_value_expr = '""' # Stata replace for missing numeric to empty string for string variables
-      } else if (!stringi::stri_startswith_fixed(calculated_value_expr, '"') && !stringi::stri_startswith_fixed(calculated_value_expr, "'")) {
-          # Only wrap in as.character() if it's not already a quoted string
-          calculated_value_expr = paste0("as.character(", calculated_value_expr, ")")
+      # If Stata expression is numeric NA (.), it translates to NA_real_.
+      # When assigned to a string variable, Stata treats '.' as "".
+      if (calculated_value_expr_raw == "NA_real_") {
+          calculated_value_expr = '""'
+      } else if (stringi::stri_startswith_fixed(calculated_value_expr_raw, '"') || stringi::stri_startswith_fixed(calculated_value_expr_raw, "'")) {
+          # Already a string literal, no casting needed (assuming it's correctly translated)
+          calculated_value_expr = calculated_value_expr_raw
+      } else {
+          # Cast to character for other expressions (e.g., numeric variables, logicals)
+          calculated_value_expr = paste0("as.character(", calculated_value_expr_raw, ")")
+      }
+  } else { # Target variable will be numeric/logical
+      if (stringi::stri_detect_regex(stata_expr, "==|!=|~=|<=|>=|<|>|&|\\|")) {
+          # Logical expressions should result in numeric 0/1 (Stata's behavior)
+          calculated_value_expr = paste0("as.numeric(", calculated_value_expr_raw, ")")
+      } else {
+          # Default to the raw translated expression (should be numeric)
+          calculated_value_expr = calculated_value_expr_raw
       }
   }
 

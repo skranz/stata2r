@@ -113,13 +113,15 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   #    Improved to allow `::` in function names and better nesting capture for one level.
   func_name_pattern = "[a-zA-Z_][a-zA-Z0-9_:]*" # Allows package::function syntax
 
+  # Order of alternatives matters: specific patterns should come before general ones.
+  # A function call like `as.numeric(dplyr::row_number())` could be incorrectly matched
+  # by the variable name pattern if it comes first, as `as.numeric` itself is a valid variable name.
   operand_regex = paste0(
       "(?:",
-      "[a-zA-Z_][a-zA-Z0-9_.]*|", # Variable name
-      "\\d+(?:\\.\\d+)?|",       # Numeric literal
       "\"[^\"]*\"|'[^']*'|",     # String literal (double or single quoted)
-      # Function call pattern allowing one level of nesting and '::'
-      "\\b", func_name_pattern, "\\((?:[^()]|\\b", func_name_pattern, "\\([^()]*\\))*\\)",
+      "\\d+(?:\\.\\d+)?|",       # Numeric literal
+      "\\b", func_name_pattern, "\\((?:[^()]|\\b", func_name_pattern, "\\([^()]*\\))*\\)|", # Function call (allows one level of nesting)
+      "[a-zA-Z_][a-zA-Z0-9_.]*" # Variable name (must be last to avoid premature matching)
       ")"
   )
 
@@ -141,5 +143,4 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   return(r_expr)
 }
-
 
