@@ -83,7 +83,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
             start_row = as.integer(range_match[1,2])
             end_row = range_match[1,3]
             # Use dplyr::row_number(), as stata_expression_translator will handle _n
-            row_number_r_expr = "dplyr::row_number()" # This will be translated based on context
+            row_number_r_expr = "as.numeric(dplyr::row_number())" # This will be translated based on context
 
             if (is.na(end_row)) {
                  r_in_range_cond_in_args = paste0(row_number_r_expr, " == ", start_row)
@@ -237,16 +237,25 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Build the R command string using pipes
   r_code_lines = c("data = data %>%") # Start with data and the first pipe
 
-  if (!is.null(by_vars_for_group_by) && length(by_vars_list_unquoted) > 0 && !is_row_function) {
+  if ((egen_func_name == "group" || egen_func_name == "tag") && !is.null(by_vars_for_group_by) && !is_row_function) {
+    # For group/tag, we need to sort to ensure consistent IDs and restore order
     r_code_lines = c(r_code_lines,
-                        "  dplyr::group_by(dplyr::across(", by_vars_for_group_by, ")) %>%",
+                        paste0("  dplyr::arrange(dplyr::across(", by_vars_for_group_by, ")) %>%"),
+                        paste0("  dplyr::group_by(dplyr::across(", by_vars_for_group_by, ")) %>%"),
+                        "  dplyr::mutate(", full_mutate_expr, ") %>%",
+                        "  dplyr::ungroup() %>%",
+                        "  dplyr::arrange(stata2r_original_order_idx)")
+  } else if (!is.null(by_vars_for_group_by) && !is_row_function) {
+    # For other grouped egen functions (mean, sd, etc. with by-prefix or by-option)
+    r_code_lines = c(r_code_lines,
+                        paste0("  dplyr::group_by(dplyr::across(", by_vars_for_group_by, ")) %>%"),
                         "  dplyr::mutate(", full_mutate_expr, ") %>%",
                         "  dplyr::ungroup()")
   } else {
+    # For non-grouped or row functions
     r_code_lines = c(r_code_lines,
                         "  dplyr::mutate(", full_mutate_expr, ")")
   }
-
 
    # Add comment about options if any were present but not handled (excluding by)
    options_str_cleaned = options_str

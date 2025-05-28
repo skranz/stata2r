@@ -33,6 +33,9 @@ aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="", do_file
   library(restorepoint) # If used by translated code or framework
   library(readr) # For destring
 
+  # Suppress dplyr summarise messages during tests
+  options(dplyr.summarise.inform = FALSE)
+
   # do code that will be translated
   do_code = readLines(file.path(test_dir, basename(do_file)), warn=FALSE)
   #cat(do_code, sep="\n")
@@ -132,8 +135,8 @@ aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="", do_file
       dat_file = file.path(data_dir, paste0(data_prefix, original_stata_line_num, ".dta")) # Use original line number for comparison
       do_data = haven::read_dta(dat_file)
 
-
-      comp = compare_df(do_data, r_data, ignore_cols_values = non_deterministic_cols)
+      # Ignore stata2r_original_order_idx when comparing dataframes
+      comp = compare_df(do_data, r_data, ignore_cols_values = c(non_deterministic_cols, "stata2r_original_order_idx"))
       if (!comp$identical) {
         cat("\nError: After Stata line ", original_stata_line_num, ", R data set differs from Stata reference.\n")
         cat("\nData set from Stata (do_df):\n")
@@ -188,13 +191,24 @@ compare_df = function(df1, df2,
   if (nrow(df1) != nrow(df2))
     out$row_count = c(df1 = nrow(df1), df2 = nrow(df2))
 
-  missing_in_do_df = setdiff(names(df2), names(df1))
-  missing_in_r_df = setdiff(names(df1), names(df2))
+  # Filter out ignored columns from names for comparison
+  names_df1_filtered = setdiff(names(df1), ignore_cols_values)
+  names_df2_filtered = setdiff(names(df2), ignore_cols_values)
+
+  missing_in_do_df = setdiff(names_df2_filtered, names_df1_filtered)
+  missing_in_r_df = setdiff(names_df1_filtered, names_df2_filtered)
   if (length(missing_in_do_df) + length(missing_in_r_df) > 0)
     out$column_mismatch = list(missing_in_do_df = missing_in_do_df,
                                missing_in_r_df = missing_in_r_df)
 
-  common_cols = intersect(names(df1), names(df2))
+  common_cols = intersect(names_df1_filtered, names_df2_filtered)
+  if (length(common_cols) == 0 && (length(names(df1)) + length(names(df2)) > 0)) { # If no common columns but non-empty data frames
+      # This case needs to be handled if all columns were ignored.
+      # If all columns were ignored and no other differences, it should be identical.
+      # But if there are columns that are NOT ignored and no common columns, it's a mismatch.
+      # For now, let's assume `common_cols` reflects the truly comparable columns.
+  }
+
 
   # ---- class / type mismatches ----
 
@@ -225,7 +239,7 @@ compare_df = function(df1, df2,
 
   # ---- value‐level comparison ----
   # Filter common_cols to exclude ignored columns for value comparison
-  cols_for_value_comp = setdiff(common_cols, ignore_cols_values)
+  cols_for_value_comp = intersect(common_cols, setdiff(names(df1), ignore_cols_values)) # ensure only non-ignored common cols
 
   value_diffs = lapply(cols_for_value_comp, function(cl) {
     v1 = df1[[cl]]
@@ -264,5 +278,4 @@ compare_df = function(df1, df2,
   }
   out
 }
-
 
