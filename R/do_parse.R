@@ -20,7 +20,8 @@ do_parse = function(do_code) {
       rest_of_cmd = character(0),
       is_by_prefix = logical(0),
       by_group_vars = character(0), # Store as comma-separated string or list column
-      by_sort_vars = character(0)  # Store as comma-separated string or list column
+      by_sort_vars = character(0),  # Store as comma-separated string or list column
+      stringsAsFactors = FALSE
     ))
   }
 
@@ -44,6 +45,4 @@ do_parse = function(do_code) {
   cmd_df = dplyr::bind_rows(cmd_list)
   return(cmd_df)
 }
-
-
 

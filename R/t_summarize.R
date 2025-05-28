@@ -19,16 +19,23 @@ t_summarize = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       varlist_str = stringi::stri_trim_both(varlist_str)
   }
 
-  if (is.na(varlist_str) || varlist_str == "") {
-    return("# summarize without varlist not fully supported for r() value generation yet.")
-  }
-
   vars_to_summarize = stringi::stri_split_regex(varlist_str, "\\s+")[[1]]
   vars_to_summarize = vars_to_summarize[vars_to_summarize != ""]
-  if (length(vars_to_summarize) == 0) {
-      return("# summarize command with no effective variables after parsing conditions.")
+
+  # For r() values, Stata's summarize without a varlist summarizes all variables,
+  # but r() values like r(mean) refer to the mean of the *last* variable in the dataset.
+  # If a varlist is specified, r() values refer to the *last* variable in the varlist.
+  # This makes it hard to perfectly emulate without knowing data column order.
+  # For now, if varlist is empty, we only set r(N). If not empty, we use the last variable.
+  var_for_r_vals = NA_character_
+  if (length(vars_to_summarize) > 0) {
+      var_for_r_vals = vars_to_summarize[length(vars_to_summarize)] # Last variable in varlist
+  } else {
+      # If no varlist, r(N) is total observations. Other r() values are for the last variable.
+      # We cannot reliably determine the "last variable" in R without knowing the dataframe's current state and order.
+      # For now, if no varlist, we only define r(N).
   }
-  first_var = vars_to_summarize[1] # r() values typically for the first variable
+
 
   is_meanonly = !is.na(options_str) && stringi::stri_detect_fixed(options_str, "meanonly")
   is_detail = !is.na(options_str) && stringi::stri_detect_fixed(options_str, "detail")
@@ -37,50 +44,51 @@ t_summarize = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   line_prefix = paste0("stata_r_val_L", cmd_obj$line, "_") # Use cmd_obj$line
 
   # Prepare data subset if "if condition" is present
-  # This creates a temporary subsetted dataframe for summarization if needed.
-  # If no if condition, data_source_for_summary refers to the original 'data'.
   data_source_for_summary = "data"
   if (!is.na(stata_if_cond_expr)) {
-    r_subset_cond = translate_stata_expression_with_r_values(stata_if_cond_expr, cmd_obj$line, cmd_df, context = list(is_by_group = FALSE)) # Use cmd_obj$line
-    data_subset_varname = paste0("data_subset_L", cmd_obj$line) # Use actual line from cmd_obj
-    r_code_lines = c(r_code_lines, paste0(data_subset_varname, " = dplyr::filter(data, ", r_subset_cond, ")")) # Changed to dplyr::filter
+    r_subset_cond = translate_stata_expression_with_r_values(stata_if_cond_expr, cmd_obj$line, cmd_df, context = list(is_by_group = FALSE))
+    data_subset_varname = paste0("data_subset_L", cmd_obj$line)
+    r_code_lines = c(r_code_lines, paste0(data_subset_varname, " = dplyr::filter(data, ", r_subset_cond, ")"))
     data_source_for_summary = data_subset_varname
   }
 
-  # Use base R / dplyr functions for summaries
-  if (is_meanonly) {
-    r_code_lines = c(
-      r_code_lines,
-      paste0(line_prefix, "N = NROW(", data_source_for_summary, ")"), # For meanonly, N is total rows
-      paste0(line_prefix, "mean = mean(", data_source_for_summary, "[['", first_var, "']], na.rm = TRUE)")
-    )
-  } else { # Default summarize or with other options (detail implies more)
-    r_code_lines = c(
-      r_code_lines,
-      paste0(line_prefix, "N = NROW(", data_source_for_summary, ")"),
-      paste0(line_prefix, "mean = mean(", data_source_for_summary, "[['", first_var, "']], na.rm = TRUE)"),
-      paste0(line_prefix, "sd = sd(", data_source_for_summary, "[['", first_var, "']], na.rm = TRUE)"),
-      paste0(line_prefix, "min = min(", data_source_for_summary, "[['", first_var, "']], na.rm = TRUE)"),
-      paste0(line_prefix, "max = max(", data_source_for_summary, "[['", first_var, "']], na.rm = TRUE)"),
-      paste0(line_prefix, "sum = sum(", data_source_for_summary, "[['", first_var, "']], na.rm = TRUE)")
-    )
-    if (is_detail) {
-      r_code_lines = c(
-        r_code_lines,
-        paste0(line_prefix, "p50 = median(", data_source_for_summary, "[['", first_var, "']], na.rm = TRUE)")
-        # Further percentiles: quantile(..., probs = c(0.01, ...), na.rm = TRUE)
-        # Stata detail provides: p1, p5, p10, p25, p50, p75, p90, p95, p99
-        # Smallest 4, largest 4 values, variance, skewness, kurtosis.
-        # This would require more extensive mapping.
-      )
-    }
+  # Always set r(N) as it's for the number of observations processed.
+  r_code_lines = c(r_code_lines, paste0(line_prefix, "N = NROW(", data_source_for_summary, ")"))
+
+  if (!is.na(var_for_r_vals)) {
+      # Use base R / dplyr functions for summaries
+      if (is_meanonly) {
+        r_code_lines = c(
+          r_code_lines,
+          paste0(line_prefix, "mean = mean(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)")
+        )
+      } else { # Default summarize or with other options (detail implies more)
+        r_code_lines = c(
+          r_code_lines,
+          paste0(line_prefix, "mean = mean(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)"),
+          paste0(line_prefix, "sd = stats::sd(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)"),
+          paste0(line_prefix, "min = min(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)"),
+          paste0(line_prefix, "max = max(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)"),
+          paste0(line_prefix, "sum = sum(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)")
+        )
+        if (is_detail) {
+          r_code_lines = c(
+            r_code_lines,
+            paste0(line_prefix, "p50 = stats::median(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)")
+            # Further percentiles (p1, p5, etc.), variance, skewness, kurtosis for detail are not yet implemented.
+          )
+        }
+      }
+  } else {
+      r_code_lines = c(r_code_lines, paste0("# No variable specified for summarize: r(mean), r(sd), etc. not set."))
   }
 
-  if (length(r_code_lines) == 0) {
-    return(paste0("# summarize command '", cmd_obj$do_code, "' did not produce specific r() assignments with current logic."))
+
+  if (data_source_for_summary != "data") {
+      # Clean up temporary subsetted dataframe
+      r_code_lines = c(r_code_lines, paste0("rm(", data_subset_varname, ")"))
   }
 
   return(paste(r_code_lines, collapse="\n"))
 }
-
 

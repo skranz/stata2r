@@ -122,7 +122,8 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Example: mean(x if y>0) -> mean(ifelse(y>0, x, NA), na.rm = TRUE)
   # This requires modifying r_egen_args based on final_r_subset_cond_in_args
   if (!is.na(final_r_subset_cond_in_args) && final_r_subset_cond_in_args != "") {
-      r_egen_args_conditional = paste0("base::ifelse(", final_r_subset_cond_in_args, ", ", r_egen_args, ", NA)")
+      # Stata's `if` condition treats NA as FALSE.
+      r_egen_args_conditional = paste0("dplyr::if_else(dplyr::coalesce(", final_r_subset_cond_in_args, ", FALSE), ", r_egen_args, ", NA)")
   } else {
       r_egen_args_conditional = r_egen_args
   }
@@ -183,9 +184,9 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   } else if (egen_func_name == "rank") {
     calc_expr = paste0("dplyr::min_rank(", r_egen_args_conditional, ")")
   } else if (egen_func_name == "median" || egen_func_name == "p50") {
-    calc_expr = paste0("median(", r_egen_args_conditional, ", na.rm = TRUE)")
+    calc_expr = paste0("stats::median(", r_egen_args_conditional, ", na.rm = TRUE)")
   } else if (egen_func_name == "sd" || egen_func_name == "std") {
-    calc_expr = paste0("sd(", r_egen_args_conditional, ", na.rm = TRUE)")
+    calc_expr = paste0("stats::sd(", r_egen_args_conditional, ", na.rm = TRUE)")
   } else if (egen_func_name == "group" || egen_func_name == "tag") {
     # For 'group' and 'tag', the effective grouping for dplyr::group_by is the combination
     # of the 'by' prefix/option variables and the variables in the egen function arguments.
@@ -234,12 +235,12 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   full_mutate_expr = paste0(new_var, " = ", calc_expr)
 
   # Build the R command string using pipes
-  r_code_lines = c("data = data %>%") # Start with data and the first pipe FIX: removed \n
+  r_code_lines = c("data = data %>%") # Start with data and the first pipe
 
   if (!is.null(by_vars_for_group_by) && length(by_vars_list_unquoted) > 0 && !is_row_function) {
     r_code_lines = c(r_code_lines,
-                        "  dplyr::group_by(dplyr::across(", by_vars_for_group_by, ")) %>%", # FIX: removed \n
-                        "  dplyr::mutate(", full_mutate_expr, ") %>%", # FIX: removed \n
+                        "  dplyr::group_by(dplyr::across(", by_vars_for_group_by, ")) %>%",
+                        "  dplyr::mutate(", full_mutate_expr, ") %>%",
                         "  dplyr::ungroup()")
   } else {
     r_code_lines = c(r_code_lines,
@@ -262,5 +263,4 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
-
 

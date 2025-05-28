@@ -80,7 +80,6 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   # Step 5: Translate Stata '+' operator to sfun_stata_add for polymorphic behavior
   # This needs to be applied iteratively until no more '+' signs (that are not part of comparison operators) exist.
   # The regex for operands must be robust to capture complete R expressions, including nested function calls.
-  # This is the tricky part, as simple `\S+` patterns fail when expressions contain spaces or commas.
 
   # Define a robust pattern for an R expression unit that can be an operand.
   # This pattern matches:
@@ -89,10 +88,8 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   # 3. A string literal (single or double quoted)
   # 4. A function call (e.g., `log(x)`, `sfun_stata_add(a, b)`), allowing for one level of nested simple function calls
   #    within its arguments, for robustness. This is a pragmatic balance for regex complexity.
-  #    `\\b\\w+\\((?:[^()]|\\b\\w+\\([^()]*\\))*\\)`
-  #    `[^()]` matches any character that is not a parenthesis.
-  #    `|\\b\\w+\\([^()]*\\)` matches a simple function call with no nested parens.
-  #    The `*` allows for multiple such elements.
+  #    The regex `\\b\\w+\\((?:[^()]|\\b\\w+\\([^()]*\\))*\\)` is designed to handle `f(arg)` and `f(g(arg))`
+  #    but not deeper nesting like `f(g(h(arg)))`. Given Stata's expression complexity, this should be sufficient for most cases.
   operand_regex = paste0(
       "(?:",
       "[a-zA-Z_][a-zA-Z0-9_.]*|", # Variable name
@@ -133,6 +130,9 @@ get_r_value_mappings = function(stata_r_value_str, current_line_index, cmd_df) {
 
   # Scan backwards
   for (i in (current_line_index - 1):1) {
+    # Check if the command was a summarize/su and if it set r() values.
+    # We assume t_summarize sets r() values with the convention `stata_r_val_L<line>_<stat_name>`.
+    # The actual variable names created depend on the `t_summarize` implementation.
     if (cmd_df$stata_cmd[i] %in% r_setting_cmds) {
       # Found a relevant command.
       # The R variable name is constructed based on this line index and stat_name.
@@ -179,6 +179,4 @@ translate_stata_expression_with_r_values = function(stata_expr, current_line_ind
 
   translate_stata_expression_to_r(stata_expr, context, final_r_value_mappings)
 }
-
-
 
