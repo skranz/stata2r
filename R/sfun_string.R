@@ -4,13 +4,18 @@
 
 sfun_string = function(x) {
   restore.point("sfun_string")
-  # Convert to character first
-  res = as.character(x)
-
-  # Stata specific: missing numeric values become empty string.
-  # This applies to R's NA_real_ (for numeric) and NA_character_ (for character).
-  res[is.na(res)] = ""
-
+  
+  # Initialize result vector of character type
+  res = character(length(x))
+  
+  # Handle non-missing values: convert them to character
+  # This correctly converts numeric values to their string representation.
+  res[!is.na(x)] = as.character(x[!is.na(x)])
+  
+  # Handle missing values (NA in R): convert them to an empty string ("")
+  # This directly addresses the Stata `.` to `""` conversion rule.
+  res[is.na(x)] = ""
+  
   return(res)
 }
 
