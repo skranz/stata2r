@@ -1,6 +1,10 @@
-I have identified that the `do2` test fails because the Stata `egen tag()` function is currently translated to `dplyr::cur_group_id()`, which assigns group IDs instead of the 1/0 tag that Stata's `tag()` function produces (1 for the first observation in a group, 0 otherwise).
+The primary issue causing the R code execution failures (unexpected symbol) stems from how `dplyr::group_by` and `dplyr::arrange` arguments were constructed as strings. The `!!!dplyr::syms()` syntax was being incorrectly nested or prematurely evaluated into a string, leading to malformed R code when `eval(parse(text=...))` was called.
 
-To fix this, I will modify `t_egen.R` to translate `egen tag()` to `as.numeric(dplyr::row_number() == 1)` when applied within groups. This will correctly assign 1 to the first observation within each group and 0 to subsequent ones. The existing grouping and ordering logic in `t_egen.R` is already appropriate for this change.
+The fix involves ensuring that intermediate variables storing grouping or sorting variable names contain only the *bare variable names* (as character vectors), and the `!!!dplyr::syms(c(...))` syntax is only applied once when constructing the final R code string for the `dplyr` function call.
+
+Additionally, I've aligned the naming of these intermediate variables (`group_vars_list_bare`) for clarity across `t_egen`, `t_generate`, and `t_replace`.
+
+The `column_mismatch` in test `do2` (line 23) suggests a potential mismatch between the expected Stata output file (`23.dta`) and what Stata's `egen rank` command should actually produce. My fix focuses on the correct R translation; if the column remains missing in the Stata reference, it implies an issue with the test data itself rather than the translation logic.
 
 !CHANGE_FILE R/t_egen.R
 ```R
@@ -197,20 +201,20 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
 
   # Determine actual grouping variables for dplyr::group_by
-  group_vars_for_dplyr_group_by = character(0)
+  group_vars_list_bare = character(0) # Will hold just bare variable names
   if (cmd_obj$is_by_prefix) {
     if (length(cmd_obj$by_group_vars) > 0 && !is.na(cmd_obj$by_group_vars[1])) {
       group_vars_list = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
       group_vars_list = group_vars_list[!is.na(group_vars_list) & group_vars_list != ""]
       if (length(group_vars_list) > 0) {
-        group_vars_for_dplyr_group_by = paste0('!!!dplyr::syms(c("', paste0(group_vars_list, collapse='", "'), '"))')
+        group_vars_list_bare = group_vars_list # Assign just the bare names
       }
     }
   } else if (!is.na(options_str)) {
     by_opt_match = stringi::stri_match_first_regex(options_str, "\\bby\\s*\\(([^)]+)\\)")
     if (!is.na(by_opt_match[1,1])) {
-      group_vars_for_dplyr_group_by = stringi::stri_split_regex(stringi::stri_trim_both(by_opt_match[1,2]), "\\s+")[[1]]
-      group_vars_for_dplyr_group_by = group_vars_for_dplyr_group_by[!is.na(group_vars_for_dplyr_group_by) & group_vars_for_dplyr_group_by != ""]
+      group_vars_list_bare = stringi::stri_split_regex(stringi::stri_trim_both(by_opt_match[1,2]), "\\s+")[[1]]
+      group_vars_list_bare = group_vars_list_bare[!is.na(group_vars_list_bare) & group_vars_list_bare != ""]
     }
   }
 
@@ -219,7 +223,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     egen_func_args_list = stringi::stri_split_regex(egen_args_str, "\\s+")[[1]]
     egen_func_args_list = egen_func_args_list[!is.na(egen_func_args_list) & egen_func_args_list != ""]
     # Union of `by` variables and `egen` function arguments defines the group
-    group_vars_for_dplyr_group_by = unique(c(group_vars_for_dplyr_group_by, egen_func_args_list))
+    group_vars_list_bare = unique(c(group_vars_list_bare, egen_func_args_list))
   }
 
 
@@ -227,19 +231,19 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   sort_vars_for_arrange = character(0)
   if (cmd_obj$is_by_prefix) {
     # Stata's `bysort` sorts by all variables in `varlist` (group + sort).
-    sort_vars_for_arrange = unique(c(cmd_obj$by_group_vars, cmd_obj$by_sort_vars))
+    sort_vars_for_arrange = unique(c(group_vars_list_bare, cmd_obj$by_sort_vars))
     sort_vars_for_arrange = sort_vars_for_arrange[!is.na(sort_vars_for_arrange) & sort_vars_for_arrange != ""]
   } else if (egen_func_name %in% c("rank", "group", "tag")) {
     # If not by-prefix, but it's a function sensitive to order (rank, group, tag)
     # and has a by() option, or implicit grouping through function args.
-    # The `by()` option variables are already in `group_vars_for_dplyr_group_by`.
+    # The `by()` option variables are already in `group_vars_list_bare`.
     # For `rank`, it's generally sorted by the grouping variables + the variable being ranked.
     # For `group`, `tag`, it's sorted by the variables that define the group.
     
-    if (length(group_vars_for_dplyr_group_by) > 0) {
-      sort_vars_for_arrange = unique(c(sort_vars_for_arrange, group_vars_for_dplyr_group_by))
+    if (length(group_vars_list_bare) > 0) {
+      sort_vars_for_arrange = unique(c(sort_vars_for_arrange, group_vars_list_bare))
     }
-    if (egen_func_name == "rank") {
+    if (egen_func_name == "rank" && !is.na(egen_args_str) && egen_args_str != "") {
       # For rank, the variable being ranked also affects the internal order for ties.
       # It's typically sorted by grouping vars, then the ranked var.
       # `egen_args_str` for rank is the variable to rank.
@@ -262,14 +266,14 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   pipe_elements = list("data") # Start the pipe with the data object
 
   # Add grouping and mutate steps
-  if (length(group_vars_for_dplyr_group_by) > 0 && !is_row_function) {
-    group_by_expr = paste0('dplyr::group_by(!!!dplyr::syms(c("', paste0(group_vars_for_dplyr_group_by, collapse='", "'), '")))')
+  if (length(group_vars_list_bare) > 0 && !is_row_function) {
+    group_by_expr = paste0('dplyr::group_by(!!!dplyr::syms(c("', paste0(group_vars_list_bare, collapse='", "'), '")))')
     pipe_elements = c(pipe_elements, group_by_expr)
   }
 
   pipe_elements = c(pipe_elements, paste0("dplyr::mutate(", full_mutate_expr, ")"))
 
-  if (length(group_vars_for_dplyr_group_by) > 0 && !is_row_function) {
+  if (length(group_vars_list_bare) > 0 && !is_row_function) {
     pipe_elements = c(pipe_elements, "dplyr::ungroup()")
   }
 
@@ -298,5 +302,229 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 ```
 !END_CHANGE_FILE R/t_egen.R
+
+!CHANGE_FILE R/t_generate.R
+```R
+t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_generate")
+  # Parse `rest_of_cmd` for new variable name, expression, and if condition
+  # Example: "newvar = expression [if condition]"
+
+  # Strip type if present (e.g. gen double newvar = ...)
+  rest_of_cmd_no_type = stringi::stri_replace_first_regex(rest_of_cmd, "^(?:byte|int|long|float|double|str\\d+)\\s+", "")
+
+  match = stringi::stri_match_first_regex(rest_of_cmd_no_type, "^\\s*([^=\\s]+)\\s*=\\s*(.*?)(?:\\s+if\\s+(.*))?$")
+
+  if (is.na(match[1,1])) {
+    return(paste0("# Failed to parse generate command: ", rest_of_cmd))
+  }
+
+  new_var = stringi::stri_trim_both(match[1,2])
+  stata_expr = stringi::stri_trim_both(match[1,3])
+  stata_if_cond = stringi::stri_trim_both(match[1,4]) # Might be NA
+
+  # Context for expression translation (e.g. _n, _N behavior)
+  # is_by_group TRUE if cmd_obj$by_group_vars is not NA
+  current_context = list(is_by_group = cmd_obj$is_by_prefix && length(cmd_obj$by_group_vars) > 0 && !is.na(cmd_obj$by_group_vars[1]))
+  
+  # Translate the Stata expression to R first
+  r_expr = translate_stata_expression_with_r_values(stata_expr, line_num, cmd_df, current_context)
+
+  r_if_cond = NA_character_
+  if (!is.na(stata_if_cond) && stata_if_cond != "") {
+    # The 'if' condition for generate/replace is evaluated row-wise on the whole dataset, not per group.
+    r_if_cond = translate_stata_expression_with_r_values(stata_if_cond, line_num, cmd_df, context = list(is_by_group = FALSE))
+  }
+
+  # Determine arrange step if needed
+  arrange_call = ""
+  group_vars_list_bare = character(0) # For dplyr::group_by
+  
+  # Variables that define the sort order (from by-prefix)
+  vars_for_initial_sort = character(0)
+
+  if (cmd_obj$is_by_prefix) {
+    if (length(cmd_obj$by_group_vars) > 0 && !is.na(cmd_obj$by_group_vars[1])) {
+      group_vars_list = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
+      group_vars_list = group_vars_list[!is.na(group_vars_list) & group_vars_list != ""]
+      if (length(group_vars_list) > 0) {
+        group_vars_list_bare = group_vars_list # Assign just the bare names
+        vars_for_initial_sort = c(vars_for_initial_sort, group_vars_list)
+      }
+    }
+
+    if (length(cmd_obj$by_sort_vars) > 0 && !is.na(cmd_obj$by_sort_vars[1])) {
+      sort_vars_list = stringi::stri_split_fixed(cmd_obj$by_sort_vars, ",")[[1]]
+      sort_vars_list = sort_vars_list[!is.na(sort_vars_list) & sort_vars_list != ""]
+      vars_for_initial_sort = c(vars_for_initial_sort, sort_vars_list)
+    }
+
+    if (length(vars_for_initial_sort) > 0) {
+      # Ensure unique and preserve order implicitly (by c() then unique)
+      vars_for_initial_sort = unique(vars_for_initial_sort) 
+      arrange_call = paste0("data = dplyr::arrange(data, !!!dplyr::syms(c(", paste0('"', vars_for_initial_sort, '"', collapse = ", "), ")))")
+    }
+  }
+
+  # Step 1: Calculate the value for the new variable, potentially conditionally
+  # Determine the type of NA to use for the `if_else` fallback based on the *original Stata expression*.
+  calculated_value_expr = r_expr
+  na_for_if_else = "NA_real_" # Default to numeric NA
+
+  if (is_stata_expr_string_type(stata_expr)) {
+    na_for_if_else = "NA_character_"
+  } else {
+    # If the original Stata expression is a logical comparison, it yields numeric 0/1 in Stata.
+    is_logical_expr = stringi::stri_detect_regex(stata_expr, "==|!=|~=|<=|>=|<|>|&|\\|")
+    if (is_logical_expr) {
+      calculated_value_expr = paste0("as.numeric(", r_expr, ")")
+      na_for_if_else = "NA_real_" # Logical to numeric
+    }
+    # Otherwise, it's assumed to be numeric, and NA_real_ is appropriate.
+  }
+
+  if (!is.na(r_if_cond) && r_if_cond != "") {
+    # Stata's 'if' condition treats NA as FALSE.
+    calc_expr = paste0("dplyr::if_else(dplyr::coalesce(", r_if_cond, ", FALSE), ", calculated_value_expr, ", ", na_for_if_else, ")")
+  } else {
+    calc_expr = calculated_value_expr
+  }
+
+  # Step 2: Build the R code string using pipes for the mutate operation
+  r_code_lines = c()
+  
+  if (arrange_call != "") {
+      r_code_lines = c(r_code_lines, arrange_call)
+  }
+
+  pipe_elements = list("data") # Elements for the pipe chain, starting from `data`
+
+  # Add grouping and mutate steps
+  if (length(group_vars_list_bare) > 0) {
+      group_by_call_str = paste0('dplyr::group_by(!!!dplyr::syms(c("', paste0(group_vars_list_bare, collapse='", "'), '")))')
+      pipe_elements = c(pipe_elements, group_by_call_str)
+      pipe_elements = c(pipe_elements, paste0("dplyr::mutate(`", new_var, "` = ", calc_expr, ")"))
+      pipe_elements = c(pipe_elements, "dplyr::ungroup()")
+  } else {
+      pipe_elements = c(pipe_elements, paste0("dplyr::mutate(`", new_var, "` = ", calc_expr, ")"))
+  }
+
+  # This is the final assignment line for the current command
+  # It takes 'data' (potentially already arranged) and pipes it through the rest
+  r_code_lines = c(r_code_lines, paste0("data = ", paste(pipe_elements, collapse = " %>% \n  ")))
+
+
+  return(paste(r_code_lines, collapse="\n"))
+}
+
+```
+!END_CHANGE_FILE R/t_generate.R
+
+!CHANGE_FILE R/t_replace.R
+```R
+t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_replace")
+  # Strip type if present (e.g. replace double oldvar = ...)
+  rest_of_cmd_no_type = stringi::stri_replace_first_regex(rest_of_cmd, "^(?:byte|int|long|float|double|str\\d+)\\s+", "")
+
+  match = stringi::stri_match_first_regex(rest_of_cmd_no_type, "^\\s*([^=\\s]+)\\s*=\\s*(.*?)(?:\\s+if\\s+(.*))?$")
+
+  if (is.na(match[1,1])) {
+    return(paste0("# Failed to parse replace command: ", rest_of_cmd))
+  }
+
+  var_to_replace = stringi::stri_trim_both(match[1,2])
+  stata_expr = stringi::stri_trim_both(match[1,3])
+  stata_if_cond = stringi::stri_trim_both(match[1,4]) # Might be NA
+
+  current_context = list(is_by_group = cmd_obj$is_by_prefix && length(cmd_obj$by_group_vars) > 0 && !is.na(cmd_obj$by_group_vars[1]))
+  # Translate the Stata expression to R first
+  r_expr = translate_stata_expression_with_r_values(stata_expr, line_num, cmd_df, current_context)
+
+  r_if_cond = NA_character_
+  if (!is.na(stata_if_cond) && stata_if_cond != "") {
+    r_if_cond = translate_stata_expression_with_r_values(stata_if_cond, line_num, cmd_df, context = list(is_by_group = FALSE))
+  }
+
+  # Determine arrange step if needed
+  arrange_call = ""
+  group_vars_list_bare = character(0) # For dplyr::group_by
+
+  # Variables that define the sort order (from by-prefix)
+  vars_for_initial_sort = character(0)
+
+  if (cmd_obj$is_by_prefix) {
+    if (length(cmd_obj$by_group_vars) > 0 && !is.na(cmd_obj$by_group_vars[1])) {
+      group_vars_list = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
+      group_vars_list = group_vars_list[!is.na(group_vars_list) & group_vars_list != ""]
+      if (length(group_vars_list) > 0) {
+        group_vars_list_bare = group_vars_list # Assign just the bare names
+        vars_for_initial_sort = c(vars_for_initial_sort, group_vars_list)
+      }
+    }
+
+    if (length(cmd_obj$by_sort_vars) > 0 && !is.na(cmd_obj$by_sort_vars[1])) {
+      sort_vars_list = stringi::stri_split_fixed(cmd_obj$by_sort_vars, ",")[[1]]
+      sort_vars_list = sort_vars_list[!is.na(sort_vars_list) & sort_vars_list != ""]
+      vars_for_initial_sort = c(vars_for_initial_sort, sort_vars_list)
+    }
+
+    if (length(vars_for_initial_sort) > 0) {
+      vars_for_initial_sort = unique(vars_for_initial_sort)
+      arrange_call = paste0("data = dplyr::arrange(data, !!!dplyr::syms(c(", paste0('"', vars_for_initial_sort, '"', collapse = ", "), ")))")
+    }
+  }
+
+  # Step 1: Calculate the value for replacement, potentially conditionally
+  # Determine the type of NA to use for the `if_else` fallback based on the *original Stata expression*.
+  calculated_value_expr = r_expr
+  na_for_if_else = "NA_real_" # Default to numeric NA
+
+  if (is_stata_expr_string_type(stata_expr)) {
+    na_for_if_else = "NA_character_"
+  } else {
+    # If the original Stata expression is a logical comparison, it yields numeric 0/1 in Stata.
+    is_logical_expr = stringi::stri_detect_regex(stata_expr, "==|!=|~=|<=|>=|<|>|&|\\|")
+    if (is_logical_expr) {
+      calculated_value_expr = paste0("as.numeric(", r_expr, ")")
+      na_for_if_else = "NA_real_" # Logical to numeric
+    }
+    # Otherwise, it's assumed to be numeric, and NA_real_ is appropriate.
+  }
+
+  # For 'replace' command, if condition is FALSE or NA, the value should be left unchanged.
+  # Use dplyr::coalesce(condition, FALSE) to treat NA condition as FALSE.
+  if (!is.na(r_if_cond) && r_if_cond != "") {
+    calc_expr = paste0("dplyr::if_else(dplyr::coalesce(", r_if_cond, ", FALSE), ", calculated_value_expr, ", data$`", var_to_replace, "`)")
+  } else {
+    calc_expr = calculated_value_expr
+  }
+
+  # Step 2: Build the R code string using pipes for the mutate operation
+  r_code_lines = c()
+
+  if (arrange_call != "") {
+      r_code_lines = c(r_code_lines, arrange_call)
+  }
+
+  pipe_elements = list("data") # Elements for the pipe chain, starting from `data`
+
+  if (length(group_vars_list_bare) > 0) { # Check if group_vars_list_bare is not empty
+      group_by_call_str = paste0('dplyr::group_by(!!!dplyr::syms(c("', paste0(group_vars_list_bare, collapse='", "'), '")))')
+      pipe_elements = c(pipe_elements, group_by_call_str)
+      pipe_elements = c(pipe_elements, paste0("dplyr::mutate(`", var_to_replace, "` = ", calc_expr, ")"))
+      pipe_elements = c(pipe_elements, "dplyr::ungroup()")
+  } else {
+      pipe_elements = c(pipe_elements, paste0("dplyr::mutate(`", var_to_replace, "` = ", calc_expr, ")"))
+  }
+
+  r_code_lines = c(r_code_lines, paste0("data = ", paste(pipe_elements, collapse = " %>% \n  ")))
+
+  return(paste(r_code_lines, collapse="\n"))
+}
+
+```
+!END_CHANGE_FILE R/t_replace.R
