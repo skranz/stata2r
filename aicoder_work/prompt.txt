@@ -2173,8 +2173,8 @@ t_drop = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     # drop if condition
     stata_if_cond = stringi::stri_sub(rest_of_cmd_trimmed, from = 4)
     r_if_cond = translate_stata_expression_with_r_values(stata_if_cond, line_num, cmd_df, context)
-    # Using dplyr::filter
-    r_code_str = paste0("data = dplyr::filter(data, !(", r_if_cond, "))")
+    # Using dplyr::filter, treating NA in condition as FALSE (Stata behavior)
+    r_code_str = paste0("data = dplyr::filter(data, !dplyr::coalesce(", r_if_cond, ", FALSE))")
   } else if (is_in_drop) {
     # drop in range
     range_str = stringi::stri_sub(rest_of_cmd_trimmed, from = 4)
@@ -2206,7 +2206,6 @@ t_drop = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
-
 
 ```
 ### END OF FILE: t_drop.R
@@ -3147,8 +3146,8 @@ t_keep = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     # keep if condition
     stata_if_cond = stringi::stri_sub(rest_of_cmd_trimmed, from = 4)
     r_if_cond = translate_stata_expression_with_r_values(stata_if_cond, line_num, cmd_df, context)
-    # Using dplyr::filter
-    r_code_str = paste0("data = dplyr::filter(data, ", r_if_cond, ")")
+    # Using dplyr::filter, treating NA in condition as FALSE (Stata behavior)
+    r_code_str = paste0("data = dplyr::filter(data, dplyr::coalesce(", r_if_cond, ", FALSE))")
   } else if (is_in_keep) {
     # keep in range
     range_str = stringi::stri_sub(rest_of_cmd_trimmed, from = 4)
@@ -3180,7 +3179,6 @@ t_keep = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
-
 
 ```
 ### END OF FILE: t_keep.R
@@ -4777,12 +4775,12 @@ data = data %>%
   dplyr::mutate(`flag` = dplyr::if_else(dplyr::coalesce(sfun_missing(flag), FALSE), 0, data$`flag`))
 
  15 do:  keep if flag==1 | group=="B"
- 15 r:  data = dplyr::filter(data, flag==1 | group=="B") 
-data = dplyr::filter(data, flag==1 | group=="B")
+ 15 r:  data = dplyr::filter(data, dplyr::coalesce(flag==1 | group=="B", FALSE)) 
+data = dplyr::filter(data, dplyr::coalesce(flag==1 | group=="B", FALSE))
 
  16 do:  drop if i>35
- 16 r:  data = dplyr::filter(data, !(i>35)) 
-data = dplyr::filter(data, !(i>35))
+ 16 r:  data = dplyr::filter(data, !dplyr::coalesce(i>35, FALSE)) 
+data = dplyr::filter(data, !dplyr::coalesce(i>35, FALSE))
 
  17 do:  collapse (mean) i (sum) total_i_sum = i, by(group)
  17 r:  data = data %>% 
@@ -4901,8 +4899,8 @@ R_tempfile_L24_t1_path = tempfile(fileext = '.dta') # Stata tempfile 't1'
 haven::write_dta(data, path = R_tempfile_L24_t1_path)
 
  26 do:  keep if group_code==1
- 26 r:  data = dplyr::filter(data, group_code==1) 
-data = dplyr::filter(data, group_code==1)
+ 26 r:  data = dplyr::filter(data, dplyr::coalesce(group_code==1, FALSE)) 
+data = dplyr::filter(data, dplyr::coalesce(group_code==1, FALSE))
 
  27 do:  merge 1:m group_code using "`t1'", keep(match master) nogenerate
  27 r:  stata_tmp_using_data_L27 = haven::read_dta(R_tempfile_L24_t1_path)
@@ -4980,8 +4978,8 @@ data = dplyr::mutate(data, `group_code` = dplyr::case_when(
   ))
 
  32 do:  drop if missing(mean_i_overall)
- 32 r:  data = dplyr::filter(data, !(sfun_missing(mean_i_overall))) 
-data = dplyr::filter(data, !(sfun_missing(mean_i_overall)))
+ 32 r:  data = dplyr::filter(data, !dplyr::coalesce(sfun_missing(mean_i_overall), FALSE)) 
+data = dplyr::filter(data, !dplyr::coalesce(sfun_missing(mean_i_overall), FALSE))
 
  33 do:  order id group_code mean_i_overall
  33 r:  data = dplyr::select(data, id, group_code, mean_i_overall, dplyr::everything()) 
@@ -5467,16 +5465,16 @@ data = dplyr::arrange(data, dplyr::desc(!!!dplyr::syms("value1")), !!!dplyr::sym
 data = dplyr::select(data, -dplyr::any_of(c('random_uniform_draw','int_value1','rounded_value1')))
 
  51 do:  keep if value2 < 12 | missing(value2)
- 51 r:  data = dplyr::filter(data, value2 < 12 | sfun_missing(value2)) 
-data = dplyr::filter(data, value2 < 12 | sfun_missing(value2))
+ 51 r:  data = dplyr::filter(data, dplyr::coalesce(value2 < 12 | sfun_missing(value2), FALSE)) 
+data = dplyr::filter(data, dplyr::coalesce(value2 < 12 | sfun_missing(value2), FALSE))
 
  52 do:  keep if _n <= 40
- 52 r:  data = dplyr::filter(data, as.numeric(dplyr::row_number()) <= 40) 
-data = dplyr::filter(data, as.numeric(dplyr::row_number()) <= 40)
+ 52 r:  data = dplyr::filter(data, dplyr::coalesce(as.numeric(dplyr::row_number()) <= 40, FALSE)) 
+data = dplyr::filter(data, dplyr::coalesce(as.numeric(dplyr::row_number()) <= 40, FALSE))
 
  53 do:  drop if mod(id, 4) == 0 & value1 > 50
- 53 r:  data = dplyr::filter(data, !((id %%  4) == 0 & value1 > 50)) 
-data = dplyr::filter(data, !((id %%  4) == 0 & value1 > 50))
+ 53 r:  data = dplyr::filter(data, !dplyr::coalesce((id %%  4) == 0 & value1 > 50, FALSE)) 
+data = dplyr::filter(data, !dplyr::coalesce((id %%  4) == 0 & value1 > 50, FALSE))
 
  54 do:  keep id group_orig value1 value1_log value2 value2_squared group_clean obs_date num_val_from_str value2_cat_str mean_overall_value1 total_value2_by_group group_code_num
  54 r:  data = dplyr::select(data, dplyr::all_of(c('id','group_orig','value1','value1_log','value2','value2_squared','group_clean','obs_date','num_val_from_str','value2_cat_str','mean_overall_value1','total_value2_by_group','group_code_num'))) 
