@@ -35,10 +35,10 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   # Step 3: Translate Stata logical operators and missing value comparisons.
   # These must happen after handling `r()` values so `r(mean)` is already `stata_r_val_Lxx_mean`.
-  # Stata `X == .` -> R `is.na(X)`
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*==\\s*NA_real_", "is.na($1)")
-  # Stata `X != .` -> R `!is.na($1)`
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*!=\\s*NA_real_", "!is.na($1)") # Use stri_replace_all_regex for safety
+  # Stata `X == .` -> R `sfun_missing(X)`
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*==\\s*NA_real_", "sfun_missing($1)")
+  # Stata `X != .` -> R `!sfun_missing($1)`
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*!=\\s*NA_real_", "!sfun_missing($1)")
 
   r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![<>!=~])\\s*=\\s*(?![=])", " == ") # Replace single = with == if not part of other ops
   r_expr = stringi::stri_replace_all_regex(r_expr, "\\s+~=\\s+", " != ") # Stata `~=` to R `!=`
@@ -137,5 +137,4 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   return(r_expr)
 }
-
 

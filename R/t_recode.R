@@ -41,7 +41,7 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Look for options after the if/in part or after rules
   options_match = stringi::stri_match_first_regex(rules_and_rest, ",\\s*(.*)$")
   if (!is.na(options_match[1,1])) {
-      options_str = stringi::stri_trim_both(options_match[1,2])
+      options_str = stringi::stri_trim_both(options_match[1,1])
       rules_part = stringi::stri_replace_last_regex(rules_and_rest, ",\\s*(.*)$", "")
       rules_part = stringi::stri_trim_both(rules_part)
   } else {
@@ -78,46 +78,55 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       new_vars = vars_to_recode
   }
 
-  # Determine if the target variable(s) should be string type
-  any_rule_implies_string = FALSE
+  # --- Determine the target variable type and collect labels if applicable ---
+  target_var_will_be_string_in_R = FALSE
+  target_var_is_numeric_with_labels = FALSE
+  collected_labels = list() # Store numeric_value = "label" pairs
+
   for (rule_raw in recode_rules_raw) {
       rule_str_trimmed = stringi::stri_trim_both(rule_raw)
       parts_eq = stringi::stri_split_fixed(rule_str_trimmed, "=", n=2)[[1]]
       if (length(parts_eq) != 2) next # Skip malformed rules
       new_part_raw = stringi::stri_trim_both(parts_eq[2])
 
-      # A rule implies string type if:
-      # 1. The new value is a string literal (e.g., "new_string_value").
-      # 2. The new value is a numeric value with an attached string label (e.g., 1 "label").
+      # Check for plain string literal (e.g., "new_string_value")
       if ( (stringi::stri_startswith_fixed(new_part_raw, '"') && stringi::stri_endswith_fixed(new_part_raw, '"')) ||
            (stringi::stri_startswith_fixed(new_part_raw, "'") && stringi::stri_endswith_fixed(new_part_raw, "'")) ) {
-          any_rule_implies_string = TRUE
-          break
+          target_var_will_be_string_in_R = TRUE
+          break # If any rule implies string, the whole var becomes string
       }
+
       # Check for 'value "label"' syntax
       label_match = stringi::stri_match_first_regex(new_part_raw, "^\\s*([^\\s]+)\\s+(?:\"([^\"]*)\"|'([^']*)')\\s*$")
       if (!is.na(label_match[1,1])) {
-          any_rule_implies_string = TRUE
-          break
+          target_var_is_numeric_with_labels = TRUE
+          numeric_val_part = stringi::stri_trim_both(label_match[1,2])
+          string_label_part = ifelse(!is.na(label_match[1,3]), label_match[1,3], label_match[1,4])
+
+          # Convert numeric value to R numeric (handling Stata's missing values)
+          r_numeric_val = NA_real_
+          if (numeric_val_part == ".") r_numeric_val = NA_real_
+          else if (stringi::stri_detect_regex(numeric_val_part, "^\\.[a-zA-Z]$")) r_numeric_val = NA_real_
+          else r_numeric_val = as.numeric(numeric_val_part)
+
+          if (!is.na(r_numeric_val)) {
+            collected_labels[[string_label_part]] = r_numeric_val
+          }
       }
   }
 
+  # If any rule forces string, then it's string. Otherwise, if any rule has labels, it's numeric with labels.
+  # Otherwise, it's plain numeric.
+  final_r_var_type_is_string = target_var_will_be_string_in_R
+  final_r_var_type_is_labelled_numeric = !target_var_will_be_string_in_R && target_var_is_numeric_with_labels
 
   # Translate the if/in condition for subsetting
   r_subset_cond = NA_character_
-  data_source_for_recode = "data"
-  r_code_prefix = "" # Code to create subset if needed
-
   if (!is.na(stata_if_in_cond) && stata_if_in_cond != "") {
-      # Stata recode applies if/in to select observations *to be recoded*.
-      # Observations not meeting if/in condition are left unchanged.
-      # This means the R code needs to apply the recoding conditionally.
       r_subset_cond = translate_stata_expression_with_r_values(stata_if_in_cond, line_num, cmd_df, context = list(is_by_group = FALSE))
       if (is.na(r_subset_cond) || r_subset_cond == "") {
            return(paste0("# Failed to translate if/in condition for recode: ", stata_if_in_cond))
        }
-      # The actual recoding logic (case_when/ifelse) will incorporate this condition.
-      # No need for a separate subset dataframe here.
   }
 
 
@@ -126,8 +135,8 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # old_value can be: single value, range (val1/val2, val1 thru val2), list (val1 val2), else, missing (.)
   # new_value can be: single value, copy (use original value), missing (.)
 
-  translate_recode_rule = function(rule_str, source_var_r, target_is_string) {
-      restore.point("translate_recode_rule")
+  translate_recode_rule = function(rule_str, source_var_r, final_r_var_type_is_string) {
+      restore.point("translate_recode_rule_inner")
       rule_str = stringi::stri_trim_both(rule_str)
       parts_eq = stringi::stri_split_fixed(rule_str, "=", n=2)[[1]]
       if (length(parts_eq) != 2) {
@@ -141,9 +150,9 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       if (old_part_raw == "else") {
           r_condition = "TRUE" # This rule is the fallback
       } else if (old_part_raw == "missing" || stringi::stri_detect_regex(old_part_raw, "^\\.\\w?$")) { # Added regex for .a, .b, etc.
-           r_condition = paste0("is.na(", source_var_r, ")") # Missing value rule (all Stata missing types to R's NA)
+           r_condition = paste0("sfun_missing(", source_var_r, ")") # Missing value rule (all Stata missing types to R's NA)
       } else if (old_part_raw == "nonmissing") {
-           r_condition = paste0("!is.na(", source_var_r, ")") # Non-missing value rule
+           r_condition = paste0("!sfun_missing(", source_var_r, ")") # Non-missing value rule
       } else if (grepl("\\s+thru\\s+", old_part_raw)) {
            # Range: val1 thru val2
            range_parts = stringi::stri_split_regex(old_part_raw, "\\s+thru\\s+", n=2)[[1]]
@@ -183,7 +192,7 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       if (new_part_raw == "copy") {
           r_new_value = source_var_r # Use the original variable value
           # If target is string but source is not, need to convert source to string
-          if (target_is_string) {
+          if (final_r_var_type_is_string) {
             r_new_value = paste0("as.character(", r_new_value, ")")
           }
       } else {
@@ -191,20 +200,20 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
           label_match = stringi::stri_match_first_regex(new_part_raw, "^\\s*([^\\s]+)\\s+(?:\"([^\"]*)\"|'([^']*)')\\s*$")
           if (!is.na(label_match[1,1])) {
               # It's a "value label" syntax
-              string_label_part = ifelse(!is.na(label_match[1,3]), label_match[1,3], label_match[1,4])
               numeric_val_part = stringi::stri_trim_both(label_match[1,2])
-
-              if (target_is_string) {
-                  r_new_value = quote_for_r_literal(string_label_part) # Return the label as a string literal
+              # If target is string, return the label as a string literal
+              if (final_r_var_type_is_string) {
+                  string_label_part = ifelse(!is.na(label_match[1,3]), label_match[1,3], label_match[1,4])
+                  r_new_value = quote_for_r_literal(string_label_part)
               } else {
-                  # If target is numeric, return the numeric value, translated
+                  # If target is numeric (possibly labelled numeric), return the numeric value, translated
                   r_new_value = translate_stata_expression_to_r(numeric_val_part, context=list(is_by_group=FALSE))
               }
           } else {
               # It's a plain expression or literal (numeric or string)
               r_new_value = translate_stata_expression_to_r(new_part_raw, context=list(is_by_group=FALSE))
               # If target is string, ensure the expression result is cast to string
-              if (target_is_string) {
+              if (final_r_var_type_is_string) {
                   # This is the crucial change for Stata's missing value conversion to empty string
                   if (r_new_value == "NA_real_") {
                       r_new_value = '""' # Stata recode for missing numeric to empty string for string variables
@@ -221,13 +230,16 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Generate case_when expression for each variable
   mutate_exprs = character(length(vars_to_recode))
+  r_code_lines = c()
+
   for (k in seq_along(vars_to_recode)) {
       old_var = vars_to_recode[k]
       new_var = new_vars[k]
       source_var_r = old_var # R variable name for the source column
 
       # Translate all rules for this variable
-      r_rules = sapply(recode_rules_raw, translate_recode_rule, source_var_r = source_var_r, target_is_string = any_rule_implies_string)
+      # Pass the determined target type
+      r_rules = sapply(recode_rules_raw, translate_recode_rule, source_var_r = source_var_r, final_r_var_type_is_string = final_r_var_type_is_string)
 
       # Combine rules into a case_when statement
       case_when_expr = paste0("dplyr::case_when(\n    ", paste(r_rules, collapse = ",\n    "), "\n  )")
@@ -251,7 +263,26 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   mutate_exprs_str = paste(mutate_exprs, collapse = ",\n  ")
 
   # Build the final R code using dplyr::mutate
-  r_code_lines = c(paste0("data = dplyr::mutate(data, ", mutate_exprs_str, ")")) # Changed to dplyr::mutate
+  r_code_lines = c(r_code_lines, paste0("data = dplyr::mutate(data, ", mutate_exprs_str, ")"))
+
+  # Apply labels if the target variable is determined to be numeric with labels
+  if (final_r_var_type_is_labelled_numeric && length(collected_labels) > 0) {
+      # Ensure collected_labels is a named numeric vector
+      # Use unlist and unique to handle potential duplicate labels from multiple rules
+      unique_labels = unique(unlist(collected_labels))
+      numeric_values = unname(unique_labels)
+      label_names = names(unique_labels)
+
+      labels_vector_r_code = paste0("stats::setNames(c(", paste(numeric_values, collapse=", "), "), c(", paste0('"', label_names, '"', collapse=", "), "))")
+
+      for (new_var in new_vars) {
+          # Need to update the labels attribute directly, as haven::labelled only sets it on creation
+          r_code_lines = c(r_code_lines, paste0("attr(data$`", new_var, "`, \"labels\") = ", labels_vector_r_code))
+          # Ensure it remains a labelled class, or re-apply haven::labelled
+          # For simplicity, if it was just mutated to numeric, this attribute should suffice
+          # If it was already a labelled numeric, this will update/overwrite its labels.
+      }
+  }
 
 
   r_code_str = paste(r_code_lines, collapse="\n")

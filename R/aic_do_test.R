@@ -292,7 +292,8 @@ compare_df = function(df1, df2,
 
     } else {
       # For non-numeric, direct comparison, NA/NA is TRUE
-      neq = v1 != v2 | xor(is.na(v1), is.na(v2))
+      # Coerce to character to avoid type mismatch errors if one is numeric and other is character
+      neq = as.character(v1) != as.character(v2) | xor(is.na(v1), is.na(v2))
     }
     which(neq)
   })
@@ -303,10 +304,11 @@ compare_df = function(df1, df2,
     # build a compact summary with at most sample_n_diff rows per column
     sampler = function(idx, cl) {
       head_idx = head(idx, sample_n_diff)
+      # Ensure values are coerced to character for consistent output in the diff table
       data.frame(row = head_idx,
                  column = cl,
-                 df1_value = df1[[cl]][head_idx],
-                 df2_value = df2[[cl]][head_idx],
+                 df1_value = as.character(df1[[cl]][head_idx]), # Coerce to character
+                 df2_value = as.character(df2[[cl]][head_idx]), # Coerce to character
                  stringsAsFactors = FALSE)
     }
     diff_tbl = do.call(rbind, Map(sampler, value_diffs, names(value_diffs)))
