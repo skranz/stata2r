@@ -147,16 +147,189 @@ data = data %>%
 
  5 do:  generate rounded_value1 = round(value1, 0.1) if !missing(value1)
  5 r:  data = data %>% 
-  dplyr::mutate(`rounded_value1` = dplyr::if_else(dplyr::coalesce(!is.na(value1), FALSE), sfun_stata_round(value1,  0NA_real_1), NA_real_)) 
+  dplyr::mutate(`rounded_value1` = dplyr::if_else(dplyr::coalesce(!is.na(value1), FALSE), sfun_stata_round(value1,  0.1), NA_real_)) 
 data = data %>% 
-  dplyr::mutate(`rounded_value1` = dplyr::if_else(dplyr::coalesce(!is.na(value1), FALSE), sfun_stata_round(value1,  0NA_real_1), NA_real_))
-Error: <text>:2:118: unexpected symbol
-1: data = data %>% 
-2:   dplyr::mutate(`rounded_value1` = dplyr::if_else(dplyr::coalesce(!is.na(value1), FALSE), sfun_stata_round(value1,  0NA_real_1
-                                                                                                                        ^
-Error executing R code for Stata line  5 :  data = data %>% 
-  dplyr::mutate(`rounded_value1` = dplyr::if_else(dplyr::coalesce(!is.na(value1), FALSE), sfun_stata_round(value1,  0NA_real_1), NA_real_))
-Error: <text>:2:118: unexpected symbol
-1: data = data %>% 
-2:   dplyr::mutate(`rounded_value1` = dplyr::if_else(dplyr::coalesce(!is.na(value1), FALSE), sfun_stata_round(value1,  0NA_real_1
-                                                                                                                        ^ 
+  dplyr::mutate(`rounded_value1` = dplyr::if_else(dplyr::coalesce(!is.na(value1), FALSE), sfun_stata_round(value1,  0.1), NA_real_))
+
+ 6 do:  generate random_uniform_draw = runiform()
+ 6 r:  data = data %>% 
+  dplyr::mutate(`random_uniform_draw` = stats::runif(as.numeric(dplyr::n()))) 
+data = data %>% 
+  dplyr::mutate(`random_uniform_draw` = stats::runif(as.numeric(dplyr::n())))
+
+ 7 do:  generate id_plus_value2 = id + value2 if value2 < 7 & !missing(value2)
+ 7 r:  data = data %>% 
+  dplyr::mutate(`id_plus_value2` = dplyr::if_else(dplyr::coalesce(value2 < 7 & !is.na(value2), FALSE), sfun_stata_add(id, value2), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`id_plus_value2` = dplyr::if_else(dplyr::coalesce(value2 < 7 & !is.na(value2), FALSE), sfun_stata_add(id, value2), NA_real_))
+
+ 8 do:  replace value1_log = 0 if missing(value1_log) & !missing(value1)
+ 8 r:  data = data %>% 
+  dplyr::mutate(`value1_log` = dplyr::if_else(dplyr::coalesce(is.na(value1_log) & !is.na(value1), FALSE), 0, data$`value1_log`)) 
+data = data %>% 
+  dplyr::mutate(`value1_log` = dplyr::if_else(dplyr::coalesce(is.na(value1_log) & !is.na(value1), FALSE), 0, data$`value1_log`))
+
+ 9 do:  replace value1 = value1 * 1.5 if group_orig == "Alpha" & !missing(value1) & !missing(group_orig)
+ 9 r:  data = data %>% 
+  dplyr::mutate(`value1` = dplyr::if_else(dplyr::coalesce(group_orig == "Alpha" & !is.na(value1) & !is.na(group_orig), FALSE), value1 * 1.5, data$`value1`)) 
+data = data %>% 
+  dplyr::mutate(`value1` = dplyr::if_else(dplyr::coalesce(group_orig == "Alpha" & !is.na(value1) & !is.na(group_orig), FALSE), value1 * 1.5, data$`value1`))
+
+ 10 do:  gen group_clean = strtrim(stritrim(lower(group_orig)))
+ 10 r:  data = data %>% 
+  dplyr::mutate(`group_clean` = stringi::stri_trim_both(sfun_stritrim(stringi::stri_trans_tolower(group_orig)))) 
+data = data %>% 
+  dplyr::mutate(`group_clean` = stringi::stri_trim_both(sfun_stritrim(stringi::stri_trans_tolower(group_orig))))
+
+ 11 do:  replace group_clean = "unknown" if missing(group_clean)
+ 11 r:  data = data %>% 
+  dplyr::mutate(`group_clean` = dplyr::if_else(dplyr::coalesce(is.na(group_clean), FALSE), "unknown", data$`group_clean`)) 
+data = data %>% 
+  dplyr::mutate(`group_clean` = dplyr::if_else(dplyr::coalesce(is.na(group_clean), FALSE), "unknown", data$`group_clean`))
+
+ 12 do:  gen group_abbr = substr(group_clean, 1, 3) if group_clean != "unknown"
+ 12 r:  data = data %>% 
+  dplyr::mutate(`group_abbr` = dplyr::if_else(dplyr::coalesce(group_clean != "unknown", FALSE), stringi::stri_sub(group_clean, from =  1, length =  3), NA_character_)) 
+data = data %>% 
+  dplyr::mutate(`group_abbr` = dplyr::if_else(dplyr::coalesce(group_clean != "unknown", FALSE), stringi::stri_sub(group_clean, from =  1, length =  3), NA_character_))
+
+ 13 do:  gen contact_info = group_clean + ":" + num_str
+ 13 r:  data = data %>% 
+  dplyr::mutate(`contact_info` = sfun_stata_add(sfun_stata_add(group_clean, ":"), num_str)) 
+data = data %>% 
+  dplyr::mutate(`contact_info` = sfun_stata_add(sfun_stata_add(group_clean, ":"), num_str))
+
+ 14 do:  gen str_len_group = strlen(group_clean)
+ 14 r:  data = data %>% 
+  dplyr::mutate(`str_len_group` = stringi::stri_length(group_clean)) 
+data = data %>% 
+  dplyr::mutate(`str_len_group` = stringi::stri_length(group_clean))
+
+ 15 do:  replace contact_info = subinstr(contact_info, "beta", "delta", 1) if strpos(contact_info, "beta") > 0
+ 15 r:  data = data %>% 
+  dplyr::mutate(`contact_info` = dplyr::if_else(dplyr::coalesce(sfun_strpos(contact_info,  "beta") > 0, FALSE), sfun_subinstr(contact_info,  "beta",  "delta",  1), data$`contact_info`)) 
+data = data %>% 
+  dplyr::mutate(`contact_info` = dplyr::if_else(dplyr::coalesce(sfun_strpos(contact_info,  "beta") > 0, FALSE), sfun_subinstr(contact_info,  "beta",  "delta",  1), data$`contact_info`))
+
+ 16 do:  egen mean_overall_value1 = mean(value1)
+ 16 r:  data = data %>% 
+  dplyr::mutate(`mean_overall_value1` = mean(value1, na.rm = TRUE)) 
+data = data %>% 
+  dplyr::mutate(`mean_overall_value1` = mean(value1, na.rm = TRUE))
+
+ 17 do:  egen sd_overall_value1 = sd(value1)
+ 17 r:  data = data %>% 
+  dplyr::mutate(`sd_overall_value1` = stats::sd(value1, na.rm = TRUE)) 
+data = data %>% 
+  dplyr::mutate(`sd_overall_value1` = stats::sd(value1, na.rm = TRUE))
+
+ 18 do:  egen total_value2_by_group = total(value2), by(group_clean)
+ 18 r:  data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`total_value2_by_group` = sum(value2, na.rm = TRUE)) %>% 
+  dplyr::ungroup() 
+data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`total_value2_by_group` = sum(value2, na.rm = TRUE)) %>% 
+  dplyr::ungroup()
+
+ 19 do:  egen median_value1_by_group = median(value1), by(group_clean)
+ 19 r:  data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`median_value1_by_group` = stats::median(value1, na.rm = TRUE)) %>% 
+  dplyr::ungroup() 
+data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`median_value1_by_group` = stats::median(value1, na.rm = TRUE)) %>% 
+  dplyr::ungroup()
+
+ 20 do:  egen group_numeric_id = group(group_clean)
+ 20 r:  data = data %>% 
+  dplyr::arrange(stata2r_original_order_idx) %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`group_numeric_id` = dplyr::cur_group_id()) %>% 
+  dplyr::ungroup() 
+data = data %>% 
+  dplyr::arrange(stata2r_original_order_idx) %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`group_numeric_id` = dplyr::cur_group_id()) %>% 
+  dplyr::ungroup()
+
+ 21 do:  egen tag_first_in_group = tag(group_clean)
+ 21 r:  data = data %>% 
+  dplyr::arrange(stata2r_original_order_idx) %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`tag_first_in_group` = as.numeric(dplyr::row_number() == 1)) %>% 
+  dplyr::ungroup() 
+data = data %>% 
+  dplyr::arrange(stata2r_original_order_idx) %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`tag_first_in_group` = as.numeric(dplyr::row_number() == 1)) %>% 
+  dplyr::ungroup()
+
+ 22 do:  egen count_obs_in_group = count(id), by(group_clean)
+ 22 r:  data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`count_obs_in_group` = sum(!is.na(id))) %>% 
+  dplyr::ungroup() 
+data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`count_obs_in_group` = sum(!is.na(id))) %>% 
+  dplyr::ungroup()
+
+ 23 do:  egen rank_value1_in_group = rank(value1), by(group_clean) fieldstrustmissings
+ 23 r:  data = data %>% 
+  dplyr::arrange(stata2r_original_order_idx) %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`rank_value1_in_group` = as.numeric(base::rank(as.numeric(dplyr::if_else(is.na(value1), Inf, value1)), ties.method = 'average', na.last = 'keep'))) %>% 
+  dplyr::ungroup() 
+data = data %>% 
+  dplyr::arrange(stata2r_original_order_idx) %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`rank_value1_in_group` = as.numeric(base::rank(as.numeric(dplyr::if_else(is.na(value1), Inf, value1)), ties.method = 'average', na.last = 'keep'))) %>% 
+  dplyr::ungroup()
+
+ 24 do:  egen row_total_v1_v2 = rowtotal(value1 value2)
+ 24 r:  data = data %>% 
+  dplyr::mutate(`row_total_v1_v2` = base::rowSums(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(c('value1','value2'))) %>% replace(is.na(.), 0), na.rm = FALSE)) 
+data = data %>% 
+  dplyr::mutate(`row_total_v1_v2` = base::rowSums(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(c('value1','value2'))) %>% replace(is.na(.), 0), na.rm = FALSE))
+
+ 25 do:  egen row_mean_v1_v2 = rowmean(value1 value2)
+ 25 r:  data = data %>% 
+  dplyr::mutate(`row_mean_v1_v2` = base::rowMeans(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(c('value1','value2'))), na.rm = TRUE)) 
+data = data %>% 
+  dplyr::mutate(`row_mean_v1_v2` = base::rowMeans(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(c('value1','value2'))), na.rm = TRUE))
+
+ 26 do:  egen concat_group_num = concat(group_clean num_str)
+ 26 r:  data = data %>% 
+  dplyr::mutate(`concat_group_num` = dplyr::if_else((is.na(data[['group_clean']]) & is.na(data[['num_str']])), NA_character_, stringi::stri_paste(dplyr::if_else(is.na(as.character(data[['group_clean']])), "", as.character(data[['group_clean']])), dplyr::if_else(is.na(as.character(data[['num_str']])), "", as.character(data[['num_str']])), sep = ''))) 
+data = data %>% 
+  dplyr::mutate(`concat_group_num` = dplyr::if_else((is.na(data[['group_clean']]) & is.na(data[['num_str']])), NA_character_, stringi::stri_paste(dplyr::if_else(is.na(as.character(data[['group_clean']])), "", as.character(data[['group_clean']])), dplyr::if_else(is.na(as.character(data[['num_str']])), "", as.character(data[['num_str']])), sep = '')))
+
+ 27 do:  summarize value2, meanonly
+ 27 r:  stata_r_val_L27_N = NROW(data)
+stata_r_val_L27_mean = mean(data[['value2']], na.rm = TRUE) 
+stata_r_val_L27_N = NROW(data)
+
+stata_r_val_L27_mean = mean(data[['value2']], na.rm = TRUE)
+
+ 28 do:  gen value2_dev_from_mean = value2 - r(mean) if !missing(value2) & r(mean) != .
+ 28 r:  data = data %>% 
+  dplyr::mutate(`value2_dev_from_mean` = dplyr::if_else(dplyr::coalesce(!is.na(value2) & r(mean) != NA_real_, FALSE), value2 - r(mean), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`value2_dev_from_mean` = dplyr::if_else(dplyr::coalesce(!is.na(value2) & r(mean) != NA_real_, FALSE), value2 - r(mean), NA_real_))
+
+Error: Problem with `mutate()` column `value2_dev_from_mean`.
+ℹ `value2_dev_from_mean = dplyr::if_else(...)`.
+✖ could not find function "r"
+Caused by error in `r()`:
+! could not find function "r"
+Error executing R code for Stata line  28 :  data = data %>% 
+  dplyr::mutate(`value2_dev_from_mean` = dplyr::if_else(dplyr::coalesce(!is.na(value2) & r(mean) != NA_real_, FALSE), value2 - r(mean), NA_real_))
+
+Error: Problem with `mutate()` column `value2_dev_from_mean`.
+ℹ `value2_dev_from_mean = dplyr::if_else(...)`.
+✖ could not find function "r"
+Caused by error in `r()`:
+! could not find function "r" 
