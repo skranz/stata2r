@@ -160,9 +160,12 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     calc_expr = paste0("stats::median(", r_egen_args_conditional, ", na.rm = TRUE)")
   } else if (egen_func_name == "sd" || egen_func_name == "std") {
     calc_expr = paste0("stats::sd(", r_egen_args_conditional, ", na.rm = TRUE)")
-  } else if (egen_func_name == "group" || egen_func_name == "tag") {
+  } else if (egen_func_name == "group") {
     # dplyr::cur_group_id() gives integer for each group.
     calc_expr = paste0("dplyr::cur_group_id()")
+  } else if (egen_func_name == "tag") {
+    # Stata tag(varlist) creates 1 for first observation in a group (defined by varlist) and 0 otherwise.
+    calc_expr = paste0("as.numeric(dplyr::row_number() == 1)")
   } else if (egen_func_name == "rowtotal") {
     vars_for_rowop_list = stringi::stri_split_regex(r_egen_args, "\\s+")[[1]] # Use non-conditional args here
     vars_for_rowop_list = vars_for_rowop_list[!is.na(vars_for_rowop_list) & vars_for_rowop_list != ""] # Filter empty/NA
@@ -191,8 +194,11 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   group_vars_for_dplyr_group_by = character(0)
   if (cmd_obj$is_by_prefix) {
     if (length(cmd_obj$by_group_vars) > 0 && !is.na(cmd_obj$by_group_vars[1])) {
-      group_vars_for_dplyr_group_by = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
-      group_vars_for_dplyr_group_by = group_vars_for_dplyr_group_by[!is.na(group_vars_for_dplyr_group_by) & group_vars_for_dplyr_group_by != ""]
+      group_vars_list = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
+      group_vars_list = group_vars_list[!is.na(group_vars_list) & group_vars_list != ""]
+      if (length(group_vars_list) > 0) {
+        group_vars_for_dplyr_group_by = paste0('!!!dplyr::syms(c("', paste0(group_vars_list, collapse='", "'), '"))')
+      }
     }
   } else if (!is.na(options_str)) {
     by_opt_match = stringi::stri_match_first_regex(options_str, "\\bby\\s*\\(([^)]+)\\)")
