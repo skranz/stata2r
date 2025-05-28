@@ -1,52 +1,8 @@
-The primary issue causing the `do2` test to fail is an incorrect file path resolution for the `merge` command. The `save` command (line 67 in `do2.do`) correctly saves a temporary DTA file to the `working_dir`. However, the subsequent `merge` command (line 70) attempts to load this file from the `data_dir`, leading to a "file not found" error.
+The main issue causing the `do2` test to fail is that the `t_merge` function does not correctly interpret the `nogen` abbreviation for the `nogenerate` option. This leads to the `_merge` variable being created unnecessarily, which then causes an error when the R code tries to access a column that was not intended to be there or was removed prematurely.
 
-This stems from an inconsistency in how `resolve_stata_filename` is used by `t_append` and `t_merge` versus `t_use` and `t_save`. Stata's default behavior is that `use`, `save`, `merge using`, and `append using` commands, when given a relative filename, operate on the current working directory. Given that the test framework sets `stata2r_env$working_dir` to the test-specific output directory, all these commands should primarily use `working_dir` for resolving relative paths.
+The fix involves updating the regex in `t_merge.R` to correctly detect both `nogenerate` and its abbreviation `nogen`.
 
-The proposed changes ensure that `t_append` and `t_merge` also use `working_dir` as the default base directory for resolving relative filenames, consistent with `t_use` and `t_save` and Stata's default behavior.
-
-!CHANGE_FILE R/t_append.R
-```R
-# Translate Stata 'append' command
-# Stata: append using filename [, options]
-
-t_append = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
-  restore.point("t_append") # Added restore.point
-  rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
-
-  # Parse `using filename` and options
-  # Pattern: ^\s*using\s+([^,\s]+)(?:,\\s*(.*))?$
-  # G1: filename (can be quoted or macro), G2: options
-
-  append_match = stringi::stri_match_first_regex(rest_of_cmd_trimmed, "^\\s*using\\s+(\"[^\"]+\"|`[^']+'|[^,\\s]+)(?:,\\s*(.*))?$")
-
-  if (is.na(append_match[1,1])) {
-    return(paste0("# Failed to parse append command: ", rest_of_cmd))
-  }
-
-  raw_filename_token = stringi::stri_trim_both(append_match[1,2])
-  options_str = stringi::stri_trim_both(append_match[1,3]) # NA if no options
-
-  # Resolve the `using filename` - can be a path string or a macro
-  # Changed default_base_dir_var to "working_dir" for consistency with Stata's default file paths
-  using_source_r_expr = resolve_stata_filename(raw_filename_token, cmd_df, line_num, default_base_dir_var = "working_dir")
-
-  # Stata append requires variable names to match or be harmonized.
-  # dplyr::bind_rows matches columns by name. Differences are filled with NA. This is similar to Stata.
-  # Options like `force` (append even if variable types don't match) are not handled.
-
-  # Using dplyr::bind_rows instead of collapse::fbind (due to reported "not exported" error)
-  r_code_str = paste0("data = dplyr::bind_rows(data, haven::read_dta(", using_source_r_expr, "))")
-
-  # Add comment about options if any were present but not handled
-  if (!is.na(options_str) && options_str != "") {
-       r_code_str = paste0(r_code_str, paste0(" # Options ignored: ", options_str))
-  }
-
-
-  return(r_code_str)
-}
-```
-!END_CHANGE_FILE R/t_append.R
+I will only modify `t_merge.R` as this is the direct cause of the reported error. Other minor inconsistencies (like the `recode` label issue, which didn't cause a test failure) will be addressed if they become critical in future iterations.
 
 !CHANGE_FILE R/t_merge.R
 ```R
@@ -131,8 +87,8 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       }
   }
 
-  # Handle nogenerate option
-  has_nogenerate = !is.na(options_str) && stringi::stri_detect_fixed(options_str, "nogenerate")
+  # Handle nogenerate option - FIX: use regex to correctly detect 'nogen' abbreviation
+  has_nogenerate = !is.na(options_str) && stringi::stri_detect_regex(options_str, "\\bno(?:generate|gen)\\b")
   
   # Build the R command string using dplyr::*_join
 
@@ -190,7 +146,7 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   if (!is.na(options_str_cleaned)) {
       # Remove keep() and nogenerate from options string for comment
       options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "\\bkeep\\s*\\([^)]+\\)", "")
-      options_str_cleaned = stringi::stri_replace_first_fixed(options_str_cleaned, "nogenerate", "")
+      options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "\\bno(?:generate|gen)\\b", "") # Updated to remove both
       options_str_cleaned = stringi::stri_trim_both(stringi::stri_replace_all_regex(options_str_cleaned, ",+", ","))
       options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "^,+", "")
   }

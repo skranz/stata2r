@@ -894,7 +894,7 @@ data = haven::read_dta(file.path(stata2r_env$working_dir, "main_data_temp.dta"))
 data = dplyr::arrange(data, !!!dplyr::syms(c("id")))
 
  70 do:  merge 1:1 id using "extra_data_temp.dta", nogen
- 70 r:  stata_tmp_using_data_L70 = haven::read_dta(file.path(stata2r_env$data_dir, "extra_data_temp.dta"))
+ 70 r:  stata_tmp_using_data_L70 = haven::read_dta(file.path(stata2r_env$working_dir, "extra_data_temp.dta"))
 common_cols = intersect(names(data), names(stata_tmp_using_data_L70))
 common_cols_not_by = setdiff(common_cols, c("id"))
 if (length(common_cols_not_by) > 0) { stata_tmp_using_data_L70 = dplyr::select(stata_tmp_using_data_L70, -dplyr::all_of(common_cols_not_by)) }
@@ -909,21 +909,16 @@ data = dplyr::select(data, -dplyr::any_of('_merge_status_tmp_L70'))
 rm(stata_tmp_using_data_L70, common_cols, common_cols_not_by)
 # Stata merge type: 1:1, keep(match master)
  # Other options ignored: nogen 
-stata_tmp_using_data_L70 = haven::read_dta(file.path(stata2r_env$data_dir, "extra_data_temp.dta"))
+stata_tmp_using_data_L70 = haven::read_dta(file.path(stata2r_env$working_dir, "extra_data_temp.dta"))
 
-Error: '~/aicoder/stata2r/inst/cases/do2/do_data/extra_data_temp.dta' does not exist.
 common_cols = intersect(names(data), names(stata_tmp_using_data_L70))
 
-Error: object 'stata_tmp_using_data_L70' not found
 common_cols_not_by = setdiff(common_cols, c("id"))
 
-Error: object 'common_cols' not found
 if (length(common_cols_not_by) > 0) { stata_tmp_using_data_L70 = dplyr::select(stata_tmp_using_data_L70, -dplyr::all_of(common_cols_not_by)) }
 
-Error: object 'common_cols_not_by' not found
 data = dplyr::left_join(data, stata_tmp_using_data_L70, by = c("id"), indicator = "_merge_status_tmp_L70")
 
-Error: object 'stata_tmp_using_data_L70' not found
 data = dplyr::mutate(data, `_merge` = dplyr::case_when(
   `_merge_status_tmp_L70` == "left_only" ~ 1L,
   `_merge_status_tmp_L70` == "right_only" ~ 2L,
@@ -940,28 +935,20 @@ data = dplyr::select(data, -dplyr::any_of('_merge_status_tmp_L70'))
 
 rm(stata_tmp_using_data_L70, common_cols, common_cols_not_by)
 
-Warning: object 'stata_tmp_using_data_L70' not found
-Warning: object 'common_cols' not found
-Warning: object 'common_cols_not_by' not found
 # Stata merge type: 1:1, keep(match master)
 
  # Other options ignored: nogen
 
-Error executing R code for Stata line  70 :  stata_tmp_using_data_L70 = haven::read_dta(file.path(stata2r_env$data_dir, "extra_data_temp.dta"))
+Error executing R code for Stata line  70 :  stata_tmp_using_data_L70 = haven::read_dta(file.path(stata2r_env$working_dir, "extra_data_temp.dta"))
 
-Error: '~/aicoder/stata2r/inst/cases/do2/do_data/extra_data_temp.dta' does not exist.
 common_cols = intersect(names(data), names(stata_tmp_using_data_L70))
 
-Error: object 'stata_tmp_using_data_L70' not found
 common_cols_not_by = setdiff(common_cols, c("id"))
 
-Error: object 'common_cols' not found
 if (length(common_cols_not_by) > 0) { stata_tmp_using_data_L70 = dplyr::select(stata_tmp_using_data_L70, -dplyr::all_of(common_cols_not_by)) }
 
-Error: object 'common_cols_not_by' not found
 data = dplyr::left_join(data, stata_tmp_using_data_L70, by = c("id"), indicator = "_merge_status_tmp_L70")
 
-Error: object 'stata_tmp_using_data_L70' not found
 data = dplyr::mutate(data, `_merge` = dplyr::case_when(
   `_merge_status_tmp_L70` == "left_only" ~ 1L,
   `_merge_status_tmp_L70` == "right_only" ~ 2L,
@@ -978,9 +965,6 @@ data = dplyr::select(data, -dplyr::any_of('_merge_status_tmp_L70'))
 
 rm(stata_tmp_using_data_L70, common_cols, common_cols_not_by)
 
-Warning: object 'stata_tmp_using_data_L70' not found
-Warning: object 'common_cols' not found
-Warning: object 'common_cols_not_by' not found
 # Stata merge type: 1:1, keep(match master)
 
  # Other options ignored: nogen
