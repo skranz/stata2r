@@ -30,7 +30,8 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Group 1: stat name (e.g., mean, sum)
   # Group 2: target variable name (e.g., i, total_i_sum)
   # Group 3: source expression (e.g., i, i+1) - optional, for `name=expr` syntax
-  aggregate_matches = stringi::stri_match_all_regex(aggregate_part, "\\(([a-zA-Z_][a-zA-Z0-9_]*)\\)\\s*([a-zA-Z_][a-zA-Z0-9_.]*)(?:\\s*=\\s*(.*?))?")[[1]]
+  # Changed (?:\\s*=\\s*(.*?))? to (?:\\s*=\\s*([^,]+))? for more robust capture of expressions.
+  aggregate_matches = stringi::stri_match_all_regex(aggregate_part, "\\(([a-zA-Z_][a-zA-Z0-9_]*)\\)\\s*([a-zA-Z_][a-zA-Z0-9_.]*)(?:\\s*=\\s*([^,]+))?")[[1]]
 
   if (NROW(aggregate_matches) == 0) {
     return(paste0("# Failed to parse collapse aggregate definitions: ", aggregate_part))

@@ -54,12 +54,11 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
 
   # Step 1: Calculate the value for replacement, potentially conditionally
-  # Determine the type of NA to use for the `if_else` fallback based on the *translated* R expression.
+  # Determine the type of NA to use for the `if_else` fallback based on the *original Stata expression*.
   calculated_value_expr = r_expr
   na_for_if_else = "NA_real_" # Default to numeric NA
 
-  # Heuristic for string result type: if the R expression contains string functions or sfun_stata_add
-  if (stringi::stri_detect_fixed(r_expr, "sfun_stata_add") || stringi::stri_detect_fixed(r_expr, "stringi::stri_")) {
+  if (is_stata_expr_string_type(stata_expr)) {
     na_for_if_else = "NA_character_"
   } else {
     # If the original Stata expression is a logical comparison, it yields numeric 0/1 in Stata.
