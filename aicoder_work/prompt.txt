@@ -926,13 +926,18 @@ sfun_stata_round = function(x, unit = 1) {
 
 sfun_string = function(x) {
   restore.point("sfun_string")
-  # Convert to character first
-  res = as.character(x)
-
-  # Stata specific: missing numeric values become empty string.
-  # This applies to R's NA_real_ (for numeric) and NA_character_ (for character).
-  res[is.na(res)] = ""
-
+  
+  # Initialize result vector of character type
+  res = character(length(x))
+  
+  # Handle non-missing values: convert them to character
+  # This correctly converts numeric values to their string representation.
+  res[!is.na(x)] = as.character(x[!is.na(x)])
+  
+  # Handle missing values (NA in R): convert them to an empty string ("")
+  # This directly addresses the Stata `.` to `""` conversion rule.
+  res[is.na(x)] = ""
+  
   return(res)
 }
 
@@ -4949,7 +4954,7 @@ tibble [50 × 39] (S3: tbl_df/tbl/data.frame)
   ..- attr(*, "format.stata")= chr "%9.0g"
  $ int_value1                : num [1:50] 73 NA 52 29 44 NA 41 20 31 70 ...
  $ rounded_value1            : num [1:50] 73.9 NA 52.8 29.8 44.2 NA 41.7 20 31.9 70.1 ...
- $ random_uniform_draw       : num [1:50] 0.8623 0.0497 0.4264 0.6187 0.3187 ...
+ $ random_uniform_draw       : num [1:50] 0.5486 0.9833 0.0357 0.0766 0.8417 ...
  $ id_plus_value2            : num [1:50] 5 5 NA NA 8 8 10 14 15 NA ...
  $ group_clean               : chr [1:50] "gamma" "gamma" "beta" "beta" ...
  $ group_abbr                : chr [1:50] "gam" "gam" "bet" "bet" ...
