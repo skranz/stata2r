@@ -182,8 +182,9 @@ compare_df = function(df1, df2,
 
   # Ensure column names are plain character vectors before setdiff operations
   # This can prevent issues if names have attributes or are of a special class
-  names_df1_raw = as.character(names(df1))
-  names_df2_raw = as.character(names(df2))
+  # Adding unname() to remove any potential name attributes that might interfere with setdiff
+  names_df1_raw = unname(as.character(names(df1)))
+  names_df2_raw = unname(as.character(names(df2)))
 
   # Filter out ignored columns from names for comparison
   names_df1_filtered = setdiff(names_df1_raw, ignore_cols_values)
@@ -287,5 +288,4 @@ compare_df = function(df1, df2,
   }
   out
 }
-
 
