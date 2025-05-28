@@ -87,6 +87,12 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   stata_merge_map_right_only_var_in_r = paste0("stata_merge_map_right_only_L", line_num)
   stata_merge_map_both_var_in_r = paste0("stata_merge_map_both_L", line_num)
 
+  # New temp vars for package and function name resolution in generated R code
+  pkg_name_in_r_code = paste0("pkg_name_L", line_num)
+  fun_name_in_r_code = paste0("fun_name_L", line_num)
+  merge_fun_obj_in_r_code = paste0("merge_fun_obj_L", line_num)
+
+
   # Default values in generated R code
   r_code_lines = c(r_code_lines, paste0(join_type_var_in_r, " = \"dplyr::left_join\""))
   r_code_lines = c(r_code_lines, paste0(stata_merge_map_left_only_var_in_r, " = 1L"))
@@ -118,8 +124,8 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
           paste0("using_ids_merge_key = dplyr::pull(dplyr::distinct(dplyr::select(", temp_using_data_var, ", dplyr::all_of(", vars_to_merge_on_r_vec_str, "))), 1)"),
           paste0("if (any(base::duplicated(dplyr::select(data, dplyr::all_of(", vars_to_merge_on_r_vec_str, "))))) { stop('Merge 1:1 failed: Duplicate keys found in master dataset (data).') }"),
           paste0("if (any(base::duplicated(dplyr::select(", temp_using_data_var, ", dplyr::all_of(", vars_to_merge_on_r_vec_str, "))))) { stop('Merge 1:1 failed: Duplicate keys found in using dataset (', ", using_source_r_expr, ", ').') }"),
-          # FIX: Added quotes around join_type_var_in_r for string comparison in generated R code
-          paste0("if (\"", join_type_var_in_r, "\" == \"dplyr::left_join\" && length(base::setdiff(master_ids_merge_key, using_ids_merge_key)) == 0 && length(base::setdiff(using_ids_merge_key, master_ids_merge_key)) > 0) {"),
+          # Corrected: removed quotes around `join_type_var_in_r` in the `if` condition.
+          paste0("if (", join_type_var_in_r, " == \"dplyr::left_join\" && length(base::setdiff(master_ids_merge_key, using_ids_merge_key)) == 0 && length(base::setdiff(using_ids_merge_key, master_ids_merge_key)) > 0) {"),
           paste0("  ", join_type_var_in_r, " = \"dplyr::right_join\""),
           paste0("  ", stata_merge_map_left_only_var_in_r, " = 1L"),
           paste0("  ", stata_merge_map_right_only_var_in_r, " = 1L"),
@@ -139,9 +145,17 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     paste0("if (length(common_cols_not_by) > 0) { ", temp_using_data_var, " = dplyr::select(", temp_using_data_var, ", -dplyr::all_of(common_cols_not_by)) }")
   )
 
+  # NEW: Resolve function using get and asNamespace before do.call
+  r_code_lines = c(r_code_lines,
+    paste0("parts_fun_split = stringi::stri_split_fixed(", join_type_var_in_r, ", \"::\", n=2)[[1]]"),
+    paste0(pkg_name_in_r_code, " = parts_fun_split[1]"),
+    paste0(fun_name_in_r_code, " = parts_fun_split[2]"),
+    paste0(merge_fun_obj_in_r_code, " = get(", fun_name_in_r_code, ", envir = asNamespace(", pkg_name_in_r_code, "))")
+  )
+
   # Perform the join with indicator
   r_code_lines = c(r_code_lines,
-    paste0("data = do.call(", join_type_var_in_r, ", list(data, ", temp_using_data_var, ", by = ", vars_to_merge_on_r_vec_str, ", indicator = \"", indicator_col_name, "\"))")
+    paste0("data = do.call(", merge_fun_obj_in_r_code, ", list(data, ", temp_using_data_var, ", by = ", vars_to_merge_on_r_vec_str, ", indicator = \"", indicator_col_name, "\"))")
   )
 
   # Generate _merge variable unless nogenerate option is present
@@ -162,7 +176,7 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   r_code_lines = c(r_code_lines, paste0("data = dplyr::select(data, -dplyr::any_of('", indicator_col_name, "'))"))
 
   # Clean up temporary variables
-  r_code_lines = c(r_code_lines, paste0("rm(", temp_using_data_var, ", common_cols, common_cols_not_by)"))
+  r_code_lines = c(r_code_lines, paste0("rm(", temp_using_data_var, ", common_cols, common_cols_not_by, parts_fun_split)"))
   
   # Clean up temporary master_ids_merge_key, using_ids_merge_key if they were created
   if (merge_type == "1:1") { # This condition is evaluated at translation time, deciding if the rm calls should be generated
@@ -170,6 +184,8 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
   # Clean up the new temporary variables created for the generated R code
   r_code_lines = c(r_code_lines, paste0("rm(", join_type_var_in_r, ", ", stata_merge_map_left_only_var_in_r, ", ", stata_merge_map_right_only_var_in_r, ", ", stata_merge_map_both_var_in_r, ")"))
+  # NEW: Clean up the new temp vars
+  r_code_lines = c(r_code_lines, paste0("rm(", pkg_name_in_r_code, ", ", fun_name_in_r_code, ", ", merge_fun_obj_in_r_code, ")"))
 
 
   # Add comment about options
