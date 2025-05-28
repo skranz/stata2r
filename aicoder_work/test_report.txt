@@ -615,20 +615,26 @@ data = data %>%
 
  35 do:  gen days_since_2021_start = obs_date - mdy(1,1,2021) if !missing(obs_date)
  35 r:  data = data %>% 
-  dplyr::mutate(`days_since_2021_start` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), obs_date - mdy(1,1,2021), NA_real_)) 
+  dplyr::mutate(`days_since_2021_start` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), obs_date - sfun_stata_mdy(1, 1, 2021), NA_real_)) 
 data = data %>% 
-  dplyr::mutate(`days_since_2021_start` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), obs_date - mdy(1,1,2021), NA_real_))
+  dplyr::mutate(`days_since_2021_start` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), obs_date - sfun_stata_mdy(1, 1, 2021), NA_real_))
 
-Error: Problem with `mutate()` column `days_since_2021_start`.
-ℹ `days_since_2021_start = dplyr::if_else(...)`.
-✖ could not find function "mdy"
-Caused by error in `mdy()`:
-! could not find function "mdy"
-Error executing R code for Stata line  35 :  data = data %>% 
-  dplyr::mutate(`days_since_2021_start` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), obs_date - mdy(1,1,2021), NA_real_))
+ 36 do:  gen is_weekend_day = (dow(obs_date) == 0 | dow(obs_date) == 6) if !missing(obs_date)
+ 36 r:  data = data %>% 
+  dplyr::mutate(`is_weekend_day` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), as.numeric((dow(obs_date) == 0 | dow(obs_date) == 6)), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`is_weekend_day` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), as.numeric((dow(obs_date) == 0 | dow(obs_date) == 6)), NA_real_))
 
-Error: Problem with `mutate()` column `days_since_2021_start`.
-ℹ `days_since_2021_start = dplyr::if_else(...)`.
-✖ could not find function "mdy"
-Caused by error in `mdy()`:
-! could not find function "mdy" 
+Error: Problem with `mutate()` column `is_weekend_day`.
+ℹ `is_weekend_day = dplyr::if_else(...)`.
+✖ could not find function "dow"
+Caused by error in `dow()`:
+! could not find function "dow"
+Error executing R code for Stata line  36 :  data = data %>% 
+  dplyr::mutate(`is_weekend_day` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), as.numeric((dow(obs_date) == 0 | dow(obs_date) == 6)), NA_real_))
+
+Error: Problem with `mutate()` column `is_weekend_day`.
+ℹ `is_weekend_day = dplyr::if_else(...)`.
+✖ could not find function "dow"
+Caused by error in `dow()`:
+! could not find function "dow" 

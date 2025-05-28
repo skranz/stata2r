@@ -838,6 +838,34 @@ sfun_stata_date = function(s, fmt, century_pivot = NULL) {
 
 -----------------------------------------------------------
 
+### FILE: sfun_stata_mdy.R
+```
+# Custom R implementation for Stata's mdy() behavior
+# Stata: mdy(M,D,Y) returns the number of days since 01jan1960.
+
+sfun_stata_mdy = function(M, D, Y) {
+  restore.point("sfun_stata_mdy")
+  # Create a string in "YYYY-MM-DD" format that as.Date can parse
+  date_str = paste0(Y, "-", sprintf("%02d", M), "-", sprintf("%02d", D))
+  
+  # Convert to R Date object. Suppress warnings for invalid dates (e.g., Feb 30).
+  # Invalid dates will result in NA.
+  r_date = suppressWarnings(as.Date(date_str, format = "%Y-%m-%d"))
+  
+  # Stata's date origin: 01jan1960
+  stata_epoch = as.Date("1960-01-01")
+  
+  # Calculate days since Stata epoch. This will be NA for invalid dates.
+  stata_date_value = as.numeric(r_date - stata_epoch)
+  
+  return(stata_date_value)
+}
+
+```
+### END OF FILE: sfun_stata_mdy.R
+
+-----------------------------------------------------------
+
 ### FILE: sfun_stata_round.R
 ```
 # Custom R implementation for Stata's round() behavior
@@ -1353,6 +1381,8 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     # Date functions
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bdate\\(([^,]+),([^,]+),([^)]+)\\)", "sfun_stata_date($1, $2, $3)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bdate\\(([^,]+),([^)]+)\\)", "sfun_stata_date($1, $2)")
+    # NEW: mdy() function
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmdy\\(([^,]+),([^,]+),([^)]+)\\)", "sfun_stata_mdy($1, $2, $3)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\byear\\(([^)]+)\\)", "as.numeric(format(as.Date($1, origin = '1960-01-01'), '%Y'))") # Stata date epoch is 1960-01-01
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmonth\\(([^)]+)\\)", "sfun_month($1)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bday\\(([^)]+)\\)", "sfun_day($1)") # Use sfun_day
@@ -1368,10 +1398,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   # 1. A variable name (starts with letter/underscore, then alphanumeric/underscore/dot)
   # 2. A numeric literal
   # 3. A string literal (single or double quoted)
-  # 4. A function call (e.g., `log(x)`, `sfun_stata_add(a, b)`), allowing for one level of nested simple function calls
-  #    within its arguments, for robustness. This is a pragmatic balance for regex complexity.
-  #    The regex `\\b\\w+\\((?:[^()]|\\b\\w+\\([^()]*\\))*\\)` is designed to handle `f(arg)` and `f(g(arg))`
-  #    but not deeper nesting like `f(g(h(arg)))`. Given Stata's expression complexity, this should be sufficient for most cases.
+  # 4. A function call (e.g., `log(x)`, `sfun_stata_add(a, b)`)
   operand_regex = paste0(
       "(?:",
       "[a-zA-Z_][a-zA-Z0-9_.]*|", # Variable name
@@ -4702,23 +4729,29 @@ data = data %>%
 
  35 do:  gen days_since_2021_start = obs_date - mdy(1,1,2021) if !missing(obs_date)
  35 r:  data = data %>% 
-  dplyr::mutate(`days_since_2021_start` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), obs_date - mdy(1,1,2021), NA_real_)) 
+  dplyr::mutate(`days_since_2021_start` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), obs_date - sfun_stata_mdy(1, 1, 2021), NA_real_)) 
 data = data %>% 
-  dplyr::mutate(`days_since_2021_start` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), obs_date - mdy(1,1,2021), NA_real_))
+  dplyr::mutate(`days_since_2021_start` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), obs_date - sfun_stata_mdy(1, 1, 2021), NA_real_))
 
-Error: Problem with `mutate()` column `days_since_2021_start`.
-ℹ `days_since_2021_start = dplyr::if_else(...)`.
-✖ could not find function "mdy"
-Caused by error in `mdy()`:
-! could not find function "mdy"
-Error executing R code for Stata line  35 :  data = data %>% 
-  dplyr::mutate(`days_since_2021_start` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), obs_date - mdy(1,1,2021), NA_real_))
+ 36 do:  gen is_weekend_day = (dow(obs_date) == 0 | dow(obs_date) == 6) if !missing(obs_date)
+ 36 r:  data = data %>% 
+  dplyr::mutate(`is_weekend_day` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), as.numeric((dow(obs_date) == 0 | dow(obs_date) == 6)), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`is_weekend_day` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), as.numeric((dow(obs_date) == 0 | dow(obs_date) == 6)), NA_real_))
 
-Error: Problem with `mutate()` column `days_since_2021_start`.
-ℹ `days_since_2021_start = dplyr::if_else(...)`.
-✖ could not find function "mdy"
-Caused by error in `mdy()`:
-! could not find function "mdy" 
+Error: Problem with `mutate()` column `is_weekend_day`.
+ℹ `is_weekend_day = dplyr::if_else(...)`.
+✖ could not find function "dow"
+Caused by error in `dow()`:
+! could not find function "dow"
+Error executing R code for Stata line  36 :  data = data %>% 
+  dplyr::mutate(`is_weekend_day` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), as.numeric((dow(obs_date) == 0 | dow(obs_date) == 6)), NA_real_))
+
+Error: Problem with `mutate()` column `is_weekend_day`.
+ℹ `is_weekend_day = dplyr::if_else(...)`.
+✖ could not find function "dow"
+Caused by error in `dow()`:
+! could not find function "dow" 
 
 ##############################
 # YOUR TASK
