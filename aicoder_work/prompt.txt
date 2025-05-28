@@ -437,7 +437,8 @@ do_cmd_to_r = function(cmd_obj, line, cmd_df) { # Corrected signature: added cmd
       "preserve" = t_preserve_restore(cmd_obj, type = "preserve"),
       "restore" = t_preserve_restore(cmd_obj, type = "restore"),
       "format" = t_format(rest_of_cmd_clean, cmd_obj, cmd_df, line),
-      "label" = t_label(rest_of_cmd_clean, cmd_obj, cmd_df, line), # NEW: Added label command
+      "label" = t_label(rest_of_cmd_clean, cmd_obj, cmd_df, line),
+      "compress" = t_compress(rest_of_cmd_clean, cmd_obj, cmd_df, line), # NEW: Added compress command
       # Add more commands here...
       # Fallback for unhandled but translatable commands:
       paste0("# Stata command '", cmd_obj$stata_cmd_original, " ", rest_of_cmd_clean, "' not yet fully translated.")
@@ -977,22 +978,36 @@ sfun_strip_stata_attributes = function(x) {
   restore.point("sfun_strip_stata_attributes")
   # For data frames, apply to each column. For vectors, strip attributes directly.
   if (is.data.frame(x)) {
+    # Apply recursively to each column, ensuring it stays a data.frame/tibble
     x[] = lapply(x, sfun_strip_stata_attributes)
     return(x)
   } else {
-    # For haven_labelled, it's better to convert to base type (numeric, character, factor)
+    # Handle individual vectors (columns)
     if (inherits(x, "haven_labelled")) {
-      # This effectively zaps all haven-specific attributes and converts to base R type
-      # If it's a numeric variable with labels, it remains numeric. If it was string, it remains string.
+      # Convert haven_labelled to its underlying base type (numeric, character, or factor if labels imply factors)
       x = haven::zap_labels(x)
       x = haven::zap_formats(x)
       x = haven::zap_missing(x)
     }
-    # For any other generic attributes, remove them.
-    # Keep 'names' attribute for vectors (column names), if present, as it's fundamental.
-    attr_names = setdiff(names(attributes(x)), "names")
-    if (length(attr_names) > 0) {
-      attributes(x)[attr_names] = NULL
+    
+    # Explicitly cast to base R types to ensure no problematic attributes remain
+    # This also handles cases where a variable might have been an R factor or other
+    # specific class that Stata doesn't have a direct equivalent for.
+    if (is.numeric(x)) {
+      x = as.numeric(x)
+    } else if (is.character(x)) {
+      x = as.character(x)
+    } else if (is.logical(x)) {
+      x = as.logical(x)
+    } else if (is.factor(x)) {
+      # Convert factors to character for consistency with Stata strings.
+      # Stata doesn't have factors, string conversion is the closest equivalent.
+      x = as.character(x)
+    }
+    # For any other generic attributes, remove them, but keep 'names'.
+    attr_names_to_remove = setdiff(names(attributes(x)), "names")
+    if (length(attr_names_to_remove) > 0) {
+      attributes(x)[attr_names_to_remove] = NULL
     }
     return(x)
   }
@@ -1789,6 +1804,41 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
 ```
 ### END OF FILE: t_collapse.R
+
+-----------------------------------------------------------
+
+### FILE: t_compress.R
+```
+# Translate Stata 'compress' command
+# Stata: compress [varlist]
+# Changes storage type to smallest necessary.
+
+t_compress = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
+  restore.point("t_compress")
+  rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
+
+  # `compress` can take a varlist. If varlist is empty, it means all variables.
+  vars_to_compress = character(0)
+  if (rest_of_cmd_trimmed != "") {
+      vars_to_compress = stringi::stri_split_regex(rest_of_cmd_trimmed, "\\s+")[[1]]
+      vars_to_compress = vars_to_compress[vars_to_compress != ""]
+  }
+
+  r_code_lines = c()
+  if (length(vars_to_compress) > 0) {
+      # Use collapse::fcompress on specific columns
+      vars_r_vec_str = paste0('c("', paste(vars_to_compress, collapse = '", "'), '")')
+      r_code_lines = c(r_code_lines, paste0("data = collapse::fcompress(data, cols = ", vars_r_vec_str, ")"))
+  } else {
+      # Use collapse::fcompress on the entire dataframe
+      r_code_lines = c(r_code_lines, paste0("data = collapse::fcompress(data)"))
+  }
+
+  return(paste(r_code_lines, collapse="\n"))
+}
+
+```
+### END OF FILE: t_compress.R
 
 -----------------------------------------------------------
 
@@ -5435,90 +5485,13 @@ data = data %>%
   dplyr::mutate(`value1` = as.numeric(dplyr::if_else(sfun_missing(value1),  mean_overall_value1,  dplyr::if_else(value1 > 60,  value1*1.05,  value1*0.95))))
 
  62 do:  compress
- 62 r:  # Stata command 'compress ' not yet fully translated. 
-# Stata command 'compress ' not yet fully translated.
+ 62 r:  data = collapse::fcompress(data) 
+data = collapse::fcompress(data)
 
- 63 do:  save "main_data_temp.dta", replace
- 63 r:  haven::write_dta(data, path = file.path(stata2r_env$working_dir, "main_data_temp.dta")) # Options ignored: replace 
-haven::write_dta(data, path = file.path(stata2r_env$working_dir, "main_data_temp.dta")) # Options ignored: replace
+Error: 'fcompress' is not an exported object from 'namespace:collapse'
+Error executing R code for Stata line  62 :  data = collapse::fcompress(data)
 
- 64 do:  use "extra_data.dta", clear
- 64 r:  data = haven::read_dta(file.path(stata2r_env$working_dir, "extra_data.dta")) %>%
-  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used 
-data = haven::read_dta(file.path(stata2r_env$working_dir, "extra_data.dta")) %>%
-  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used
-
- 65 do:  rename category_code extra_cat_code
- 65 r:  data = collapse::frename(data, `category_code` = `extra_cat_code`) 
-data = collapse::frename(data, `category_code` = `extra_cat_code`)
-
- 66 do:  sort id
- 66 r:  data = dplyr::arrange(data, !!!dplyr::syms(c("id"))) 
-data = dplyr::arrange(data, !!!dplyr::syms(c("id")))
-
- 67 do:  save "extra_data_temp.dta", replace
- 67 r:  haven::write_dta(data, path = file.path(stata2r_env$working_dir, "extra_data_temp.dta")) # Options ignored: replace 
-haven::write_dta(data, path = file.path(stata2r_env$working_dir, "extra_data_temp.dta")) # Options ignored: replace
-
- 68 do:  use "main_data_temp.dta", clear
- 68 r:  data = haven::read_dta(file.path(stata2r_env$working_dir, "main_data_temp.dta")) %>%
-  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used 
-data = haven::read_dta(file.path(stata2r_env$working_dir, "main_data_temp.dta")) %>%
-  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used
-
- 69 do:  sort id
- 69 r:  data = dplyr::arrange(data, !!!dplyr::syms(c("id"))) 
-data = dplyr::arrange(data, !!!dplyr::syms(c("id")))
-
- 70 do:  merge 1:1 id using "extra_data_temp.dta", nogen
- 70 r:  stata_tmp_using_data_L70 = haven::read_dta(file.path(stata2r_env$working_dir, "extra_data_temp.dta"))
-data = stata2r::sfun_strip_stata_attributes(data)
-stata_tmp_using_data_L70 = stata2r::sfun_strip_stata_attributes(stata_tmp_using_data_L70)
-if (any(base::duplicated(dplyr::select(data, dplyr::all_of(c("id")))))) { stop('Merge 1:1 failed: Duplicate keys found in master dataset (data).') }
-if (any(base::duplicated(dplyr::select(stata_tmp_using_data_L70, dplyr::all_of(c("id")))))) { stop('Merge 1:1 failed: Duplicate keys found in using dataset (', file.path(stata2r_env$working_dir, "extra_data_temp.dta"), ').') }
-data = dplyr::mutate(data, `id` = as.numeric(`id`))
-stata_tmp_using_data_L70 = dplyr::mutate(stata_tmp_using_data_L70, `id` = as.numeric(`id`))
-common_cols = intersect(names(data), names(stata_tmp_using_data_L70))
-common_cols_not_by = setdiff(common_cols, c("id"))
-if (length(common_cols_not_by) > 0) { stata_tmp_using_data_L70 = dplyr::select(stata_tmp_using_data_L70, -dplyr::all_of(common_cols_not_by)) }
-data = dplyr::left_join(data, stata_tmp_using_data_L70, by = c("id"), indicator = "stata_merge_indicator_L70")
- # _merge variable was not generated due to 'nogenerate' option.
-data = dplyr::select(data, -dplyr::any_of('stata_merge_indicator_L70'))
-rm(stata_tmp_using_data_L70, common_cols, common_cols_not_by)
-# Stata merge type: 1:1, keep(match master), nogenerate 
-stata_tmp_using_data_L70 = haven::read_dta(file.path(stata2r_env$working_dir, "extra_data_temp.dta"))
-
-data = stata2r::sfun_strip_stata_attributes(data)
-
-stata_tmp_using_data_L70 = stata2r::sfun_strip_stata_attributes(stata_tmp_using_data_L70)
-
-if (any(base::duplicated(dplyr::select(data, dplyr::all_of(c("id")))))) { stop('Merge 1:1 failed: Duplicate keys found in master dataset (data).') }
-
-if (any(base::duplicated(dplyr::select(stata_tmp_using_data_L70, dplyr::all_of(c("id")))))) { stop('Merge 1:1 failed: Duplicate keys found in using dataset (', file.path(stata2r_env$working_dir, "extra_data_temp.dta"), ').') }
-
-data = dplyr::mutate(data, `id` = as.numeric(`id`))
-
-stata_tmp_using_data_L70 = dplyr::mutate(stata_tmp_using_data_L70, `id` = as.numeric(`id`))
-
-common_cols = intersect(names(data), names(stata_tmp_using_data_L70))
-
-common_cols_not_by = setdiff(common_cols, c("id"))
-
-if (length(common_cols_not_by) > 0) { stata_tmp_using_data_L70 = dplyr::select(stata_tmp_using_data_L70, -dplyr::all_of(common_cols_not_by)) }
-
-data = dplyr::left_join(data, stata_tmp_using_data_L70, by = c("id"), indicator = "stata_merge_indicator_L70")
-
- # _merge variable was not generated due to 'nogenerate' option.
-
-data = dplyr::select(data, -dplyr::any_of('stata_merge_indicator_L70'))
-
-rm(stata_tmp_using_data_L70, common_cols, common_cols_not_by)
-
-# Stata merge type: 1:1, keep(match master), nogenerate
-Error in vec_slice(x, i) : Can't subset elements past the end.
-ℹ Location 37 doesn't exist.
-ℹ There are only 36 elements.
-
+Error: 'fcompress' is not an exported object from 'namespace:collapse' 
 
 ##############################
 # YOUR TASK
