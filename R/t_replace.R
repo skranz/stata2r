@@ -80,18 +80,21 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   if (arrange_call != "") {
       r_code_lines = c(r_code_lines, arrange_call)
-      r_code_lines = c(r_code_lines, "data = data %>%")
-  } else {
-      r_code_lines = c(r_code_lines, "data = data %>%")
+      # After `arrange_call`, `data` is already the arranged data.
+      # The next part of the pipe will operate on this `data`.
   }
 
+  pipe_elements = list("data") # Elements for the pipe chain, starting from `data`
+
   if (!is.null(group_vars_r_vec_str)) { # Check if group_vars_r_vec_str is not NULL
-      r_code_lines = c(r_code_lines, paste0("  dplyr::group_by(", group_vars_r_vec_str, ") %>%"))
-      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(`", var_to_replace, "` = ", calc_expr, ") %>%"))
-      r_code_lines = c(r_code_lines, "  dplyr::ungroup()")
+      pipe_elements = c(pipe_elements, paste0("dplyr::group_by(", group_vars_r_vec_str, ")"))
+      pipe_elements = c(pipe_elements, paste0("dplyr::mutate(`", var_to_replace, "` = ", calc_expr, ")"))
+      pipe_elements = c(pipe_elements, "dplyr::ungroup()")
   } else {
-      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(`", var_to_replace, "` = ", calc_expr, ")"))
+      pipe_elements = c(pipe_elements, paste0("dplyr::mutate(`", var_to_replace, "` = ", calc_expr, ")"))
   }
+
+  r_code_lines = c(r_code_lines, paste0("data = ", paste(pipe_elements, collapse = " %>% \n  ")))
 
   return(paste(r_code_lines, collapse="\n"))
 }

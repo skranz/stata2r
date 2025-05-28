@@ -249,29 +249,32 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   full_mutate_expr = paste0("`", new_var, "` = ", calc_expr)
 
   # Build the R command string using pipes
-  r_code_lines = c("data = data %>%") # Start with data and the first pipe
+  r_code_lines = c()
+  pipe_elements = list("data") # Start the pipe with the data object
 
   if ((egen_func_name == "group" || egen_func_name == "tag") && !is.null(by_vars_for_group_by) && !is_row_function) {
     # For group/tag, we need to sort to ensure consistent IDs and restore order
-    # The `arrange` call should use `dplyr::across(dplyr::all_of(...))` for robustness.
-    arrange_vars_str = paste0('dplyr::all_of(c("', paste0(combined_grouping_vars, collapse = '", "'), '"))') # Use combined_grouping_vars for arranging
-    r_code_lines = c(r_code_lines,
-                        paste0("  dplyr::arrange(", arrange_vars_str, ") %>%"),
-                        paste0("  dplyr::group_by(", by_vars_for_group_by, ") %>%"),
-                        "  dplyr::mutate(", full_mutate_expr, ") %>%",
-                        "  dplyr::ungroup() %>%",
-                        "  dplyr::arrange(stata2r_original_order_idx)")
+    arrange_vars_str = paste0('dplyr::all_of(c("', paste0(combined_grouping_vars, collapse = '", "'), '"))')
+    
+    pipe_elements = c(pipe_elements,
+                        paste0("dplyr::arrange(", arrange_vars_str, ")"),
+                        paste0("dplyr::group_by(", by_vars_for_group_by, ")"),
+                        paste0("dplyr::mutate(", full_mutate_expr, ")"),
+                        "dplyr::ungroup()",
+                        "dplyr::arrange(stata2r_original_order_idx)") # Restore original order
   } else if (!is.null(by_vars_for_group_by) && !is_row_function) {
     # For other grouped egen functions (mean, sd, etc. with by-prefix or by-option)
-    r_code_lines = c(r_code_lines,
-                        paste0("  dplyr::group_by(", by_vars_for_group_by, ") %>%"),
-                        "  dplyr::mutate(", full_mutate_expr, ") %>%",
-                        "  dplyr::ungroup()")
+    pipe_elements = c(pipe_elements,
+                        paste0("dplyr::group_by(", by_vars_for_group_by, ")"),
+                        paste0("dplyr::mutate(", full_mutate_expr, ")"),
+                        "dplyr::ungroup()")
   } else {
     # For non-grouped or row functions
-    r_code_lines = c(r_code_lines,
-                        "  dplyr::mutate(", full_mutate_expr, ")")
+    pipe_elements = c(pipe_elements,
+                        paste0("dplyr::mutate(", full_mutate_expr, ")"))
   }
+
+  r_code_lines = c(r_code_lines, paste0("data = ", paste(pipe_elements, collapse = " %>% \n  ")))
 
    # Add comment about options if any were present but not handled (excluding by)
    options_str_cleaned = options_str

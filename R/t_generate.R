@@ -88,24 +88,27 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Step 2: Build the R code string using pipes for the mutate operation
   r_code_lines = c()
-
-  # Start with data and add the first pipe
+  
   if (arrange_call != "") {
       r_code_lines = c(r_code_lines, arrange_call)
-      r_code_lines = c(r_code_lines, "data = data %>%")
-  } else {
-      r_code_lines = c(r_code_lines, "data = data %>%")
+      # After `arrange_call`, `data` is already the arranged data.
+      # The next part of the pipe will operate on this `data`.
   }
 
+  pipe_elements = list("data") # Elements for the pipe chain, starting from `data`
+
   # Add grouping and mutate steps
-  if (!is.null(group_vars_r_vec_str)) { # Check if group_vars_r_vec_str is not NULL
-      r_code_lines = c(r_code_lines, paste0("  dplyr::group_by(", group_vars_r_vec_str, ") %>%"))
-      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(`", new_var, "` = ", calc_expr, ") %>%"))
-      r_code_lines = c(r_code_lines, "  dplyr::ungroup()")
+  if (!is.null(group_vars_r_vec_str)) {
+      pipe_elements = c(pipe_elements, paste0("dplyr::group_by(", group_vars_r_vec_str, ")"))
+      pipe_elements = c(pipe_elements, paste0("dplyr::mutate(`", new_var, "` = ", calc_expr, ")"))
+      pipe_elements = c(pipe_elements, "dplyr::ungroup()")
   } else {
-      # If not grouped, just add the mutate step directly to the pipe chain
-      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(`", new_var, "` = ", calc_expr, ")"))
+      pipe_elements = c(pipe_elements, paste0("dplyr::mutate(`", new_var, "` = ", calc_expr, ")"))
   }
+
+  # This is the final assignment line for the current command
+  # It takes 'data' (potentially already arranged) and pipes it through the rest
+  r_code_lines = c(r_code_lines, paste0("data = ", paste(pipe_elements, collapse = " %>% \n  ")))
 
 
   return(paste(r_code_lines, collapse="\n"))

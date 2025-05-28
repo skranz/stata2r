@@ -12,9 +12,10 @@ is_stata_expr_string_type = function(stata_expr) {
   if (stringi::stri_startswith_fixed(stata_expr, '"') && stringi::stri_endswith_fixed(stata_expr, '"')) {
     return(TRUE)
   }
-  if (stringi::stri_startswith_fixed(s, "'") && stringi::stri_endswith_fixed(s, "'")) {
+  if (stringi::stri_startswith_fixed(stata_expr, "'") && stringi::stri_endswith_fixed(stata_expr, "'")) {
     return(TRUE)
   }
   FALSE
 }
+
 
