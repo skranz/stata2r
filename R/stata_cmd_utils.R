@@ -179,8 +179,8 @@ parse_stata_command_line = function(line_text) {
         stata_cmd = NA_character_,
         rest_of_cmd = NA_character_,
         is_by_prefix = is_by_prefix_val,
-        by_group_vars = if(length(by_group_vars)>0) by_group_vars else NA_character_,
-        by_sort_vars = if(length(by_sort_vars)>0) by_sort_vars else NA_character_
+        by_group_vars = if(length(by_group_vars)>0) by_group_vars else character(0),
+        by_sort_vars = if(length(by_sort_vars)>0) by_sort_vars else character(0)
       ))
   }
 
@@ -202,8 +202,8 @@ parse_stata_command_line = function(line_text) {
     stata_cmd = stata_cmd,
     rest_of_cmd = rest_of_cmd,
     is_by_prefix = is_by_prefix_val, # True if "by prefix:" was found AND command is not bysort
-    by_group_vars = if(length(by_group_vars)>0) by_group_vars else NA_character_,
-    by_sort_vars = if(length(by_sort_vars)>0) by_sort_vars else NA_character_
+    by_group_vars = if(length(by_group_vars)>0) by_group_vars else character(0),
+    by_sort_vars = if(length(by_sort_vars)>0) by_sort_vars else character(0)
   ))
 }
 
@@ -279,4 +279,5 @@ resolve_stata_filename = function(raw_filename_token, cmd_df, line_num, default_
     }
   }
 }
+
 

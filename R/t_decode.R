@@ -78,7 +78,7 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
    r_code_lines = c(r_code_lines,
       paste0("## Decode values using haven::as_factor"),
       # Calculate decoded values using with(data, ...) to ensure varname_str is found
-      paste0(decoded_values_tmp_var, " = with(data, as.character(haven::as_factor(", varname_str, ", levels = 'labels')))")
+      paste0(decoded_values_tmp_var, " = with(data, as.character(haven::as_factor(data$", varname_str, ", levels = 'labels')))")
    )
 
   # Apply the if/in condition for replacement
@@ -112,4 +112,5 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
+
 

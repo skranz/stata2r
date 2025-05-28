@@ -23,12 +23,6 @@ t_preserve_restore = function(cmd_obj, type = "preserve") { # line_num implicitl
   # For now, let's use unique variable names based on line number. This is not a stack,
   # it means a `restore` must correspond to a specific `preserve`'s variable. This is not how Stata works.
 
-  # Stata's preserve/restore works like a stack.
-  # The generated R code should try to use a list as a stack.
-  # `stata_preserve_stack_L<line_num_of_do_to_r_call>` perhaps.
-  # This is hard because `main.R` doesn't pass state.
-  # So, the generated code must create and manage this stack itself.
-
   r_code_lines = c(
     "if (!exists('stata_data_preserve_stack_G')) stata_data_preserve_stack_G = list() # Global stack for preserve/restore"
   )
@@ -52,4 +46,5 @@ t_preserve_restore = function(cmd_obj, type = "preserve") { # line_num implicitl
 
   return(paste(r_code_lines, collapse = "\n"))
 }
+
 

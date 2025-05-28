@@ -35,8 +35,8 @@ do_parse = function(do_code) {
       rest_of_cmd = parsed_info$rest_of_cmd,
       is_by_prefix = parsed_info$is_by_prefix,
       # Store by_group_vars and by_sort_vars as comma-separated strings
-      by_group_vars = if (is.na(parsed_info$by_group_vars[1])) NA_character_ else paste(parsed_info$by_group_vars, collapse=","),
-      by_sort_vars = if (is.na(parsed_info$by_sort_vars[1])) NA_character_ else paste(parsed_info$by_sort_vars, collapse=","),
+      by_group_vars = if (length(parsed_info$by_group_vars)>0) paste(parsed_info$by_group_vars, collapse=",") else NA_character_,
+      by_sort_vars = if (length(parsed_info$by_sort_vars)>0) paste(parsed_info$by_sort_vars, collapse=",") else NA_character_,
       stringsAsFactors = FALSE
     )
   })
@@ -44,5 +44,6 @@ do_parse = function(do_code) {
   cmd_df = dplyr::bind_rows(cmd_list)
   return(cmd_df)
 }
+
 
 

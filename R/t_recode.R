@@ -63,7 +63,7 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       gen_opt_match = stringi::stri_match_first_regex(options_str, "\\bgen\\s*\\(([^)]+)\\)")
       if (!is.na(gen_opt_match[1,1])) {
            gen_vars = stringi::stri_trim_both(gen_opt_match[1,2])
-      }
+       }
   }
 
   new_vars = NULL
@@ -202,4 +202,5 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
+
 

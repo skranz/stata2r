@@ -15,3 +15,4 @@ sfun_strpos = function(haystack, needle) {
 # sfun_strpos("this is a test", "not") # Expected: 0
 # sfun_strpos(c("apple", "banana", "apricot"), "ap") # Expected: c(1, 0, 1)
 
+

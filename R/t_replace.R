@@ -13,7 +13,7 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   stata_expr = stringi::stri_trim_both(match[1,3])
   stata_if_cond = stringi::stri_trim_both(match[1,4]) # Might be NA
 
-  current_context = list(is_by_group = cmd_obj$is_by_prefix && !is.na(cmd_obj$by_group_vars))
+  current_context = list(is_by_group = cmd_obj$is_by_prefix && length(cmd_obj$by_group_vars) > 0 && !is.na(cmd_obj$by_group_vars[1]))
   r_expr = translate_stata_expression_with_r_values(stata_expr, line_num, cmd_df, current_context)
 
   r_if_cond = NA_character_
@@ -27,14 +27,14 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   group_vars_list = character(0) # Initialize for use in all_sort_vars
 
   if (cmd_obj$is_by_prefix) {
-    if (!is.na(cmd_obj$by_group_vars)) {
+    if (length(cmd_obj$by_group_vars) > 0 && !is.na(cmd_obj$by_group_vars[1])) {
       group_vars_list = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
       group_vars_list = group_vars_list[group_vars_list != ""]
       group_vars_r_vec_str = paste0('c("', paste0(group_vars_list, collapse='", "'), '")')
     }
 
     sort_vars_list = character(0)
-    if (!is.na(cmd_obj$by_sort_vars)) {
+    if (length(cmd_obj$by_sort_vars) > 0 && !is.na(cmd_obj$by_sort_vars[1])) {
       sort_vars_list = stringi::stri_split_fixed(cmd_obj$by_sort_vars, ",")[[1]]
       sort_vars_list = sort_vars_list[sort_vars_list != ""]
     }
@@ -42,7 +42,7 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     if (length(sort_vars_list) > 0) {
       all_sort_vars = c(if(length(group_vars_list)>0) group_vars_list else character(0), sort_vars_list)
       all_sort_vars_str = paste(all_sort_vars, collapse = ", ")
-      arrange_call = paste0("dplyr::arrange(data, ", all_sort_vars_str, ")")
+      arrange_call = paste0("data = dplyr::arrange(data, ", all_sort_vars_str, ")")
     }
   }
 
@@ -73,7 +73,8 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   r_code_lines = c()
 
   if (arrange_call != "") {
-      r_code_lines = c(r_code_lines, paste0("data = ", arrange_call, " %>%"))
+      r_code_lines = c(r_code_lines, arrange_call)
+      r_code_lines = c(r_code_lines, "data = data %>%")
   } else {
       r_code_lines = c(r_code_lines, "data = data %>%")
   }
@@ -88,4 +89,5 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 

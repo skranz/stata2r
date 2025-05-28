@@ -20,3 +20,4 @@ sfun_stata_round = function(x, unit = 1) {
 # sfun_stata_round(2.35, 0.1) # Expected: 2.4
 # sfun_stata_round(c(2.5, -2.5, NA, 5.25), 0.5) # Expected: c(2.5, -2.5, NA, 5.5) # Stata: round(5.25, .5) is 5.5. My formula: sign(5.25)*floor(abs(5.25)/.5 + .5)*.5 = 1*floor(10.5+0.5)*.5 = 1*floor(11)*.5 = 1*11*.5 = 5.5
 
+

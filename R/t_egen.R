@@ -133,14 +133,14 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   by_vars_list_unquoted = character(0) # Initialize for use in combined_grouping_vars
 
   if (cmd_obj$is_by_prefix) {
-    if (!is.na(cmd_obj$by_group_vars)) {
+    if (length(cmd_obj$by_group_vars) > 0 && !is.na(cmd_obj$by_group_vars[1])) {
       by_vars_list_unquoted = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
       by_vars_list_unquoted = by_vars_list_unquoted[by_vars_list_unquoted != ""]
       by_vars_for_group_by = paste0('c("', paste0(by_vars_list_unquoted, collapse='", "'), '")')
     }
 
     sort_vars_list = character(0)
-    if (!is.na(cmd_obj$by_sort_vars)) {
+    if (length(cmd_obj$by_sort_vars) > 0 && !is.na(cmd_obj$by_sort_vars[1])) {
       sort_vars_list = stringi::stri_split_fixed(cmd_obj$by_sort_vars, ",")[[1]]
       sort_vars_list = sort_vars_list[sort_vars_list != ""]
     }
@@ -262,4 +262,5 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 
