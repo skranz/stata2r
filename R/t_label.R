@@ -37,11 +37,12 @@ t_label_define = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
       return(paste0("# Failed to parse label define rules: ", rules_str))
   }
 
-  values = as.numeric(rule_matches[,2]) # Numeric values
-  labels = rule_matches[,3]             # Label strings
+  values = rule_matches[,2] # Values as strings (e.g., "1", ".", ".a")
+  labels = rule_matches[,3] # Label strings (e.g., "alpha", "Missing")
 
-  # Create the named vector for R in haven::labelled format: c(value = "label_string")
-  new_labels_r_format = stats::setNames(labels, as.character(values))
+  # Manually construct the R named vector string for haven::labelled format: c("value" = "label_string")
+  label_pairs_str = paste0('"', values, '" = "', labels, '"')
+  new_labels_r_format_str = paste0("c(", paste(label_pairs_str, collapse = ", "), ")")
 
   # Handle options: replace, add, modify
   is_replace = !is.na(options_str) && stringi::stri_detect_fixed(options_str, "replace")
@@ -51,11 +52,11 @@ t_label_define = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   r_code_lines = c(r_code_lines, "if (!exists('stata2r_env$label_defs')) stata2r_env$label_defs = list()")
   
   if (is_replace) {
-      r_code_lines = c(r_code_lines, paste0("stata2r_env$label_defs$`", lblname, "` = ", deparse(new_labels_r_format)))
+      r_code_lines = c(r_code_lines, paste0("stata2r_env$label_defs$`", lblname, "` = ", new_labels_r_format_str))
   } else {
       # If not replacing, merge existing labels with new ones. New labels overwrite old ones.
       r_code_lines = c(r_code_lines, paste0("current_labels = stata2r_env$label_defs$`", lblname, "`"))
-      r_code_lines = c(r_code_lines, paste0("new_labels = ", deparse(new_labels_r_format)))
+      r_code_lines = c(r_code_lines, paste0("new_labels = ", new_labels_r_format_str))
       # Combine, new_labels (on right) will overwrite current_labels if names (values) conflict
       r_code_lines = c(r_code_lines, paste0("stata2r_env$label_defs$`", lblname, "` = c(current_labels[!names(current_labels) %in% names(new_labels)], new_labels)"))
   }
@@ -102,5 +103,4 @@ t_label_variable = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   )
   return(paste(r_code_lines, collapse="\n"))
 }
-
 
