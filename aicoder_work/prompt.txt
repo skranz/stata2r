@@ -701,8 +701,7 @@ sfun_month = function(stata_date_values) {
 # Note: The provided test data for `obs_quarter` (`do2` test case) appears to be
 # Stata's 0-indexed quarterly date values (quarters since 1960q1, where 1960q1 is 0).
 # The formula for this is (year - 1960) * 4 + (quarter_of_year - 1).
-# This implementation is tailored to match the test data's expectation,
-# which deviates from Stata's documented `qofd()` behavior (which should return 1-4).
+# This implementation is tailored to match the documented Stata `qofd()` behavior (returns 1-4).
 
 sfun_qofd = function(stata_date_values) {
   restore.point("sfun_qofd")
@@ -710,23 +709,17 @@ sfun_qofd = function(stata_date_values) {
   # as.Date handles NA values correctly.
   r_dates = as.Date(stata_date_values, origin = "1960-01-01")
 
-  # Extract year and month
-  years = as.numeric(format(r_dates, "%Y"))
+  # Extract month
   months = as.numeric(format(r_dates, "%m"))
 
   # Calculate quarter of the year (1-4)
   quarters_of_year = ceiling(months / 3)
 
-  # Calculate Stata-like quarterly date value (quarters since 1960q1, 0-indexed)
-  # This matches the values observed in the provided Stata reference data for 'obs_quarter'.
-  stata_quarterly_date_value = (years - 1960) * 4 + (quarters_of_year - 1)
-
   # Ensure NA for invalid dates
-  stata_quarterly_date_value[is.na(r_dates)] = NA_real_
+  quarters_of_year[is.na(r_dates)] = NA_real_
 
-  return(stata_quarterly_date_value)
+  return(quarters_of_year)
 }
-
 
 ```
 ### END OF FILE: sfun_qofd.R
@@ -1784,7 +1777,11 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       varname_str = stringi::stri_replace_last_regex(rest_no_if_in, ",\\s*(.*)$", "")
       varname_str = stringi::stri_trim_both(varname_str)
   } else {
-      varname_str = rest_no_if_in
+      # This case implies `decode varname` without `, gen(newvar)` which is invalid for decode.
+      # Stata syntax is `decode varname, gen(newvar)`. The comma is mandatory before options.
+      # So, if no comma, there are no options, and thus no gen().
+      # This means `gen_var` will be NA, and the error will be thrown later.
+      return(paste0("# decode command requires gen() in options: ", rest_of_cmd))
   }
 
    if (is.na(varname_str) || varname_str == "") {
@@ -1794,7 +1791,8 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Parse options, specifically `gen()`
   gen_var = NA_character_
   if (!is.na(options_str)) {
-      gen_opt_match = stringi::stri_match_first_regex(options_str, "\\bgen\\s*\\(([^)]+)\\)")
+      # Modified regex to accept 'gen' or 'generate'
+      gen_opt_match = stringi::stri_match_first_regex(options_str, "\\b(?:gen|generate)\\s*\\(([^)]+)\\)")
       if (!is.na(gen_opt_match[1,1])) {
            gen_vars_str = stringi::stri_trim_both(gen_opt_match[1,2])
            gen_vars_list = stringi::stri_split_regex(gen_vars_str, "\\s+")[[1]]
@@ -1815,11 +1813,6 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
            return(paste0("# Failed to translate if/in condition for decode: ", stata_if_in_cond))
        }
   }
-
-  # R equivalent: as.character(labelled::to_factor(varname)) or similar
-  # Stata decode uses value labels attached to the numeric variable (often created by encode).
-  # haven package reads value labels into a "labelled" class. labelled::to_factor converts this.
-  # as.character() converts the factor to strings.
 
   # Temporary variable names
   decoded_values_tmp_var = paste0("stata_tmp_decoded_values_L", cmd_obj$line)
@@ -1855,7 +1848,7 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
    options_str_cleaned = options_str
    if (!is.na(options_str_cleaned)) {
-        options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "\\bgen\\s*\\([^)]+\\)", "")
+        options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "\\b(?:gen|generate)\\s*\\([^)]+\\)", "")
         options_str_cleaned = stringi::stri_trim_both(stringi::stri_replace_all_regex(options_str_cleaned, ",+", ","))
         options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "^,+", "")
    }
@@ -4805,108 +4798,10 @@ data = data %>%
 data = data %>% 
   dplyr::mutate(`obs_quarter` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), sfun_qofd(obs_date), NA_real_))
 
- 35 do:  gen days_since_2021_start = obs_date - mdy(1,1,2021) if !missing(obs_date)
- 35 r:  data = data %>% 
-  dplyr::mutate(`days_since_2021_start` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), obs_date - sfun_stata_mdy(1, 1, 2021), NA_real_)) 
-data = data %>% 
-  dplyr::mutate(`days_since_2021_start` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), obs_date - sfun_stata_mdy(1, 1, 2021), NA_real_))
-
- 36 do:  gen is_weekend_day = (dow(obs_date) == 0 | dow(obs_date) == 6) if !missing(obs_date)
- 36 r:  data = data %>% 
-  dplyr::mutate(`is_weekend_day` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), as.numeric((sfun_dow(obs_date) == 0 | sfun_dow(obs_date) == 6)), NA_real_)) 
-data = data %>% 
-  dplyr::mutate(`is_weekend_day` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), as.numeric((sfun_dow(obs_date) == 0 | sfun_dow(obs_date) == 6)), NA_real_))
-
- 37 do:  destring num_str, generate(num_val_from_str) ignore("error")
- 37 r:  data = dplyr::mutate(data, `num_val_from_str` = readr::parse_number(as.character(num_str))) # Other options ignored: ignore("error") 
-data = dplyr::mutate(data, `num_val_from_str` = readr::parse_number(as.character(num_str))) # Other options ignored: ignore("error")
-
- 38 do:  replace num_val_from_str = 0 if missing(num_val_from_str)
- 38 r:  data = data %>% 
-  dplyr::mutate(`num_val_from_str` = dplyr::if_else(dplyr::coalesce(sfun_missing(num_val_from_str), FALSE), 0, data$`num_val_from_str`)) 
-data = data %>% 
-  dplyr::mutate(`num_val_from_str` = dplyr::if_else(dplyr::coalesce(sfun_missing(num_val_from_str), FALSE), 0, data$`num_val_from_str`))
-
- 39 do:  destring mixed_var, generate(mixed_val_num) force
- 39 r:  data = dplyr::mutate(data, `mixed_val_num` = readr::parse_number(as.character(mixed_var))) # Other options ignored: force 
-data = dplyr::mutate(data, `mixed_val_num` = readr::parse_number(as.character(mixed_var))) # Other options ignored: force
-
-Warning: 12 parsing failures.
-row col expected actual
-  1  -- a number apple 
-  7  -- a number apple 
-  8  -- a number apple 
- 16  -- a number banana
- 20  -- a number banana
-... ... ........ ......
-See problems(...) for more details.
-
-Warning: Problem with `mutate()` column `mixed_val_num`.
-ℹ `mixed_val_num = readr::parse_number(as.character(mixed_var))`.
-ℹ 12 parsing failures.
-row col expected actual
-  1  -- a number apple 
-  7  -- a number apple 
-  8  -- a number apple 
- 16  -- a number banana
- 20  -- a number banana
-... ... ........ ......
-See problems(...) for more details.
-
- 40 do:  gen mixed_var_as_str = string(mixed_val_num) if !missing(mixed_val_num)
- 40 r:  data = data %>% 
-  dplyr::mutate(`mixed_var_as_str` = dplyr::if_else(dplyr::coalesce(!sfun_missing(mixed_val_num), FALSE), sfun_string(mixed_val_num), "")) 
-data = data %>% 
-  dplyr::mutate(`mixed_var_as_str` = dplyr::if_else(dplyr::coalesce(!sfun_missing(mixed_val_num), FALSE), sfun_string(mixed_val_num), ""))
-
- 41 do:  encode group_clean, generate(group_code_num)
- 41 r:  data = dplyr::mutate(data, `group_code_num` = haven::labelled(rep(NA_integer_, NROW(data)), labels = c()))
-temp_source_vector_L41 = data[['group_clean']]
-temp_unique_labels_L41 = base::sort(base::unique(stats::na.omit(temp_source_vector_L41[temp_source_vector_L41 != ""])))
-temp_numeric_values_L41 = base::match(temp_source_vector_L41, temp_unique_labels_L41)
-temp_label_map_L41 = if (length(temp_unique_labels_L41) > 0) stats::setNames(seq_along(temp_unique_labels_L41), temp_unique_labels_L41) else stats::setNames(integer(0), character(0))
-stata_tmp_encoded_full_L41 = haven::labelled(as.integer(temp_numeric_values_L41), labels = temp_label_map_L41)
-rm(temp_source_vector_L41, temp_unique_labels_L41, temp_numeric_values_L41, temp_label_map_L41)
-data[['group_code_num']] = stata_tmp_encoded_full_L41
-rm(stata_tmp_encoded_full_L41) 
-data = dplyr::mutate(data, `group_code_num` = haven::labelled(rep(NA_integer_, NROW(data)), labels = c()))
-
-temp_source_vector_L41 = data[['group_clean']]
-
-temp_unique_labels_L41 = base::sort(base::unique(stats::na.omit(temp_source_vector_L41[temp_source_vector_L41 != ""])))
-
-temp_numeric_values_L41 = base::match(temp_source_vector_L41, temp_unique_labels_L41)
-
-temp_label_map_L41 = if (length(temp_unique_labels_L41) > 0) stats::setNames(seq_along(temp_unique_labels_L41), temp_unique_labels_L41) else stats::setNames(integer(0), character(0))
-
-stata_tmp_encoded_full_L41 = haven::labelled(as.integer(temp_numeric_values_L41), labels = temp_label_map_L41)
-
-rm(temp_source_vector_L41, temp_unique_labels_L41, temp_numeric_values_L41, temp_label_map_L41)
-
-data[['group_code_num']] = stata_tmp_encoded_full_L41
-
-rm(stata_tmp_encoded_full_L41)
-
- 42 do:  label define group_label_map 1 "alpha" 2 "beta" 3 "gamma" 4 "unknown", replace
- 42 r:  # Stata command 'label define group_label_map 1 "alpha" 2 "beta" 3 "gamma" 4 "unknown", replace' not yet fully translated. 
-# Stata command 'label define group_label_map 1 "alpha" 2 "beta" 3 "gamma" 4 "unknown", replace' not yet fully translated.
-
- 43 do:  label values group_code_num group_label_map
- 43 r:  # Stata command 'label values group_code_num group_label_map' not yet fully translated. 
-# Stata command 'label values group_code_num group_label_map' not yet fully translated.
-
- 44 do:  label variable group_code_num "Numeric code for cleaned group"
- 44 r:  # Stata command 'label variable group_code_num "Numeric code for cleaned group"' not yet fully translated. 
-# Stata command 'label variable group_code_num "Numeric code for cleaned group"' not yet fully translated.
-
- 45 do:  decode group_code_num, generate(group_from_decode)
- 45 r:  # decode requires gen() option: group_code_num, generate(group_from_decode) 
-# decode requires gen() option: group_code_num, generate(group_from_decode)
-
-Error: After Stata line  45 , R data set differs from Stata reference.
+Error: After Stata line  34 , R data set differs from Stata reference.
 
 Data set from Stata (do_df):
-tibble [50 × 40] (S3: tbl_df/tbl/data.frame)
+tibble [50 × 33] (S3: tbl_df/tbl/data.frame)
  $ id                    : num [1:50] 1 2 3 4 5 6 7 8 9 10 ...
   ..- attr(*, "label")= chr "id"
   ..- attr(*, "format.stata")= chr "%9.0g"
@@ -4925,15 +4820,9 @@ tibble [50 × 40] (S3: tbl_df/tbl/data.frame)
  $ num_str               : chr [1:50] "166" "181" "101" "136" ...
   ..- attr(*, "label")= chr "num_str"
   ..- attr(*, "format.stata")= chr "%3s"
- $ num_val_from_str      : num [1:50] 166 181 101 136 162 175 112 141 160 169 ...
-  ..- attr(*, "label")= chr "num_str"
-  ..- attr(*, "format.stata")= chr "%10.0g"
  $ mixed_var             : chr [1:50] "apple" "42" "10" "20" ...
   ..- attr(*, "label")= chr "mixed_var"
   ..- attr(*, "format.stata")= chr "%6s"
- $ mixed_val_num         : num [1:50] NA 42 10 20 55 42 NA NA 10 20 ...
-  ..- attr(*, "label")= chr "mixed_var"
-  ..- attr(*, "format.stata")= chr "%10.0g"
  $ value1_log            : num [1:50] 4.3 NA 3.97 3.39 3.79 ...
   ..- attr(*, "format.stata")= chr "%9.0g"
  $ value2_squared        : num [1:50] 16 9 NA 100 9 4 9 36 36 64 ...
@@ -4987,25 +4876,11 @@ tibble [50 × 40] (S3: tbl_df/tbl/data.frame)
   ..- attr(*, "format.stata")= chr "%9.0g"
  $ obs_quarter           : num [1:50] 242 250 248 245 242 250 242 251 247 247 ...
   ..- attr(*, "format.stata")= chr "%9.0g"
- $ days_since_2021_start : num [1:50] -102 602 404 139 -117 563 -168 642 358 292 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ is_weekend_day        : num [1:50] 0 0 0 0 1 0 0 0 1 0 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ mixed_var_as_str      : chr [1:50] "" "42" "10" "20" ...
-  ..- attr(*, "format.stata")= chr "%9s"
- $ group_code_num        : dbl+lbl [1:50] 3, 3, 2, 2, 3, 2, 1, 1, 2, 3, 2, 3, 3, 1, 4, 4, 1, 2, ...
-   ..@ label       : chr "Numeric code for cleaned group"
-   ..@ format.stata: chr "%8.0g"
-   ..@ labels      : Named num [1:4] 1 2 3 4
-   .. ..- attr(*, "names")= chr [1:4] "alpha" "beta" "gamma" "unknown"
- $ group_from_decode     : chr [1:50] "gamma" "gamma" "beta" "beta" ...
-  ..- attr(*, "label")= chr "Numeric code for cleaned group"
-  ..- attr(*, "format.stata")= chr "%9s"
  - attr(*, "label")= chr "Written by R."
 NULL
 
 Data set from R (r_df):
-tibble [50 × 40] (S3: tbl_df/tbl/data.frame)
+tibble [50 × 34] (S3: tbl_df/tbl/data.frame)
  $ id                        : num [1:50] 1 2 3 4 5 6 7 8 9 10 ...
   ..- attr(*, "label")= chr "id"
   ..- attr(*, "format.stata")= chr "%9.0g"
@@ -5032,7 +4907,7 @@ tibble [50 × 40] (S3: tbl_df/tbl/data.frame)
   ..- attr(*, "format.stata")= chr "%9.0g"
  $ int_value1                : num [1:50] 73 NA 52 29 44 NA 41 20 31 70 ...
  $ rounded_value1            : num [1:50] 73.9 NA 52.8 29.8 44.2 NA 41.7 20 31.9 70.1 ...
- $ random_uniform_draw       : num [1:50] 0.583 0.316 0.72 0.143 0.246 ...
+ $ random_uniform_draw       : num [1:50] 0.66 0.345 0.1 0.697 0.335 ...
  $ id_plus_value2            : num [1:50] 5 5 NA NA 8 8 10 14 15 NA ...
  $ group_clean               : chr [1:50] "gamma" "gamma" "beta" "beta" ...
  $ group_abbr                : chr [1:50] "gam" "gam" "bet" "bet" ...
@@ -5053,27 +4928,16 @@ tibble [50 × 40] (S3: tbl_df/tbl/data.frame)
  $ obs_year                  : num [1:50] 2020 2022 2022 2021 2020 ...
  $ obs_month                 : num [1:50] 9 8 2 5 9 7 7 10 12 10 ...
  $ obs_day                   : num [1:50] 21 26 9 20 6 18 17 5 25 20 ...
- $ obs_quarter               : num [1:50] 242 250 248 245 242 250 242 251 247 247 ...
- $ days_since_2021_start     : num [1:50] -102 602 404 139 -117 563 -168 642 358 292 ...
- $ is_weekend_day            : num [1:50] 0 0 0 0 1 0 0 0 1 0 ...
- $ num_val_from_str          : num [1:50] 166 181 101 136 162 175 112 141 160 169 ...
- $ mixed_val_num             : num [1:50] NA 42 10 20 55 42 NA NA 10 20 ...
-  ..- attr(*, "problems")= tibble [12 × 4] (S3: tbl_df/tbl/data.frame)
-  .. ..$ row     : int [1:12] 1 7 8 16 20 29 32 36 37 38 ...
-  .. ..$ col     : int [1:12] NA NA NA NA NA NA NA NA NA NA ...
-  .. ..$ expected: chr [1:12] "a number" "a number" "a number" "a number" ...
-  .. ..$ actual  : chr [1:12] "apple" "apple" "apple" "banana" ...
- $ mixed_var_as_str          : chr [1:50] "" "42" "10" "20" ...
- $ group_code_num            : int+lbl [1:50] 3, 3, 2, 2, 3, 2, 1, 1, 2, 3, 2, 3, 3, 1, 4, 4, 1, 2, ...
-   ..@ labels: Named int [1:4] 1 2 3 4
-   .. ..- attr(*, "names")= chr [1:4] "alpha" "beta" "gamma" "na"
+ $ obs_quarter               : num [1:50] 3 3 1 2 3 3 3 4 4 4 ...
 NULL
 
 Differences:List of 2
- $ identical      : logi FALSE
- $ column_mismatch:List of 2
-  ..$ missing_in_do_df: chr(0) 
-  ..$ missing_in_r_df : chr "group_from_decode"
+ $ identical     : logi FALSE
+ $ value_mismatch:'data.frame':	5 obs. of  4 variables:
+  ..$ row      : int [1:5] 1 2 3 4 5
+  ..$ column   : chr [1:5] "obs_quarter" "obs_quarter" "obs_quarter" "obs_quarter" ...
+  ..$ df1_value: num [1:5] 242 250 248 245 242
+  ..$ df2_value: num [1:5] 3 3 1 2 3
 NULL
 
 ##############################
