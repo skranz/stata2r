@@ -95,7 +95,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
       "[a-zA-Z_][a-zA-Z0-9_.]*|", # Variable name
       "\\d+(?:\\.\\d+)?|",       # Numeric literal
       "\"[^\"]*\"|'[^']*'|",     # String literal (double or single quoted)
-      "\\b\\w+\\((?:[^()]|\\b\\w+\\([^()]*\\))*\\)" # Function call (allowing one level of nested simple function calls)
+      "\\b\\w+\\((?:[^()]|\\b\\w+\\([^()]*\\))*\\)", # Function call (allowing one level of nested simple function calls)
       ")"
   )
 
