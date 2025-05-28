@@ -45,17 +45,16 @@ t_label_define = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   numeric_values_for_labels = sapply(values, function(v) {
       if (v == ".") return(NA_real_) # Stata system missing
       # Stata extended missing values (.a to .z) are usually also mapped to NA by haven.
-      # haven::labelled labels argument does not support mapping extended missings directly.
       # For now, just treat .x as NA.
       if (stringi::stri_detect_regex(v, "^\\.[a-zA-Z]$")) return(NA_real_)
       as.numeric(v) # Convert numeric strings to numeric
   })
 
   # Construct the R named numeric vector string for haven::labelled format: c("label_string" = value_numeric)
-  # Example: c("Male" = 1, "Female" = 2, "Not Applicable" = NA_real_)
-  # Names are labels, values are numeric codes
-  label_pairs_str = paste0('"', labels, '" = ', numeric_values_for_labels)
-  new_labels_r_format_str = paste0("c(", paste(label_pairs_str, collapse = ", "), ")")
+  # This will be constructed in the generated R code.
+  label_pairs_for_r_code = paste0('"', labels, '" = as.numeric(', numeric_values_for_labels, ')')
+  label_map_r_code_str = paste0("c(", paste(label_pairs_for_r_code, collapse = ", "), ")")
+
 
   # Handle options: replace, add, modify
   is_replace = !is.na(options_str) && stringi::stri_detect_fixed(options_str, "replace")
@@ -65,12 +64,11 @@ t_label_define = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   r_code_lines = c(r_code_lines, "if (!exists('stata2r_env$label_defs')) stata2r_env$label_defs = list()")
   
   if (is_replace) {
-      r_code_lines = c(r_code_lines, paste0("stata2r_env$label_defs$`", lblname, "` = ", new_labels_r_format_str))
+      r_code_lines = c(r_code_lines, paste0("stata2r_env$label_defs$`", lblname, "` = ", label_map_r_code_str))
   } else {
       # If not replacing, merge existing labels with new ones. New labels overwrite old ones.
       r_code_lines = c(r_code_lines, paste0("current_labels = stata2r_env$label_defs$`", lblname, "`"))
-      r_code_lines = c(r_code_lines, paste0("new_labels = ", new_labels_r_format_str))
-      # Combine, new_labels (on right) will overwrite current_labels if names (values) conflict
+      r_code_lines = c(r_code_lines, paste0("new_labels = ", label_map_r_code_str))
       r_code_lines = c(r_code_lines, paste0("stata2r_env$label_defs$`", lblname, "` = c(current_labels[!names(current_labels) %in% names(new_labels)], new_labels)"))
   }
 

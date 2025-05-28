@@ -87,7 +87,7 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     paste0("temp_numeric_values_L", cmd_obj$line, " = base::match(temp_source_vector_L", cmd_obj$line, ", temp_unique_labels_L", cmd_obj$line, ")"),
     # Define the label mapping: c(value = "label_string") format for haven::labelled
     # Corrected: haven::labelled expects named numeric vector (value = label_string)
-    paste0("temp_label_map_L", cmd_obj$line, " = if (length(temp_unique_labels_L", cmd_obj$line, ") > 0) stats::setNames(seq_along(temp_unique_labels_L", cmd_obj$line, "), temp_unique_labels_L", cmd_obj$line, ") else stats::setNames(numeric(0), character(0))"),
+    paste0("temp_label_map_L", cmd_obj$line, " = if (length(temp_unique_labels_L", cmd_obj$line, ") > 0) stats::setNames(seq_along(temp_unique_labels_L", cmd_obj$line, "), as.character(temp_unique_labels_L", cmd_obj$line, ")) else stats::setNames(numeric(0), character(0))"),
     # Create the haven_labelled vector
     paste0(encoded_values_full_tmp_var, " = haven::labelled(as.integer(temp_numeric_values_L", cmd_obj$line, "), labels = temp_label_map_L", cmd_obj$line, ")"),
     # Clean up intermediate temp variables
@@ -130,5 +130,4 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
-
 
