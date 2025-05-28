@@ -2238,19 +2238,16 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
 
 
-  # Determine variables for initial sorting (for `bysort` logic)
+  # Determine variables for initial sorting (for `bysort` logic or for functions requiring internal sort)
   sort_vars_for_arrange = character(0)
+
   if (cmd_obj$is_by_prefix) {
-    # Stata's `bysort` sorts by all variables in `varlist` (group + sort).
+    # Stata's `bysort` sorts by all variables in `varlist` (group + sort). This sort is permanent.
     sort_vars_for_arrange = unique(c(group_vars_list_bare, cmd_obj$by_sort_vars))
     sort_vars_for_arrange = sort_vars_for_arrange[!is.na(sort_vars_for_arrange) & sort_vars_for_arrange != ""]
-  } else if (egen_func_name %in% c("rank", "group", "tag")) { # Added "rank" here
+  } else if (egen_func_name %in% c("rank", "group", "tag")) {
     # If not by-prefix, but it's a function sensitive to order (rank, group, tag)
-    # and has a by() option, or implicit grouping through function args.
-    # The `by()` option variables are already in `group_vars_list_bare`.
-    # For `rank`, it's generally sorted by the grouping variables + the variable being ranked.
-    # For `group`, `tag`, it's sorted by the variables that define the group.
-
+    # The sort is temporary, so we will restore original order later.
     if (length(group_vars_list_bare) > 0) {
       sort_vars_for_arrange = unique(c(sort_vars_for_arrange, group_vars_list_bare))
     }
@@ -2260,21 +2257,24 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       # `egen_args_str` for rank is the variable to rank.
       sort_vars_for_arrange = unique(c(sort_vars_for_arrange, egen_args_str))
     }
-  }
-
-  arrange_call_str = ""
-  if (length(sort_vars_for_arrange) > 0) {
-    sort_vars_for_arrange = unique(sort_vars_for_arrange)
-    arrange_vars_expr = paste0('!!!dplyr::syms(c("', paste0(sort_vars_for_arrange, collapse = '", "'), '"))')
-    arrange_call_str = paste0("data = dplyr::arrange(data, ", arrange_vars_expr, ")")
+    sort_vars_for_arrange = sort_vars_for_arrange[!is.na(sort_vars_for_arrange) & sort_vars_for_arrange != ""]
   }
 
   r_code_lines = c()
-  if (arrange_call_str != "") {
-      r_code_lines = c(r_code_lines, arrange_call_str)
+  pipe_elements = list("data") # Start the pipe with the data object
+
+  # Add initial arrange if it's a `bysort` prefix. This is a permanent sort.
+  if (cmd_obj$is_by_prefix && length(sort_vars_for_arrange) > 0) {
+      arrange_vars_expr = paste0('!!!dplyr::syms(c("', paste0(sort_vars_for_arrange, collapse = '", "'), '"))')
+      r_code_lines = c(r_code_lines, paste0("data = dplyr::arrange(data, ", arrange_vars_expr, ")"))
   }
 
-  pipe_elements = list("data") # Start the pipe with the data object
+  # Add arrange for `egen group/tag/rank` functions within the pipe, if not already handled by bysort prefix
+  if (!cmd_obj$is_by_prefix && length(sort_vars_for_arrange) > 0 && !is_row_function) {
+      arrange_vars_expr = paste0('!!!dplyr::syms(c("', paste0(sort_vars_for_arrange, collapse = '", "'), '"))')
+      pipe_elements = c(pipe_elements, paste0("dplyr::arrange(", arrange_vars_expr, ")"))
+  }
+
 
   # Add grouping and mutate steps
   if (length(group_vars_list_bare) > 0 && !is_row_function) {
@@ -2288,12 +2288,10 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     pipe_elements = c(pipe_elements, "dplyr::ungroup()")
   }
 
-  # For `group`, `tag`, and `rank` functions, restore original order IF an initial arrange was done.
-  # This is crucial for matching Stata's behavior of not changing overall order unless explicitly sorted later.
-  # REMOVED: This block was causing issues because bysort implies a permanent sort.
-  # if (egen_func_name %in% c("group", "tag", "rank") && arrange_call_str != "" && !is_row_function) {
-  #   pipe_elements = c(pipe_elements, "dplyr::arrange(stata2r_original_order_idx)")
-  # }
+  # Restore original order if it was a temporary sort for egen functions without bysort prefix
+  if (!cmd_obj$is_by_prefix && length(sort_vars_for_arrange) > 0 && !is_row_function) {
+    pipe_elements = c(pipe_elements, "dplyr::arrange(stata2r_original_order_idx)")
+  }
 
   r_code_lines = c(r_code_lines, paste0("data = ", paste(pipe_elements, collapse = " %>% \n  ")))
 
@@ -4296,22 +4294,61 @@ data = data %>%
   dplyr::ungroup()
 
  20 do:  egen group_numeric_id = group(group_clean)
- 20 r:  data = dplyr::arrange(data, !!!dplyr::syms(c("group_clean")))
-data = data %>% 
+ 20 r:  data = data %>% 
+  dplyr::arrange(!!!dplyr::syms(c("group_clean"))) %>% 
   dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
   dplyr::mutate(`group_numeric_id` = dplyr::cur_group_id()) %>% 
-  dplyr::ungroup() 
-data = dplyr::arrange(data, !!!dplyr::syms(c("group_clean")))
+  dplyr::ungroup() %>% 
+  dplyr::arrange(stata2r_original_order_idx) 
+data = data %>% 
+  dplyr::arrange(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`group_numeric_id` = dplyr::cur_group_id()) %>% 
+  dplyr::ungroup() %>% 
+  dplyr::arrange(stata2r_original_order_idx)
 
+ 21 do:  egen tag_first_in_group = tag(group_clean)
+ 21 r:  data = data %>% 
+  dplyr::arrange(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`tag_first_in_group` = as.numeric(dplyr::row_number() == 1)) %>% 
+  dplyr::ungroup() %>% 
+  dplyr::arrange(stata2r_original_order_idx) 
+data = data %>% 
+  dplyr::arrange(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`tag_first_in_group` = as.numeric(dplyr::row_number() == 1)) %>% 
+  dplyr::ungroup() %>% 
+  dplyr::arrange(stata2r_original_order_idx)
+
+ 22 do:  egen count_obs_in_group = count(id), by(group_clean)
+ 22 r:  data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`count_obs_in_group` = sum(!is.na(id))) %>% 
+  dplyr::ungroup() 
 data = data %>% 
   dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
-  dplyr::mutate(`group_numeric_id` = dplyr::cur_group_id()) %>% 
+  dplyr::mutate(`count_obs_in_group` = sum(!is.na(id))) %>% 
   dplyr::ungroup()
 
-Error: After Stata line  20 , R data set differs from Stata reference.
+ 23 do:  egen rank_value1_in_group = rank(value1), by(group_clean) fieldstrustmissings
+ 23 r:  data = data %>% 
+  dplyr::arrange(!!!dplyr::syms(c("group_clean", "value1"))) %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`rank_value1_in_group` = base::rank(value1, ties.method = 'average', na.last = TRUE)) %>% 
+  dplyr::ungroup() %>% 
+  dplyr::arrange(stata2r_original_order_idx) 
+data = data %>% 
+  dplyr::arrange(!!!dplyr::syms(c("group_clean", "value1"))) %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`rank_value1_in_group` = base::rank(value1, ties.method = 'average', na.last = TRUE)) %>% 
+  dplyr::ungroup() %>% 
+  dplyr::arrange(stata2r_original_order_idx)
+
+Error: After Stata line  23 , R data set differs from Stata reference.
 
 Data set from Stata (do_df):
-tibble [50 × 22] (S3: tbl_df/tbl/data.frame)
+tibble [50 × 24] (S3: tbl_df/tbl/data.frame)
  $ id                    : num [1:50] 1 2 3 4 5 6 7 8 9 10 ...
   ..- attr(*, "label")= chr "id"
   ..- attr(*, "format.stata")= chr "%9.0g"
@@ -4364,57 +4401,63 @@ tibble [50 × 22] (S3: tbl_df/tbl/data.frame)
  $ group_numeric_id      : num [1:50] 3 3 2 2 3 2 1 1 2 3 ...
   ..- attr(*, "label")= chr "group(group_clean)"
   ..- attr(*, "format.stata")= chr "%9.0g"
+ $ tag_first_in_group    : num [1:50] 1 0 1 0 0 0 1 0 0 0 ...
+  ..- attr(*, "label")= chr "tag(group_clean)"
+  ..- attr(*, "format.stata")= chr "%8.0g"
+ $ count_obs_in_group    : num [1:50] 11 11 20 20 11 20 16 16 20 11 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
  - attr(*, "label")= chr "Written by R."
 NULL
 
 Data set from R (r_df):
-tibble [50 × 23] (S3: tbl_df/tbl/data.frame)
- $ id                        : num [1:50] 7 8 14 17 22 24 25 28 31 32 ...
+tibble [50 × 26] (S3: tbl_df/tbl/data.frame)
+ $ id                        : num [1:50] 1 2 3 4 5 6 7 8 9 10 ...
   ..- attr(*, "label")= chr "id"
   ..- attr(*, "format.stata")= chr "%9.0g"
- $ group_orig                : chr [1:50] "Alpha" "Alpha" "Alpha" "Alpha" ...
+ $ group_orig                : chr [1:50] " Gamma" " Gamma" "Beta" "Beta" ...
   ..- attr(*, "label")= chr "group_orig"
   ..- attr(*, "format.stata")= chr "%6s"
- $ value1                    : num [1:50] 62.5 30 73.7 134.7 103.7 ...
- $ value2                    : num [1:50] 3 6 6 10 3 3 3 6 4 3 ...
+ $ value1                    : num [1:50] 73.9 NA 52.8 29.8 44.2 ...
+ $ value2                    : num [1:50] 4 3 NA 10 3 2 3 6 6 8 ...
   ..- attr(*, "label")= chr "value2"
   ..- attr(*, "format.stata")= chr "%9.0g"
- $ date_str                  : chr [1:50] "2020-07-17" "2022-10-05" "2020-10-01" "2022-09-10" ...
+ $ date_str                  : chr [1:50] "2020-09-21" "2022-08-26" "2022-02-09" "2021-05-20" ...
   ..- attr(*, "label")= chr "date_str"
   ..- attr(*, "format.stata")= chr "%10s"
- $ num_str                   : chr [1:50] "112" "141" "198" "190" ...
+ $ num_str                   : chr [1:50] "166" "181" "101" "136" ...
   ..- attr(*, "label")= chr "num_str"
   ..- attr(*, "format.stata")= chr "%3s"
- $ mixed_var                 : chr [1:50] "apple" "apple" "20" "30" ...
+ $ mixed_var                 : chr [1:50] "apple" "42" "10" "20" ...
   ..- attr(*, "label")= chr "mixed_var"
   ..- attr(*, "format.stata")= chr "%6s"
- $ stata2r_original_order_idx: int [1:50] 7 8 14 17 22 24 25 28 31 32 ...
- $ value1_log                : num [1:50] 3.73 3 3.89 4.5 4.24 ...
- $ value2_squared            : num [1:50] 9 36 36 100 9 9 9 36 16 9 ...
+ $ stata2r_original_order_idx: int [1:50] 1 2 3 4 5 6 7 8 9 10 ...
+ $ value1_log                : num [1:50] 4.3 NA 3.97 3.39 3.79 ...
+ $ value2_squared            : num [1:50] 16 9 NA 100 9 4 9 36 36 64 ...
   ..- attr(*, "label")= chr "value2"
   ..- attr(*, "format.stata")= chr "%9.0g"
- $ int_value1                : num [1:50] 41 20 49 89 69 26 80 NA 53 95 ...
- $ rounded_value1            : num [1:50] 41.7 20 49.1 89.8 69.1 26.9 80.4 NA 54 95.9 ...
- $ random_uniform_draw       : num [1:50] 0.62818 0.00048 0.51582 0.76359 0.57181 ...
- $ id_plus_value2            : num [1:50] 10 14 20 NA 25 27 28 34 35 35 ...
- $ group_clean               : chr [1:50] "alpha" "alpha" "alpha" "alpha" ...
- $ group_abbr                : chr [1:50] "alp" "alp" "alp" "alp" ...
- $ contact_info              : chr [1:50] "alpha:112" "alpha:141" "alpha:198" "alpha:190" ...
- $ str_len_group             : int [1:50] 5 5 5 5 5 5 5 5 5 5 ...
+ $ int_value1                : num [1:50] 73 NA 52 29 44 NA 41 20 31 70 ...
+ $ rounded_value1            : num [1:50] 73.9 NA 52.8 29.8 44.2 NA 41.7 20 31.9 70.1 ...
+ $ random_uniform_draw       : num [1:50] 0.112 0.582 0.486 0.227 0.846 ...
+ $ id_plus_value2            : num [1:50] 5 5 NA NA 8 8 10 14 15 NA ...
+ $ group_clean               : chr [1:50] "gamma" "gamma" "beta" "beta" ...
+ $ group_abbr                : chr [1:50] "gam" "gam" "bet" "bet" ...
+ $ contact_info              : chr [1:50] "gamma:166" "gamma:181" "delta:101" "delta:136" ...
+ $ str_len_group             : int [1:50] 5 5 4 4 5 4 5 5 4 5 ...
  $ mean_overall_value1       : num [1:50] 66.8 66.8 66.8 66.8 66.8 ...
  $ sd_overall_value1         : num [1:50] 38 38 38 38 38 ...
- $ total_value2_by_group     : num [1:50] 71 71 71 71 71 71 71 71 71 71 ...
- $ median_value1_by_group    : num [1:50] 104 104 104 104 104 ...
- $ group_numeric_id          : int [1:50] 1 1 1 1 1 1 1 1 1 1 ...
+ $ total_value2_by_group     : num [1:50] 49 49 86 86 49 86 71 71 86 49 ...
+ $ median_value1_by_group    : num [1:50] 44.2 44.2 47.3 47.3 44.2 ...
+ $ group_numeric_id          : int [1:50] 3 3 2 2 3 2 1 1 2 3 ...
+ $ tag_first_in_group        : num [1:50] 1 0 1 0 0 0 1 0 0 0 ...
+ $ count_obs_in_group        : int [1:50] 11 11 20 20 11 20 16 16 20 11 ...
+ $ rank_value1_in_group      : num [1:50] 8 10 12 4 5 19 3 1 5 7 ...
 NULL
 
 Differences:List of 2
- $ identical     : logi FALSE
- $ value_mismatch:'data.frame':	95 obs. of  4 variables:
-  ..$ row      : int [1:95] 1 2 3 4 5 1 2 3 4 5 ...
-  ..$ column   : chr [1:95] "id" "id" "id" "id" ...
-  ..$ df1_value: chr [1:95] "1" "2" "3" "4" ...
-  ..$ df2_value: chr [1:95] "7" "8" "14" "17" ...
+ $ identical      : logi FALSE
+ $ column_mismatch:List of 2
+  ..$ missing_in_do_df: chr "rank_value1_in_group"
+  ..$ missing_in_r_df : chr(0) 
 NULL
 
 ##############################
