@@ -191,20 +191,20 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
 
   # Determine actual grouping variables for dplyr::group_by
-  group_vars_for_dplyr_group_by = character(0)
+  group_vars_list_bare = character(0) # Will hold just bare variable names
   if (cmd_obj$is_by_prefix) {
     if (length(cmd_obj$by_group_vars) > 0 && !is.na(cmd_obj$by_group_vars[1])) {
       group_vars_list = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
       group_vars_list = group_vars_list[!is.na(group_vars_list) & group_vars_list != ""]
       if (length(group_vars_list) > 0) {
-        group_vars_for_dplyr_group_by = paste0('!!!dplyr::syms(c("', paste0(group_vars_list, collapse='", "'), '"))')
+        group_vars_list_bare = group_vars_list # Assign just the bare names
       }
     }
   } else if (!is.na(options_str)) {
     by_opt_match = stringi::stri_match_first_regex(options_str, "\\bby\\s*\\(([^)]+)\\)")
     if (!is.na(by_opt_match[1,1])) {
-      group_vars_for_dplyr_group_by = stringi::stri_split_regex(stringi::stri_trim_both(by_opt_match[1,2]), "\\s+")[[1]]
-      group_vars_for_dplyr_group_by = group_vars_for_dplyr_group_by[!is.na(group_vars_for_dplyr_group_by) & group_vars_for_dplyr_group_by != ""]
+      group_vars_list_bare = stringi::stri_split_regex(stringi::stri_trim_both(by_opt_match[1,2]), "\\s+")[[1]]
+      group_vars_list_bare = group_vars_list_bare[!is.na(group_vars_list_bare) & group_vars_list_bare != ""]
     }
   }
 
@@ -213,7 +213,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     egen_func_args_list = stringi::stri_split_regex(egen_args_str, "\\s+")[[1]]
     egen_func_args_list = egen_func_args_list[!is.na(egen_func_args_list) & egen_func_args_list != ""]
     # Union of `by` variables and `egen` function arguments defines the group
-    group_vars_for_dplyr_group_by = unique(c(group_vars_for_dplyr_group_by, egen_func_args_list))
+    group_vars_list_bare = unique(c(group_vars_list_bare, egen_func_args_list))
   }
 
 
@@ -221,19 +221,19 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   sort_vars_for_arrange = character(0)
   if (cmd_obj$is_by_prefix) {
     # Stata's `bysort` sorts by all variables in `varlist` (group + sort).
-    sort_vars_for_arrange = unique(c(cmd_obj$by_group_vars, cmd_obj$by_sort_vars))
+    sort_vars_for_arrange = unique(c(group_vars_list_bare, cmd_obj$by_sort_vars))
     sort_vars_for_arrange = sort_vars_for_arrange[!is.na(sort_vars_for_arrange) & sort_vars_for_arrange != ""]
   } else if (egen_func_name %in% c("rank", "group", "tag")) {
     # If not by-prefix, but it's a function sensitive to order (rank, group, tag)
     # and has a by() option, or implicit grouping through function args.
-    # The `by()` option variables are already in `group_vars_for_dplyr_group_by`.
+    # The `by()` option variables are already in `group_vars_list_bare`.
     # For `rank`, it's generally sorted by the grouping variables + the variable being ranked.
     # For `group`, `tag`, it's sorted by the variables that define the group.
     
-    if (length(group_vars_for_dplyr_group_by) > 0) {
-      sort_vars_for_arrange = unique(c(sort_vars_for_arrange, group_vars_for_dplyr_group_by))
+    if (length(group_vars_list_bare) > 0) {
+      sort_vars_for_arrange = unique(c(sort_vars_for_arrange, group_vars_list_bare))
     }
-    if (egen_func_name == "rank") {
+    if (egen_func_name == "rank" && !is.na(egen_args_str) && egen_args_str != "") {
       # For rank, the variable being ranked also affects the internal order for ties.
       # It's typically sorted by grouping vars, then the ranked var.
       # `egen_args_str` for rank is the variable to rank.
@@ -256,14 +256,14 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   pipe_elements = list("data") # Start the pipe with the data object
 
   # Add grouping and mutate steps
-  if (length(group_vars_for_dplyr_group_by) > 0 && !is_row_function) {
-    group_by_expr = paste0('dplyr::group_by(!!!dplyr::syms(c("', paste0(group_vars_for_dplyr_group_by, collapse='", "'), '")))')
+  if (length(group_vars_list_bare) > 0 && !is_row_function) {
+    group_by_expr = paste0('dplyr::group_by(!!!dplyr::syms(c("', paste0(group_vars_list_bare, collapse='", "'), '")))')
     pipe_elements = c(pipe_elements, group_by_expr)
   }
 
   pipe_elements = c(pipe_elements, paste0("dplyr::mutate(", full_mutate_expr, ")"))
 
-  if (length(group_vars_for_dplyr_group_by) > 0 && !is_row_function) {
+  if (length(group_vars_list_bare) > 0 && !is_row_function) {
     pipe_elements = c(pipe_elements, "dplyr::ungroup()")
   }
 
@@ -292,4 +292,5 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 

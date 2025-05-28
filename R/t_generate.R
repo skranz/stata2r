@@ -31,7 +31,7 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Determine arrange step if needed
   arrange_call = ""
-  group_vars_r_vec_str = NULL # For dplyr::group_by
+  group_vars_list_bare = character(0) # For dplyr::group_by
   
   # Variables that define the sort order (from by-prefix)
   vars_for_initial_sort = character(0)
@@ -41,7 +41,7 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       group_vars_list = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
       group_vars_list = group_vars_list[!is.na(group_vars_list) & group_vars_list != ""]
       if (length(group_vars_list) > 0) {
-        group_vars_r_vec_str = paste0('!!!dplyr::syms(c("', paste0(group_vars_list, collapse='", "'), '"))')
+        group_vars_list_bare = group_vars_list # Assign just the bare names
         vars_for_initial_sort = c(vars_for_initial_sort, group_vars_list)
       }
     }
@@ -93,8 +93,9 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   pipe_elements = list("data") # Elements for the pipe chain, starting from `data`
 
   # Add grouping and mutate steps
-  if (!is.null(group_vars_r_vec_str)) {
-      pipe_elements = c(pipe_elements, paste0("dplyr::group_by(", group_vars_r_vec_str, ")"))
+  if (length(group_vars_list_bare) > 0) {
+      group_by_call_str = paste0('dplyr::group_by(!!!dplyr::syms(c("', paste0(group_vars_list_bare, collapse='", "'), '")))')
+      pipe_elements = c(pipe_elements, group_by_call_str)
       pipe_elements = c(pipe_elements, paste0("dplyr::mutate(`", new_var, "` = ", calc_expr, ")"))
       pipe_elements = c(pipe_elements, "dplyr::ungroup()")
   } else {
@@ -108,4 +109,5 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 
