@@ -116,21 +116,21 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       if (old_part_raw == "else") {
           r_condition = "TRUE" # This rule is the fallback
       } else if (old_part_raw == ".") {
-           r_condition = paste0("is.na(data$", source_var_r, ")") # Missing value rule
+           r_condition = paste0("is.na(", source_var_r, ")") # Missing value rule
       } else if (grepl("\\s+thru\\s+", old_part_raw)) {
            # Range: val1 thru val2
            range_parts = stringi::stri_split_regex(old_part_raw, "\\s+thru\\s+", n=2)[[1]]
            val1 = translate_stata_expression_to_r(stringi::stri_trim_both(range_parts[1])) # Translate value (e.g. string "A" or number)
            val2 = translate_stata_expression_to_r(stringi::stri_trim_both(range_parts[2]))
            if (is.na(val1) || is.na(val2)) return(paste0("## Error translating range values in rule: ", rule_str))
-           r_condition = paste0("data$", source_var_r, " >= ", val1, " & data$", source_var_r, " <= ", val2)
+           r_condition = paste0(source_var_r, " >= ", val1, " & ", source_var_r, " <= ", val2)
       } else if (grepl("/", old_part_raw)) {
           # Range: val1/val2
            range_parts = stringi::stri_split_regex(old_part_raw, "/", n=2)[[1]]
            val1 = translate_stata_expression_to_r(stringi::stri_trim_both(range_parts[1])) # Translate value
            val2 = translate_stata_expression_to_r(stringi::stri_trim_both(range_parts[2]))
            if (is.na(val1) || is.na(val2)) return(paste0("## Error translating range values in rule: ", rule_str))
-           r_condition = paste0("data$", source_var_r, " >= ", val1, " & data$", source_var_r, " <= ", val2) # Stata / is inclusive range
+           r_condition = paste0(source_var_r, " >= ", val1, " & ", source_var_r, " <= ", val2) # Stata / is inclusive range
       }
       else {
           # List of values or single value
@@ -140,14 +140,14 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
                if (val == ".") return("NA") # Stata missing symbol
                translate_stata_expression_to_r(val) # Translate value (e.g. "5", `"string"`)
           })
-          r_condition = paste0("data$", source_var_r, " %in% c(", paste(r_values, collapse = ", "), ")")
+          r_condition = paste0(source_var_r, " %in% c(", paste(r_values, collapse = ", "), ")")
       }
 
 
       # Translate new_part into R value (right side of case_when ~ )
       r_new_value = ""
       if (new_part_raw == "copy") {
-          r_new_value = paste0("data$", source_var_r) # Use the original variable value
+          r_new_value = source_var_r # Use the original variable value
       } else if (new_part_raw == ".") {
           r_new_value = "NA" # R missing
       } else {
@@ -176,7 +176,7 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
           # Stata's `if` condition treats missing as FALSE, so use coalesce.
           final_value_expr = paste0("dplyr::if_else(dplyr::coalesce(", r_subset_cond, ", FALSE),\n",
                                     "    ", case_when_expr, ",\n",
-                                    "    data$`", source_var_r, "`)") # Keep original value if condition not met.
+                                    "    `", source_var_r, "`)") # Keep original value if condition not met.
       } else {
           final_value_expr = case_when_expr
       }
