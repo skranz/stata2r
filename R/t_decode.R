@@ -70,6 +70,7 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Temporary variable names
   decoded_values_tmp_var = paste0("stata_tmp_decoded_values_L", cmd_obj$line)
   satisfies_cond_tmp_var = paste0("stata_tmp_satisfies_cond_L", cmd_obj$line)
+  original_values_tmp_var = paste0("stata_tmp_original_values_L", cmd_obj$line) # Added for robustness
 
    r_code_lines = c(
       paste0("data = dplyr::mutate(data, `", gen_var, "` = NA_character_)")
@@ -77,8 +78,14 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
    r_code_lines = c(r_code_lines,
       paste0("## Decode values using haven::as_factor"),
-      # Calculate decoded values using with(data, ...) to ensure varname_str is found
-      paste0(decoded_values_tmp_var, " = with(data, as.character(haven::as_factor(data$`", varname_str, "`, levels = 'labels')))")
+      paste0(original_values_tmp_var, " = with(data, data$`", varname_str, "`)"), # Store original values
+      # Calculate decoded values. haven::as_factor converts unlabelled values to NA.
+      paste0(decoded_values_tmp_var, " = as.character(haven::as_factor(", original_values_tmp_var, ", levels = 'labels'))"),
+      # Stata's decode for unlabelled numeric values converts them to their string representation.
+      # And missing values (NA) are converted to empty string "".
+      paste0(decoded_values_tmp_var, " = dplyr::if_else(is.na(", decoded_values_tmp_var, "), ",
+                                    "dplyr::if_else(is.na(", original_values_tmp_var, "), \"\", as.character(", original_values_tmp_var, ")), ",
+                                    decoded_values_tmp_var, ")")
    )
 
   # Apply the if/in condition for replacement
@@ -95,7 +102,7 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       )
   }
 
-  r_code_lines = c(r_code_lines, paste0("rm(", decoded_values_tmp_var, ")"))
+  r_code_lines = c(r_code_lines, paste0("rm(", decoded_values_tmp_var, ", ", original_values_tmp_var, ")"))
 
   r_code_str = paste(r_code_lines, collapse="\n")
 
@@ -107,7 +114,7 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
    }
 
    if (!is.na(options_str_cleaned) && options_str_cleaned != "") {
-        r_code_str = paste0(r_code_str, paste0(" # Other options ignored: ", options_str_cleaned))
+        r_code_str = paste0(r_code_str, paste0("\n# Other options ignored: ", options_str_cleaned))
    }
 
   return(r_code_str)

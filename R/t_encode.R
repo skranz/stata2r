@@ -70,28 +70,23 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   r_code_lines = c()
 
-  # Initialize the new column as a haven_labelled integer vector.
-  # Labels will be derived from the source data.
+  # Initialize the new column as an integer vector. Labels will be applied by label values.
   r_code_lines = c(r_code_lines,
-    paste0("data = dplyr::mutate(data, `", gen_var, "` = haven::labelled(rep(NA_integer_, NROW(data)), labels = c()))")
+    paste0("data = dplyr::mutate(data, `", gen_var, "` = NA_integer_)")
   )
 
   # Calculate the full encoded vector (based on all unique values in source column, sorted alphabetically)
-  # This ensures consistent labelling regardless of if/in conditions.
+  # Stata encode assigns numeric codes (1, 2, ...) to non-missing string values, preserving missing values as NA.
   r_code_lines = c(r_code_lines,
     paste0("temp_source_vector_L", cmd_obj$line, " = data[['", varname_str, "']]"),
-    # Get unique, non-NA, sorted string values to define labels
-    # Stata encode treats empty strings as distinct values.
-    paste0("temp_unique_labels_L", cmd_obj$line, " = base::sort(base::unique(stats::na.omit(temp_source_vector_L", cmd_obj$line, ")))"),
-    # Create the integer codes (1, 2, ...) based on the sorted unique labels
-    paste0("temp_numeric_values_L", cmd_obj$line, " = base::match(temp_source_vector_L", cmd_obj$line, ", temp_unique_labels_L", cmd_obj$line, ")"),
-    # Define the label mapping: c(value = "label_string") format for haven::labelled
-    # Corrected: haven::labelled expects named numeric vector (value = label_string)
-    paste0("temp_label_map_L", cmd_obj$line, " = if (length(temp_unique_labels_L", cmd_obj$line, ") > 0) stats::setNames(seq_along(temp_unique_labels_L", cmd_obj$line, "), as.character(temp_unique_labels_L", cmd_obj$line, ")) else stats::setNames(numeric(0), character(0))"),
-    # Create the haven_labelled vector
-    paste0(encoded_values_full_tmp_var, " = haven::labelled(as.integer(temp_numeric_values_L", cmd_obj$line, "), labels = temp_label_map_L", cmd_obj$line, ")"),
+    # Get unique, non-NA, sorted string values to define the mapping to numeric codes
+    paste0("temp_unique_values_L", cmd_obj$line, " = base::sort(base::unique(temp_source_vector_L", cmd_obj$line, "[!is.na(temp_source_vector_L", cmd_obj$line, ")]))"),
+    # Create the integer codes (1, 2, ...) based on the sorted unique values. NA values in source remain NA.
+    paste0("temp_numeric_values_L", cmd_obj$line, " = base::match(temp_source_vector_L", cmd_obj$line, ", temp_unique_values_L", cmd_obj$line, ")"),
+    # Assign the plain integer vector. Labels will be applied later by `label values`.
+    paste0(encoded_values_full_tmp_var, " = as.integer(temp_numeric_values_L", cmd_obj$line, ")"),
     # Clean up intermediate temp variables
-    paste0("rm(temp_source_vector_L", cmd_obj$line, ", temp_unique_labels_L", cmd_obj$line, ", temp_numeric_values_L", cmd_obj$line, ", temp_label_map_L", cmd_obj$line, ")")
+    paste0("rm(temp_source_vector_L", cmd_obj$line, ", temp_unique_values_L", cmd_obj$line, ", temp_numeric_values_L", cmd_obj$line, ")")
   )
 
   # Apply the if/in condition for assignment to the target column in 'data'
