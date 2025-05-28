@@ -17,7 +17,12 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   r_expr = stata_expr
 
-  # Step 1: Handle r() values using the mapping.
+  # Step 1: Handle Stata missing value literal '.' (MOVED AND REFINED)
+  # This must happen early to prevent interference with decimal numbers.
+  # Use negative lookbehind/lookahead to match a dot ONLY if it's not part of a number.
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![0-9])\\.(?![0-9])", "NA_real_")
+
+  # Step 2: Handle r() values using the mapping.
   # This ensures that r() values are replaced by their corresponding R variable names
   # BEFORE other transformations (like missing value checks) are applied to them.
   if (!is.null(r_value_mappings) && length(r_value_mappings) > 0) {
@@ -28,18 +33,18 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     }
   }
 
-  # Step 2: Translate Stata logical operators and missing value comparisons.
+  # Step 3: Translate Stata logical operators and missing value comparisons.
   # These must happen after handling `r()` values so `r(mean)` is already `stata_r_val_Lxx_mean`.
   # Stata `X == .` -> R `is.na(X)`
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*==\\s*\\.", "is.na($1)")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*==\\s*NA_real_", "is.na($1)")
   # Stata `X != .` -> R `!is.na($1)`
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*!=\\s*\\.", "!is.na($1)") # Use stri_replace_all_regex for safety
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*!=\\s*NA_real_", "!is.na($1)") # Use stri_replace_all_regex for safety
 
   r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![<>!=~])\\s*=\\s*(?![=])", " == ") # Replace single = with == if not part of other ops
   r_expr = stringi::stri_replace_all_regex(r_expr, "\\s+~=\\s+", " != ") # Stata `~=` to R `!=`
 
 
-  # Step 3: Translate Stata special variables and indexing (e.g., _n, _N, var[_n-1])
+  # Step 4: Translate Stata special variables and indexing (e.g., _n, _N, var[_n-1])
   # These are generally fixed references, not nested functions.
   # Use dplyr::lag/lead which are context-aware in grouped operations.
 
@@ -54,7 +59,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_N\\b", "as.numeric(dplyr::n())")
 
 
-  # Step 4: Iteratively translate Stata functions (e.g., cond(), round(), log(), etc.)
+  # Step 5: Iteratively translate Stata functions (e.g., cond(), round(), log(), etc.)
   # This loop handles nested function calls by repeatedly applying transformations.
   old_r_expr = ""
   while (r_expr != old_r_expr) {
@@ -86,11 +91,6 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bruniform\\(\\)", "stats::runif(as.numeric(dplyr::n()))") # Stata runiform()
     # Date functions (placeholder, as actual implementation is complex)
   }
-
-  # Step 5: Handle Stata missing value literal '.' (MOVED AND REFINED)
-  # This must happen after functions like `is.na()` and `as.numeric()` are formed
-  # to avoid replacing '.' within their names. Use word boundaries to match standalone dot.
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b\\.\\b", "NA_real_")
 
   # Step 6: Translate Stata '+' operator to sfun_stata_add for polymorphic behavior
   # This needs to be applied iteratively until no more '+' signs (that are not part of comparison operators) exist.
@@ -132,4 +132,5 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   return(r_expr)
 }
+
 
