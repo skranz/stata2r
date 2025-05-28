@@ -1277,11 +1277,12 @@ is_stata_expr_string_type = function(stata_expr) {
   if (stringi::stri_startswith_fixed(stata_expr, '"') && stringi::stri_endswith_fixed(stata_expr, '"')) {
     return(TRUE)
   }
-  if (stringi::stri_startswith_fixed(s, "'") && stringi::stri_endswith_fixed(s, "'")) {
+  if (stringi::stri_startswith_fixed(stata_expr, "'") && stringi::stri_endswith_fixed(stata_expr, "'")) {
     return(TRUE)
   }
   FALSE
 }
+
 
 ```
 ### END OF FILE: stata_type_utils.R
@@ -2277,29 +2278,32 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   full_mutate_expr = paste0("`", new_var, "` = ", calc_expr)
 
   # Build the R command string using pipes
-  r_code_lines = c("data = data %>%") # Start with data and the first pipe
+  r_code_lines = c()
+  pipe_elements = list("data") # Start the pipe with the data object
 
   if ((egen_func_name == "group" || egen_func_name == "tag") && !is.null(by_vars_for_group_by) && !is_row_function) {
     # For group/tag, we need to sort to ensure consistent IDs and restore order
-    # The `arrange` call should use `dplyr::across(dplyr::all_of(...))` for robustness.
-    arrange_vars_str = paste0('dplyr::all_of(c("', paste0(combined_grouping_vars, collapse = '", "'), '"))') # Use combined_grouping_vars for arranging
-    r_code_lines = c(r_code_lines,
-                        paste0("  dplyr::arrange(", arrange_vars_str, ") %>%"),
-                        paste0("  dplyr::group_by(", by_vars_for_group_by, ") %>%"),
-                        "  dplyr::mutate(", full_mutate_expr, ") %>%",
-                        "  dplyr::ungroup() %>%",
-                        "  dplyr::arrange(stata2r_original_order_idx)")
+    arrange_vars_str = paste0('dplyr::all_of(c("', paste0(combined_grouping_vars, collapse = '", "'), '"))')
+    
+    pipe_elements = c(pipe_elements,
+                        paste0("dplyr::arrange(", arrange_vars_str, ")"),
+                        paste0("dplyr::group_by(", by_vars_for_group_by, ")"),
+                        paste0("dplyr::mutate(", full_mutate_expr, ")"),
+                        "dplyr::ungroup()",
+                        "dplyr::arrange(stata2r_original_order_idx)") # Restore original order
   } else if (!is.null(by_vars_for_group_by) && !is_row_function) {
     # For other grouped egen functions (mean, sd, etc. with by-prefix or by-option)
-    r_code_lines = c(r_code_lines,
-                        paste0("  dplyr::group_by(", by_vars_for_group_by, ") %>%"),
-                        "  dplyr::mutate(", full_mutate_expr, ") %>%",
-                        "  dplyr::ungroup()")
+    pipe_elements = c(pipe_elements,
+                        paste0("dplyr::group_by(", by_vars_for_group_by, ")"),
+                        paste0("dplyr::mutate(", full_mutate_expr, ")"),
+                        "dplyr::ungroup()")
   } else {
     # For non-grouped or row functions
-    r_code_lines = c(r_code_lines,
-                        "  dplyr::mutate(", full_mutate_expr, ")")
+    pipe_elements = c(pipe_elements,
+                        paste0("dplyr::mutate(", full_mutate_expr, ")"))
   }
+
+  r_code_lines = c(r_code_lines, paste0("data = ", paste(pipe_elements, collapse = " %>% \n  ")))
 
    # Add comment about options if any were present but not handled (excluding by)
    options_str_cleaned = options_str
@@ -2679,24 +2683,27 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Step 2: Build the R code string using pipes for the mutate operation
   r_code_lines = c()
-
-  # Start with data and add the first pipe
+  
   if (arrange_call != "") {
       r_code_lines = c(r_code_lines, arrange_call)
-      r_code_lines = c(r_code_lines, "data = data %>%")
-  } else {
-      r_code_lines = c(r_code_lines, "data = data %>%")
+      # After `arrange_call`, `data` is already the arranged data.
+      # The next part of the pipe will operate on this `data`.
   }
 
+  pipe_elements = list("data") # Elements for the pipe chain, starting from `data`
+
   # Add grouping and mutate steps
-  if (!is.null(group_vars_r_vec_str)) { # Check if group_vars_r_vec_str is not NULL
-      r_code_lines = c(r_code_lines, paste0("  dplyr::group_by(", group_vars_r_vec_str, ") %>%"))
-      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(`", new_var, "` = ", calc_expr, ") %>%"))
-      r_code_lines = c(r_code_lines, "  dplyr::ungroup()")
+  if (!is.null(group_vars_r_vec_str)) {
+      pipe_elements = c(pipe_elements, paste0("dplyr::group_by(", group_vars_r_vec_str, ")"))
+      pipe_elements = c(pipe_elements, paste0("dplyr::mutate(`", new_var, "` = ", calc_expr, ")"))
+      pipe_elements = c(pipe_elements, "dplyr::ungroup()")
   } else {
-      # If not grouped, just add the mutate step directly to the pipe chain
-      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(`", new_var, "` = ", calc_expr, ")"))
+      pipe_elements = c(pipe_elements, paste0("dplyr::mutate(`", new_var, "` = ", calc_expr, ")"))
   }
+
+  # This is the final assignment line for the current command
+  # It takes 'data' (potentially already arranged) and pipes it through the rest
+  r_code_lines = c(r_code_lines, paste0("data = ", paste(pipe_elements, collapse = " %>% \n  ")))
 
 
   return(paste(r_code_lines, collapse="\n"))
@@ -3349,18 +3356,21 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   if (arrange_call != "") {
       r_code_lines = c(r_code_lines, arrange_call)
-      r_code_lines = c(r_code_lines, "data = data %>%")
-  } else {
-      r_code_lines = c(r_code_lines, "data = data %>%")
+      # After `arrange_call`, `data` is already the arranged data.
+      # The next part of the pipe will operate on this `data`.
   }
 
+  pipe_elements = list("data") # Elements for the pipe chain, starting from `data`
+
   if (!is.null(group_vars_r_vec_str)) { # Check if group_vars_r_vec_str is not NULL
-      r_code_lines = c(r_code_lines, paste0("  dplyr::group_by(", group_vars_r_vec_str, ") %>%"))
-      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(`", var_to_replace, "` = ", calc_expr, ") %>%"))
-      r_code_lines = c(r_code_lines, "  dplyr::ungroup()")
+      pipe_elements = c(pipe_elements, paste0("dplyr::group_by(", group_vars_r_vec_str, ")"))
+      pipe_elements = c(pipe_elements, paste0("dplyr::mutate(`", var_to_replace, "` = ", calc_expr, ")"))
+      pipe_elements = c(pipe_elements, "dplyr::ungroup()")
   } else {
-      r_code_lines = c(r_code_lines, paste0("  dplyr::mutate(`", var_to_replace, "` = ", calc_expr, ")"))
+      pipe_elements = c(pipe_elements, paste0("dplyr::mutate(`", var_to_replace, "` = ", calc_expr, ")"))
   }
+
+  r_code_lines = c(r_code_lines, paste0("data = ", paste(pipe_elements, collapse = " %>% \n  ")))
 
   return(paste(r_code_lines, collapse="\n"))
 }
@@ -3833,12 +3843,22 @@ str(cmd_df)
 NULL
 
 ---
-#Translate Stata to R commands... 
-Error when creating translated code in for line 6
+#Translate Stata to R commands... ... translation done.
+---
+# Run translated R commands and compare results
 
-do:  by group: gen seq = _n 
-R:  <translation error>
-Translation error message:  object 's' not found 
+
+ 1 do:  use "data.dta", clear
+ 1 r:  data = haven::read_dta(file.path(stata2r_env$data_dir, "data.dta")) %>%
+  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used 
+data = haven::read_dta(file.path(stata2r_env$data_dir, "data.dta")) %>%
+  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used
+
+Error: '~/aicoder/stata2r/inst/cases/do1/do_data/data.dta' does not exist.
+Error executing R code for Stata line  1 :  data = haven::read_dta(file.path(stata2r_env$data_dir, "data.dta")) %>%
+  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used
+
+Error: '~/aicoder/stata2r/inst/cases/do1/do_data/data.dta' does not exist. 
 
 
 ---
@@ -3865,12 +3885,22 @@ str(cmd_df)
 NULL
 
 ---
-#Translate Stata to R commands... 
-Error when creating translated code in for line 2
+#Translate Stata to R commands... ... translation done.
+---
+# Run translated R commands and compare results
 
-do:  generate value1_log = log(value1) 
-R:  <translation error>
-Translation error message:  object 's' not found 
+
+ 1 do:  use "test_data.dta", clear
+ 1 r:  data = haven::read_dta(file.path(stata2r_env$data_dir, "test_data.dta")) %>%
+  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used 
+data = haven::read_dta(file.path(stata2r_env$data_dir, "test_data.dta")) %>%
+  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used
+
+Error: '~/aicoder/stata2r/inst/cases/do2/do_data/test_data.dta' does not exist.
+Error executing R code for Stata line  1 :  data = haven::read_dta(file.path(stata2r_env$data_dir, "test_data.dta")) %>%
+  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used
+
+Error: '~/aicoder/stata2r/inst/cases/do2/do_data/test_data.dta' does not exist. 
 
 ##############################
 # YOUR TASK

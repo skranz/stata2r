@@ -31,12 +31,22 @@ str(cmd_df)
 NULL
 
 ---
-#Translate Stata to R commands... 
-Error when creating translated code in for line 6
+#Translate Stata to R commands... ... translation done.
+---
+# Run translated R commands and compare results
 
-do:  by group: gen seq = _n 
-R:  <translation error>
-Translation error message:  object 's' not found 
+
+ 1 do:  use "data.dta", clear
+ 1 r:  data = haven::read_dta(file.path(stata2r_env$data_dir, "data.dta")) %>%
+  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used 
+data = haven::read_dta(file.path(stata2r_env$data_dir, "data.dta")) %>%
+  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used
+
+Error: '~/aicoder/stata2r/inst/cases/do1/do_data/data.dta' does not exist.
+Error executing R code for Stata line  1 :  data = haven::read_dta(file.path(stata2r_env$data_dir, "data.dta")) %>%
+  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used
+
+Error: '~/aicoder/stata2r/inst/cases/do1/do_data/data.dta' does not exist. 
 
 
 ---
@@ -63,9 +73,19 @@ str(cmd_df)
 NULL
 
 ---
-#Translate Stata to R commands... 
-Error when creating translated code in for line 2
+#Translate Stata to R commands... ... translation done.
+---
+# Run translated R commands and compare results
 
-do:  generate value1_log = log(value1) 
-R:  <translation error>
-Translation error message:  object 's' not found 
+
+ 1 do:  use "test_data.dta", clear
+ 1 r:  data = haven::read_dta(file.path(stata2r_env$data_dir, "test_data.dta")) %>%
+  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used 
+data = haven::read_dta(file.path(stata2r_env$data_dir, "test_data.dta")) %>%
+  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used
+
+Error: '~/aicoder/stata2r/inst/cases/do2/do_data/test_data.dta' does not exist.
+Error executing R code for Stata line  1 :  data = haven::read_dta(file.path(stata2r_env$data_dir, "test_data.dta")) %>%
+  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used
+
+Error: '~/aicoder/stata2r/inst/cases/do2/do_data/test_data.dta' does not exist. 
