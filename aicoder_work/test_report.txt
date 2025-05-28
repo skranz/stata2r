@@ -141,20 +141,22 @@ data = data %>%
 
  4 do:  generate int_value1 = int(value1) if !missing(value1)
  4 r:  data = data %>% 
-  dplyr::mutate(`int_value1` = dplyr::if_else(dplyr::coalesce(!isNA_real_na(value1), FALSE), trunc(value1), NA_real_)) 
+  dplyr::mutate(`int_value1` = dplyr::if_else(dplyr::coalesce(!sfun_missing(value1), FALSE), trunc(value1), NA_real_)) 
 data = data %>% 
-  dplyr::mutate(`int_value1` = dplyr::if_else(dplyr::coalesce(!isNA_real_na(value1), FALSE), trunc(value1), NA_real_))
+  dplyr::mutate(`int_value1` = dplyr::if_else(dplyr::coalesce(!sfun_missing(value1), FALSE), trunc(value1), NA_real_))
 
-Error: Problem with `mutate()` column `int_value1`.
-ℹ `int_value1 = dplyr::if_else(...)`.
-✖ could not find function "isNA_real_na"
-Caused by error in `isNA_real_na()`:
-! could not find function "isNA_real_na"
-Error executing R code for Stata line  4 :  data = data %>% 
-  dplyr::mutate(`int_value1` = dplyr::if_else(dplyr::coalesce(!isNA_real_na(value1), FALSE), trunc(value1), NA_real_))
-
-Error: Problem with `mutate()` column `int_value1`.
-ℹ `int_value1 = dplyr::if_else(...)`.
-✖ could not find function "isNA_real_na"
-Caused by error in `isNA_real_na()`:
-! could not find function "isNA_real_na" 
+ 5 do:  generate rounded_value1 = round(value1, 0.1) if !missing(value1)
+ 5 r:  data = data %>% 
+  dplyr::mutate(`rounded_value1` = dplyr::if_else(dplyr::coalesce(!sfun_missing(value1), FALSE), sfun_stata_round(value1,  0NA_real_1), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`rounded_value1` = dplyr::if_else(dplyr::coalesce(!sfun_missing(value1), FALSE), sfun_stata_round(value1,  0NA_real_1), NA_real_))
+Error: <text>:2:125: unexpected symbol
+1: data = data %>% 
+2:   dplyr::mutate(`rounded_value1` = dplyr::if_else(dplyr::coalesce(!sfun_missing(value1), FALSE), sfun_stata_round(value1,  0NA_real_1
+                                                                                                                               ^
+Error executing R code for Stata line  5 :  data = data %>% 
+  dplyr::mutate(`rounded_value1` = dplyr::if_else(dplyr::coalesce(!sfun_missing(value1), FALSE), sfun_stata_round(value1,  0NA_real_1), NA_real_))
+Error: <text>:2:125: unexpected symbol
+1: data = data %>% 
+2:   dplyr::mutate(`rounded_value1` = dplyr::if_else(dplyr::coalesce(!sfun_missing(value1), FALSE), sfun_stata_round(value1,  0NA_real_1
+                                                                                                                               ^ 

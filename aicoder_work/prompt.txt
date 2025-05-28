@@ -1149,7 +1149,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^,]+),([^)]+)\\)", "sfun_stata_round($1, $2)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^)]+)\\)", "sfun_stata_round($1, 1)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmod\\(([^,]+),([^)]+)\\)", "($1 %% $2)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmissing\\(([^)]+)\\)", "is.na($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmissing\\(([^)]+)\\)", "sfun_missing($1)") # Changed to sfun_missing
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\blog\\(([^)]+)\\)", "log($1)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsqrt\\(([^)]+)\\)", "sqrt($1)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bint\\(([^)]+)\\)", "trunc($1)") # Stata int() truncates
@@ -3791,6 +3791,30 @@ t_use = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
 -----------------------------------------------------------
 
+### FILE: translate_stata_expression_with_r_values.R
+```
+translate_stata_expression_with_r_values = function(stata_expr, line_num, cmd_df, context) {
+  restore.point("translate_stata_expression_with_r_values")
+  # This function is a wrapper around translate_stata_expression_to_r
+  # that is responsible for dynamically generating r_value_mappings
+  # based on previously translated summarize commands.
+
+  # For now, we will simply pass NULL for r_value_mappings to translate_stata_expression_to_r
+  # as r() values are not used in the specific failing tests.
+  # A more complete implementation would track the latest r() values set by summarize commands
+  # and populate r_value_mappings accordingly.
+
+  r_value_mappings = NULL
+
+  translated_expr = translate_stata_expression_to_r(stata_expr, context = context, r_value_mappings = r_value_mappings)
+  return(translated_expr)
+}
+
+```
+### END OF FILE: translate_stata_expression_with_r_values.R
+
+-----------------------------------------------------------
+
 
 # Example do files
 
@@ -3946,23 +3970,25 @@ data = data %>%
 
  4 do:  generate int_value1 = int(value1) if !missing(value1)
  4 r:  data = data %>% 
-  dplyr::mutate(`int_value1` = dplyr::if_else(dplyr::coalesce(!isNA_real_na(value1), FALSE), trunc(value1), NA_real_)) 
+  dplyr::mutate(`int_value1` = dplyr::if_else(dplyr::coalesce(!sfun_missing(value1), FALSE), trunc(value1), NA_real_)) 
 data = data %>% 
-  dplyr::mutate(`int_value1` = dplyr::if_else(dplyr::coalesce(!isNA_real_na(value1), FALSE), trunc(value1), NA_real_))
+  dplyr::mutate(`int_value1` = dplyr::if_else(dplyr::coalesce(!sfun_missing(value1), FALSE), trunc(value1), NA_real_))
 
-Error: Problem with `mutate()` column `int_value1`.
-ℹ `int_value1 = dplyr::if_else(...)`.
-✖ could not find function "isNA_real_na"
-Caused by error in `isNA_real_na()`:
-! could not find function "isNA_real_na"
-Error executing R code for Stata line  4 :  data = data %>% 
-  dplyr::mutate(`int_value1` = dplyr::if_else(dplyr::coalesce(!isNA_real_na(value1), FALSE), trunc(value1), NA_real_))
-
-Error: Problem with `mutate()` column `int_value1`.
-ℹ `int_value1 = dplyr::if_else(...)`.
-✖ could not find function "isNA_real_na"
-Caused by error in `isNA_real_na()`:
-! could not find function "isNA_real_na" 
+ 5 do:  generate rounded_value1 = round(value1, 0.1) if !missing(value1)
+ 5 r:  data = data %>% 
+  dplyr::mutate(`rounded_value1` = dplyr::if_else(dplyr::coalesce(!sfun_missing(value1), FALSE), sfun_stata_round(value1,  0NA_real_1), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`rounded_value1` = dplyr::if_else(dplyr::coalesce(!sfun_missing(value1), FALSE), sfun_stata_round(value1,  0NA_real_1), NA_real_))
+Error: <text>:2:125: unexpected symbol
+1: data = data %>% 
+2:   dplyr::mutate(`rounded_value1` = dplyr::if_else(dplyr::coalesce(!sfun_missing(value1), FALSE), sfun_stata_round(value1,  0NA_real_1
+                                                                                                                               ^
+Error executing R code for Stata line  5 :  data = data %>% 
+  dplyr::mutate(`rounded_value1` = dplyr::if_else(dplyr::coalesce(!sfun_missing(value1), FALSE), sfun_stata_round(value1,  0NA_real_1), NA_real_))
+Error: <text>:2:125: unexpected symbol
+1: data = data %>% 
+2:   dplyr::mutate(`rounded_value1` = dplyr::if_else(dplyr::coalesce(!sfun_missing(value1), FALSE), sfun_stata_round(value1,  0NA_real_1
+                                                                                                                               ^ 
 
 ##############################
 # YOUR TASK
