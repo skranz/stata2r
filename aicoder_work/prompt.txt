@@ -627,6 +627,29 @@ mark_data_manip_cmd = function(cmd_df) {
 
 -----------------------------------------------------------
 
+### FILE: sfun_compress_col_type.R
+```
+# Custom R implementation for Stata's compress logic for numeric types.
+# Attempts to convert numeric vectors to integer if all non-NA values are integers
+# and within the range of R's integer type.
+
+sfun_compress_col_type = function(x) {
+  restore.point("sfun_compress_col_type")
+  if (is.numeric(x)) {
+    # Check if all non-NA values are integers and within R's integer range
+    # Also check if there are any non-NA values to avoid issues with empty vectors or all NAs
+    if (length(x[!is.na(x)]) > 0 && all(x == floor(x), na.rm = TRUE) && all(x >= -.Machine$integer.max & x <= .Machine$integer.max, na.rm = TRUE)) {
+      return(as.integer(x))
+    }
+  }
+  return(x)
+}
+
+```
+### END OF FILE: sfun_compress_col_type.R
+
+-----------------------------------------------------------
+
 ### FILE: sfun_day.R
 ```
 # Custom R implementation for Stata's day() behavior
@@ -1826,12 +1849,13 @@ t_compress = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   r_code_lines = c()
   if (length(vars_to_compress) > 0) {
-      # Use collapse::fcompress on specific columns
+      # Use dplyr::mutate(across()) to apply sfun_compress_col_type
       vars_r_vec_str = paste0('c("', paste(vars_to_compress, collapse = '", "'), '")')
-      r_code_lines = c(r_code_lines, paste0("data = collapse::fcompress(data, cols = ", vars_r_vec_str, ")"))
+      r_code_lines = c(r_code_lines, paste0("data = dplyr::mutate(data, dplyr::across(dplyr::all_of(", vars_r_vec_str, "), stata2r::sfun_compress_col_type))"))
   } else {
-      # Use collapse::fcompress on the entire dataframe
-      r_code_lines = c(r_code_lines, paste0("data = collapse::fcompress(data)"))
+      # Apply to all variables using dplyr::across(dplyr::everything(), .fns = stata2r::sfun_compress_col_type)
+      # Using .fns = stata2r::sfun_compress_col_type explicitly for clarity, though it might be inferred.
+      r_code_lines = c(r_code_lines, paste0("data = dplyr::mutate(data, dplyr::across(dplyr::everything(), .fns = stata2r::sfun_compress_col_type))"))
   }
 
   return(paste(r_code_lines, collapse="\n"))
@@ -5485,13 +5509,21 @@ data = data %>%
   dplyr::mutate(`value1` = as.numeric(dplyr::if_else(sfun_missing(value1),  mean_overall_value1,  dplyr::if_else(value1 > 60,  value1*1.05,  value1*0.95))))
 
  62 do:  compress
- 62 r:  data = collapse::fcompress(data) 
-data = collapse::fcompress(data)
+ 62 r:  data = dplyr::mutate(data, dplyr::across(dplyr::everything(), .fns = stata2r::sfun_compress_col_type)) 
+data = dplyr::mutate(data, dplyr::across(dplyr::everything(), .fns = stata2r::sfun_compress_col_type))
 
-Error: 'fcompress' is not an exported object from 'namespace:collapse'
-Error executing R code for Stata line  62 :  data = collapse::fcompress(data)
+Error: Problem with `mutate()` input `..1`.
+ℹ `..1 = dplyr::across(dplyr::everything(), .fns = stata2r::sfun_compress_col_type)`.
+✖ 'sfun_compress_col_type' is not an exported object from 'namespace:stata2r'
+Caused by error:
+! 'sfun_compress_col_type' is not an exported object from 'namespace:stata2r'
+Error executing R code for Stata line  62 :  data = dplyr::mutate(data, dplyr::across(dplyr::everything(), .fns = stata2r::sfun_compress_col_type))
 
-Error: 'fcompress' is not an exported object from 'namespace:collapse' 
+Error: Problem with `mutate()` input `..1`.
+ℹ `..1 = dplyr::across(dplyr::everything(), .fns = stata2r::sfun_compress_col_type)`.
+✖ 'sfun_compress_col_type' is not an exported object from 'namespace:stata2r'
+Caused by error:
+! 'sfun_compress_col_type' is not an exported object from 'namespace:stata2r' 
 
 ##############################
 # YOUR TASK

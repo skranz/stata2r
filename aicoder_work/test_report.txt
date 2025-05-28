@@ -873,10 +873,18 @@ data = data %>%
   dplyr::mutate(`value1` = as.numeric(dplyr::if_else(sfun_missing(value1),  mean_overall_value1,  dplyr::if_else(value1 > 60,  value1*1.05,  value1*0.95))))
 
  62 do:  compress
- 62 r:  data = collapse::fcompress(data) 
-data = collapse::fcompress(data)
+ 62 r:  data = dplyr::mutate(data, dplyr::across(dplyr::everything(), .fns = stata2r::sfun_compress_col_type)) 
+data = dplyr::mutate(data, dplyr::across(dplyr::everything(), .fns = stata2r::sfun_compress_col_type))
 
-Error: 'fcompress' is not an exported object from 'namespace:collapse'
-Error executing R code for Stata line  62 :  data = collapse::fcompress(data)
+Error: Problem with `mutate()` input `..1`.
+ℹ `..1 = dplyr::across(dplyr::everything(), .fns = stata2r::sfun_compress_col_type)`.
+✖ 'sfun_compress_col_type' is not an exported object from 'namespace:stata2r'
+Caused by error:
+! 'sfun_compress_col_type' is not an exported object from 'namespace:stata2r'
+Error executing R code for Stata line  62 :  data = dplyr::mutate(data, dplyr::across(dplyr::everything(), .fns = stata2r::sfun_compress_col_type))
 
-Error: 'fcompress' is not an exported object from 'namespace:collapse' 
+Error: Problem with `mutate()` input `..1`.
+ℹ `..1 = dplyr::across(dplyr::everything(), .fns = stata2r::sfun_compress_col_type)`.
+✖ 'sfun_compress_col_type' is not an exported object from 'namespace:stata2r'
+Caused by error:
+! 'sfun_compress_col_type' is not an exported object from 'namespace:stata2r' 
