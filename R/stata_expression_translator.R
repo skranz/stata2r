@@ -22,7 +22,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   # Stata `X == .` -> R `is.na(X)`
   r_expr = stringi::stri_replace_all_regex(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*==\\s*\\.", "is.na($1)")
   # Stata `X != .` -> R `!is.na($1)`
-  r_expr = stringi::stri_all_regex_replace(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*!=\\s*\\.", "!is.na($1)") # Use stri_all_regex_replace for safety
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*!=\\s*\\.", "!is.na($1)") # Use stri_replace_all_regex for safety
 
   r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![<>!=~])\\s*=\\s*(?![=])", " == ") # Replace single = with == if not part of other ops
   r_expr = stringi::stri_replace_all_regex(r_expr, "\\s+~=\\s+", " != ") # Stata `~=` to R `!=`
@@ -152,7 +152,7 @@ get_r_value_mappings = function(stata_r_value_str, current_line_index, cmd_df) {
   for (i in (current_line_index - 1):1) {
     # Check if the command was a summarize/su and if it set r() values.
     # We assume t_summarize sets r() values with the convention `stata_r_val_L<line>_<stat_name>`.
-    # The actual variable names created depend on the `t_summarize` implementation.
+    # The actual variable names created depends on the `t_summarize` implementation.
     if (cmd_df$stata_cmd[i] %in% r_setting_cmds) {
       # Found a relevant command.
       # The R variable name is constructed based on this line index and stat_name.
@@ -201,4 +201,5 @@ translate_stata_expression_with_r_values = function(stata_expr, current_line_ind
 
   translate_stata_expression_to_r(stata_expr, context, final_r_value_mappings)
 }
+
 
