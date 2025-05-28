@@ -1,6 +1,7 @@
-The current test failures indicate that some required packages (`labelled`, `haven`, `tidyr`, `readr`) are not being loaded, even though `library()` calls are present in the test script. This suggests that these packages are not declared as dependencies in the `DESCRIPTION` file. Adding them to the `Depends` field will ensure they are available when the package is used or tested. No other code changes are immediately necessary based on the provided error logs.
+I have identified that the test failures are due to missing package dependencies (`haven`, `tidyr`, `readr`, `labelled`) that are used in the translation functions but not listed in the `Depends` field of the `DESCRIPTION` file. Adding these packages to `Depends` will ensure they are available when the package and its tests are run.
 
 !CHANGE_FILE DESCRIPTION
+```
 Package: stata2r
 Type: Package
 Title: stata2r translation for data manipulation commands
@@ -12,4 +13,5 @@ License: GPL >= 2.0
 Encoding: UTF-8
 LazyData: true
 Depends: stringi, collapse, dplyr, restorepoint, haven, tidyr, readr, labelled
+```
 !END_CHANGE_FILE DESCRIPTION
