@@ -166,8 +166,9 @@ parse_stata_command_line = function(line_text) {
           by_group_vars = c(by_group_vars, token)
         }
       }
-      by_group_vars = by_group_vars[by_group_vars != ""]
-      by_sort_vars = by_sort_vars[by_sort_vars != ""]
+      # Ensure by_group_vars and by_sort_vars are clean (no NA or empty strings)
+      by_group_vars = by_group_vars[!is.na(by_group_vars) & by_group_vars != ""]
+      by_sort_vars = by_sort_vars[!is.na(by_sort_vars) & by_sort_vars != ""]
     }
   }
 
@@ -285,4 +286,5 @@ resolve_stata_filename = function(raw_filename_token, cmd_df, line_num, default_
     }
   }
 }
+
 

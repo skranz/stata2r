@@ -29,7 +29,8 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   if (cmd_obj$is_by_prefix) {
     if (length(cmd_obj$by_group_vars) > 0 && !is.na(cmd_obj$by_group_vars[1])) {
       group_vars_list = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
-      group_vars_list = group_vars_list[group_vars_list != ""]
+      # Ensure group_vars_list is clean (no NA or empty strings)
+      group_vars_list = group_vars_list[!is.na(group_vars_list) & group_vars_list != ""]
       if (length(group_vars_list) > 0) { # Ensure group_vars_list is not empty before forming string
         group_vars_r_vec_str = paste0('dplyr::all_of(c("', paste0(group_vars_list, collapse='", "'), '"))')
       }
@@ -38,13 +39,16 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     sort_vars_list = character(0)
     if (length(cmd_obj$by_sort_vars) > 0 && !is.na(cmd_obj$by_sort_vars[1])) {
       sort_vars_list = stringi::stri_split_fixed(cmd_obj$by_sort_vars, ",")[[1]]
-      sort_vars_list = sort_vars_list[sort_vars_list != ""]
+      # Ensure sort_vars_list is clean (no NA or empty strings)
+      sort_vars_list = sort_vars_list[!is.na(sort_vars_list) & sort_vars_list != ""]
     }
 
     if (length(sort_vars_list) > 0) {
       all_sort_vars = c(if(length(group_vars_list)>0) group_vars_list else character(0), sort_vars_list)
-      all_sort_vars_str = paste(all_sort_vars, collapse = ", ")
-      arrange_call = paste0("data = dplyr::arrange(data, dplyr::across(dplyr::all_of(c(", paste0('"', all_sort_vars, '"', collapse = ", "), "))))")
+      all_sort_vars = all_sort_vars[!is.na(all_sort_vars) & all_sort_vars != ""] # Final clean
+      if (length(all_sort_vars) > 0) {
+        arrange_call = paste0("data = dplyr::arrange(data, dplyr::across(dplyr::all_of(c(", paste0('"', all_sort_vars, '"', collapse = ", "), "))))")
+      }
     }
   }
 
@@ -91,4 +95,5 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 

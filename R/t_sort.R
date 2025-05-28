@@ -9,7 +9,7 @@ t_sort = function(rest_of_cmd, cmd_obj, cmd_df, line_num, type = "sort") {
 
   varlist = stringi::stri_trim_both(rest_of_cmd)
   vars = stringi::stri_split_regex(varlist, "\\s+")[[1]]
-  vars = vars[vars != ""]
+  vars = vars[vars != ""] # Filter out empty strings from splitting
 
   if (length(vars) == 0) {
     return("# sort/gsort command with no effectively parsed variables.")
@@ -17,15 +17,15 @@ t_sort = function(rest_of_cmd, cmd_obj, cmd_df, line_num, type = "sort") {
 
   if (type == "sort") {
     # Plain sort is ascending for all variables
-    # Using dplyr::arrange for consistency with gsort and reliability
-    sort_vars_r = paste(vars, collapse = ", ") # pass as bare names
-    r_code_str = paste0("data = dplyr::arrange(data, ", sort_vars_r, ")")
+    # Using dplyr::arrange with dplyr::across(dplyr::all_of(...)) for consistency and robustness
+    sort_vars_r = paste0('dplyr::all_of(c("', paste(vars, collapse='", "'), '"))')
+    r_code_str = paste0("data = dplyr::arrange(data, dplyr::across(", sort_vars_r, "))")
 
   } else if (type == "gsort") {
     # gsort allows specifying ascending (+) or descending (-) for each variable
     # +var (ascending, default if no sign)
     # -var (descending)
-    # dplyr: arrange(var1, desc(var2), ...) is more flexible here
+    # dplyr: arrange(var1, desc(var2), ...)
     arrange_expressions = character(length(vars))
     for (i in seq_along(vars)) {
       var_spec = vars[i]
