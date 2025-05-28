@@ -12,8 +12,8 @@ t_keep = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     # keep if condition
     stata_if_cond = stringi::stri_sub(rest_of_cmd_trimmed, from = 4)
     r_if_cond = translate_stata_expression_with_r_values(stata_if_cond, line_num, cmd_df, context)
-    # Using dplyr::filter
-    r_code_str = paste0("data = dplyr::filter(data, ", r_if_cond, ")")
+    # Using dplyr::filter, treating NA in condition as FALSE (Stata behavior)
+    r_code_str = paste0("data = dplyr::filter(data, dplyr::coalesce(", r_if_cond, ", FALSE))")
   } else if (is_in_keep) {
     # keep in range
     range_str = stringi::stri_sub(rest_of_cmd_trimmed, from = 4)
@@ -45,5 +45,4 @@ t_keep = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
-
 
