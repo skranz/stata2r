@@ -17,7 +17,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   r_expr = stata_expr
 
-  # NEW Step 1: Handle r() values using the mapping.
+  # Step 1: Handle r() values using the mapping.
   # This ensures that r() values are replaced by their corresponding R variable names
   # BEFORE other transformations (like missing value checks) are applied to them.
   if (!is.null(r_value_mappings) && length(r_value_mappings) > 0) {
@@ -28,7 +28,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     }
   }
 
-  # OLD Step 1 (now Step 2): Translate Stata logical operators and missing value comparisons.
+  # Step 2: Translate Stata logical operators and missing value comparisons.
   # These must happen after handling `r()` values so `r(mean)` is already `stata_r_val_Lxx_mean`.
   # Stata `X == .` -> R `is.na(X)`
   r_expr = stringi::stri_replace_all_regex(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*==\\s*\\.", "is.na($1)")
@@ -39,7 +39,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   r_expr = stringi::stri_replace_all_regex(r_expr, "\\s+~=\\s+", " != ") # Stata `~=` to R `!=`
 
 
-  # OLD Step 2 (now Step 3): Translate Stata special variables and indexing (e.g., _n, _N, var[_n-1])
+  # Step 3: Translate Stata special variables and indexing (e.g., _n, _N, var[_n-1])
   # These are generally fixed references, not nested functions.
   # Use dplyr::lag/lead which are context-aware in grouped operations.
 
@@ -53,11 +53,8 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_n\\b", "as.numeric(dplyr::row_number())")
   r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_N\\b", "as.numeric(dplyr::n())")
 
-  # Handle Stata missing value literal '.' (now that X == . and X != . are handled for general variables)
-  # Refined regex: match a dot not preceded or followed by a digit.
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(?<!\\d)\\.(?!\\d)", "NA_real_")
 
-  # OLD Step 3 (now Step 4): Iteratively translate Stata functions (e.g., cond(), round(), log(), etc.)
+  # Step 4: Iteratively translate Stata functions (e.g., cond(), round(), log(), etc.)
   # This loop handles nested function calls by repeatedly applying transformations.
   old_r_expr = ""
   while (r_expr != old_r_expr) {
@@ -90,7 +87,12 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     # Date functions (placeholder, as actual implementation is complex)
   }
 
-  # OLD Step 5 (now Step 5): Translate Stata '+' operator to sfun_stata_add for polymorphic behavior
+  # Step 5: Handle Stata missing value literal '.' (MOVED AND REFINED)
+  # This must happen after functions like `is.na()` and `as.numeric()` are formed
+  # to avoid replacing '.' within their names. Use word boundaries to match standalone dot.
+  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b\\.\\b", "NA_real_")
+
+  # Step 6: Translate Stata '+' operator to sfun_stata_add for polymorphic behavior
   # This needs to be applied iteratively until no more '+' signs (that are not part of comparison operators) exist.
   # The regex for operands must be robust to capture complete R expressions, including nested function calls.
 
@@ -130,76 +132,4 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   return(r_expr)
 }
-
-# Helper to find the R variable name for a Stata r() value like "r(mean)"
-# Scans cmd_df backwards from current_line_index - 1
-# Looks for commands that set r() values (e.g., summarize)
-# Constructs the R variable name based on the line number of that command
-# Example: r(mean) set by summarize on line 5 becomes "stata_r_val_L5_mean"
-get_r_value_mappings = function(stata_r_value_str, current_line_index, cmd_df) {
-  restore.point("get_r_value_mappings")
-  # stata_r_value_str is like "r(mean)", "r(N)", "r(sum)"
-  # Extract the stat name, e.g. "mean" from "r(mean)"
-  stat_name_match = stringi::stri_match_first_regex(stata_r_value_str, "r\\(([^)]+)\\)")
-  if (is.na(stat_name_match[1,1])) return(NULL) # Not a valid r() syntax
-
-  stat_name = stat_name_match[1,2]
-
-  # Relevant commands that set r() values (this list can be expanded)
-  r_setting_cmds = c("summarize", "su", "tabulate", "correlate", "count") # etc.
-
-  # Scan backwards
-  for (i in (current_line_index - 1):1) {
-    # Check if the command was a summarize/su and if it set r() values.
-    # We assume t_summarize sets r() values with the convention `stata_r_val_L<line>_<stat_name>`.
-    # The actual variable names created depends on the `t_summarize` implementation.
-    if (cmd_df$stata_cmd[i] %in% r_setting_cmds) {
-      # Found a relevant command.
-      # The R variable name is constructed based on this line index and stat_name.
-      # This is a convention that t_summarize (and others) must follow.
-      r_var_name = paste0("stata_r_val_L", cmd_df$line[i], "_", stat_name)
-
-      # Return a list that translate_stata_expression_to_r can use
-      # Mapping: "r(stat)" -> "generated_r_variable_name"
-      mapping = list()
-      mapping[[stata_r_value_str]] = r_var_name
-      return(mapping)
-    }
-  }
-  return(NULL) # No preceding r-setting command found for this stat
-}
-
-# Helper to extract all `r(...)` tokens from an expression
-extract_r_values_from_expr = function(stata_expr) {
-  restore.point("extract_r_values_from_expr")
-  if (is.na(stata_expr)) return(character(0))
-  unique(stringi::stri_match_all_regex(stata_expr, "\\br\\([^)]+\\)")[[1]][,1])
-}
-
-# Main function to translate an expression potentially containing r() values
-translate_stata_expression_with_r_values = function(stata_expr, current_line_index, cmd_df, context = list(is_by_group = FALSE)) {
-  restore.point("translate_stata_expression_with_r_values")
-  if (is.na(stata_expr)) return(NA_character_)
-
-  all_r_tokens = extract_r_values_from_expr(stata_expr)
-  final_r_value_mappings = list()
-
-  if (length(all_r_tokens) > 0) {
-    for (r_token in all_r_tokens) {
-      if (!is.na(r_token)) {
-         current_mapping = get_r_value_mappings(r_token, current_line_index, cmd_df)
-         if (!is.null(current_mapping)) {
-           final_r_value_mappings = c(final_r_value_mappings, current_mapping)
-         } else {
-           # No mapping found, could be an error or r_token not from summarize etc.
-           # For now, leave it as is or raise warning
-           warning(paste("Could not find source for r-value:", r_token, "at line", cmd_df$line[current_line_index])) # Use cmd_df$line for actual line
-         }
-      }
-    }
-  }
-
-  translate_stata_expression_to_r(stata_expr, context, final_r_value_mappings)
-}
-
 
