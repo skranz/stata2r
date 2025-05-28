@@ -3219,9 +3219,9 @@ t_label_values = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
       temp_labelled_var = paste0("stata_tmp_labelled_L", cmd_obj$line, "_", varname)
 
       r_code_lines = c(r_code_lines, paste0("if (!is.null(label_map_to_apply)) {"))
-      # Ensure existing_var_label is character(1) for haven::labelled
       r_code_lines = c(r_code_lines, paste0("  temp_attr_label = attr(data[['",varname,"']], 'label')"))
-      r_code_lines = c(r_code_lines, paste0("  existing_var_label = if (is.null(temp_attr_label) || length(temp_attr_label) == 0 || is.na(temp_attr_label[1])) NA_character_ else as.character(temp_attr_label[1])")) # FIX HERE
+      # Robustified check for existing_var_label
+      r_code_lines = c(r_code_lines, paste0("  existing_var_label = if (is.null(temp_attr_label) || length(temp_attr_label) == 0) NA_character_ else as.character(temp_attr_label[1])"))
       r_code_lines = c(r_code_lines, paste0("  ", temp_labelled_var, " = haven::labelled(data[['", varname, "']], labels = label_map_to_apply, label = existing_var_label)"))
       r_code_lines = c(r_code_lines, paste0("  data[['", varname, "']] = ", temp_labelled_var))
       r_code_lines = c(r_code_lines, paste0("  rm(", temp_labelled_var, ")"))
@@ -3359,9 +3359,10 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # For 1:1 merge, check for unique keys in both master and using datasets to replicate Stata's strictness
   if (merge_type == "1:1") {
+      # Use base R subsetting to select columns for duplicated check, which is more robust
       r_code_lines = c(r_code_lines,
-          paste0("if (any(duplicated(data[[", vars_to_merge_on_r_vec_str, ", drop=FALSE]]))) { stop('Merge 1:1 failed: Duplicate keys found in master dataset (data).') }"),
-          paste0("if (any(duplicated(", temp_using_data_var, "[[", vars_to_merge_on_r_vec_str, ", drop=FALSE]]))) { stop('Merge 1:1 failed: Duplicate keys found in using dataset (', ", using_source_r_expr, ", ').') }")
+          paste0("if (any(duplicated(data[, ", vars_to_merge_on_r_vec_str, ", drop=FALSE]))) { stop('Merge 1:1 failed: Duplicate keys found in master dataset (data).') }"),
+          paste0("if (any(duplicated(", temp_using_data_var, "[, ", vars_to_merge_on_r_vec_str, ", drop=FALSE]))) { stop('Merge 1:1 failed: Duplicate keys found in using dataset (', ", using_source_r_expr, ", ').') }")
       )
   }
 
@@ -3431,6 +3432,7 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 
 ```
 ### END OF FILE: t_merge.R
@@ -5294,7 +5296,7 @@ stata2r_env$label_defs$`group_label_map` = stats::setNames(c(1, 2, 3, 4), c("alp
 label_map_to_apply = stata2r_env$label_defs$`group_label_map`
 if (!is.null(label_map_to_apply)) {
   temp_attr_label = attr(data[['group_code_num']], 'label')
-  existing_var_label = if (is.null(temp_attr_label) || length(temp_attr_label) == 0 || is.na(temp_attr_label[1])) NA_character_ else as.character(temp_attr_label[1])
+  existing_var_label = if (is.null(temp_attr_label) || length(temp_attr_label) == 0) NA_character_ else as.character(temp_attr_label[1])
   stata_tmp_labelled_L43_group_code_num = haven::labelled(data[['group_code_num']], labels = label_map_to_apply, label = existing_var_label)
   data[['group_code_num']] = stata_tmp_labelled_L43_group_code_num
   rm(stata_tmp_labelled_L43_group_code_num)
@@ -5308,7 +5310,7 @@ label_map_to_apply = stata2r_env$label_defs$`group_label_map`
 
 if (!is.null(label_map_to_apply)) {
   temp_attr_label = attr(data[['group_code_num']], 'label')
-  existing_var_label = if (is.null(temp_attr_label) || length(temp_attr_label) == 0 || is.na(temp_attr_label[1])) NA_character_ else as.character(temp_attr_label[1])
+  existing_var_label = if (is.null(temp_attr_label) || length(temp_attr_label) == 0) NA_character_ else as.character(temp_attr_label[1])
   stata_tmp_labelled_L43_group_code_num = haven::labelled(data[['group_code_num']], labels = label_map_to_apply, label = existing_var_label)
   data[['group_code_num']] = stata_tmp_labelled_L43_group_code_num
   rm(stata_tmp_labelled_L43_group_code_num)
@@ -5476,8 +5478,8 @@ data = dplyr::arrange(data, !!!dplyr::syms(c("id")))
 
  70 do:  merge 1:1 id using "extra_data_temp.dta", nogen
  70 r:  stata_tmp_using_data_L70 = haven::read_dta(file.path(stata2r_env$working_dir, "extra_data_temp.dta"))
-if (any(duplicated(data[[c("id"), drop=FALSE]]))) { stop('Merge 1:1 failed: Duplicate keys found in master dataset (data).') }
-if (any(duplicated(stata_tmp_using_data_L70[[c("id"), drop=FALSE]]))) { stop('Merge 1:1 failed: Duplicate keys found in using dataset (', file.path(stata2r_env$working_dir, "extra_data_temp.dta"), ').') }
+if (any(duplicated(data[, c("id"), drop=FALSE]))) { stop('Merge 1:1 failed: Duplicate keys found in master dataset (data).') }
+if (any(duplicated(stata_tmp_using_data_L70[, c("id"), drop=FALSE]))) { stop('Merge 1:1 failed: Duplicate keys found in using dataset (', file.path(stata2r_env$working_dir, "extra_data_temp.dta"), ').') }
 data = dplyr::mutate(data, `id` = as.numeric(`id`))
 stata_tmp_using_data_L70 = dplyr::mutate(stata_tmp_using_data_L70, `id` = as.numeric(`id`))
 common_cols = intersect(names(data), names(stata_tmp_using_data_L70))
@@ -5490,12 +5492,10 @@ rm(stata_tmp_using_data_L70, common_cols, common_cols_not_by)
 # Stata merge type: 1:1, keep(match master), nogenerate 
 stata_tmp_using_data_L70 = haven::read_dta(file.path(stata2r_env$working_dir, "extra_data_temp.dta"))
 
-if (any(duplicated(data[[c("id"), drop=FALSE]]))) { stop('Merge 1:1 failed: Duplicate keys found in master dataset (data).') }
+if (any(duplicated(data[, c("id"), drop=FALSE]))) { stop('Merge 1:1 failed: Duplicate keys found in master dataset (data).') }
 
-Warning: Extra arguments ignored.
-if (any(duplicated(stata_tmp_using_data_L70[[c("id"), drop=FALSE]]))) { stop('Merge 1:1 failed: Duplicate keys found in using dataset (', file.path(stata2r_env$working_dir, "extra_data_temp.dta"), ').') }
+if (any(duplicated(stata_tmp_using_data_L70[, c("id"), drop=FALSE]))) { stop('Merge 1:1 failed: Duplicate keys found in using dataset (', file.path(stata2r_env$working_dir, "extra_data_temp.dta"), ').') }
 
-Warning: Extra arguments ignored.
 data = dplyr::mutate(data, `id` = as.numeric(`id`))
 
 stata_tmp_using_data_L70 = dplyr::mutate(stata_tmp_using_data_L70, `id` = as.numeric(`id`))
