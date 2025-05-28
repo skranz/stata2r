@@ -24,7 +24,8 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
 
   # Parse aggregate definitions: "(stat) var [name=expr ...] (stat) var [name=expr ...] ..."
-  aggregate_matches = stringi::stri_match_all_regex(aggregate_part, "\\(([a-zA-Z_][a-zA-Z0-9_]*)\\)\\s+([a-zA-Z0-9_]+)(?:\\s*=\\s*([a-zA-Z0-9_]+))?")[[1]]
+  # Updated regex to correctly capture expressions for source and target variables.
+  aggregate_matches = stringi::stri_match_all_regex(aggregate_part, "\\(([a-zA-Z_][a-zA-Z0-9_]*)\\)\\s*([^,=]+?)(?:\\s*=\\s*([^,=]+?))?")[[1]]
 
   if (NROW(aggregate_matches) == 0) {
     return(paste0("# Failed to parse collapse aggregate definitions: ", aggregate_part))
@@ -61,46 +62,48 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   new_vars_created = character(NROW(aggregate_matches))
   for (j in 1:NROW(aggregate_matches)) {
     stat_from_regex = aggregate_matches[j, 2]
+    # g2_val_from_regex is the first captured group after the stat (either newvar or source_expr)
     g2_val_from_regex = aggregate_matches[j, 3]
+    # g3_val_from_regex is the second captured group (the source_expr if newvar=source_expr)
     g3_val_from_regex = aggregate_matches[j, 4]
 
-    actual_stata_source_var_name = ""
+    actual_stata_source_expr = ""
     actual_stata_target_var_name = ""
 
-    if (is.na(g3_val_from_regex)) { # Matched (stat) g2_val_from_regex
-        actual_stata_source_var_name = g2_val_from_regex
+    if (is.na(g3_val_from_regex)) { # Matched (stat) g2_val_from_regex (e.g., (mean) myvar)
+        actual_stata_source_expr = g2_val_from_regex
         actual_stata_target_var_name = g2_val_from_regex
-    } else { # Matched (stat) g2_val_from_regex = g3_val_from_regex
-        actual_stata_source_var_name = g3_val_from_regex
+    } else { # Matched (stat) g2_val_from_regex = g3_val_from_regex (e.g., (mean) newvar = oldvar+1)
+        actual_stata_source_expr = g3_val_from_regex
         actual_stata_target_var_name = g2_val_from_regex
     }
     new_vars_created[j] = actual_stata_target_var_name
 
-    r_source_var_bare = translate_stata_expression_with_r_values(actual_stata_source_var_name, cmd_obj$line, cmd_df, context)
-     if (is.na(r_source_var_bare) || r_source_var_bare == "") {
-         return(paste0("# Failed to translate source variable '", actual_stata_source_var_name, "' for collapse stat '", stat_from_regex, "'"))
+    r_source_expr_translated = translate_stata_expression_with_r_values(actual_stata_source_expr, cmd_obj$line, cmd_df, context)
+     if (is.na(r_source_expr_translated) || r_source_expr_translated == "") {
+         return(paste0("# Failed to translate source expression '", actual_stata_source_expr, "' for collapse stat '", stat_from_regex, "'"))
      }
 
     # Map Stata stats to collapse functions
     collapse_func_expr = switch(stat_from_regex,
-      "mean" = paste0("collapse::fmean(", r_source_var_bare, ", na.rm = TRUE)"),
-      "sum" = paste0("collapse::fsum(", r_source_var_bare, ", na.rm = TRUE)"),
-      "count" = paste0("collapse::fN(", r_source_var_bare, ", non.na = TRUE)"), # Counts non-missing values of var
+      "mean" = paste0("collapse::fmean(", r_source_expr_translated, ", na.rm = TRUE)"),
+      "sum" = paste0("collapse::fsum(", r_source_expr_translated, ", na.rm = TRUE)"),
+      "count" = paste0("collapse::fN(", r_source_expr_translated, ", non.na = TRUE)"), # Counts non-missing values of var/expr
       "N" = "NROW(.)", # N is number of observations in group. NROW(.) in fsummarise.
-      "first" = paste0("collapse::ffirst(", r_source_var_bare, ")"), # na.rm = TRUE by default
-      "last" = paste0("collapse::flast(", r_source_var_bare, ")"),   # na.rm = TRUE by default
-      "min" = paste0("collapse::fmin(", r_source_var_bare, ", na.rm = TRUE)"),
-      "max" = paste0("collapse::fmax(", r_source_var_bare, ", na.rm = TRUE)"),
-      "median" = paste0("collapse::fmedian(", r_source_var_bare, ", na.rm = TRUE)"),
-      "sd" = paste0("collapse::fsd(", r_source_var_bare, ", na.rm = TRUE)"),
-      "p1" = paste0("collapse::fquantile(", r_source_var_bare, ", probs = 0.01, na.rm = TRUE)"),
-      "p5" = paste0("collapse::fquantile(", r_source_var_bare, ", probs = 0.05, na.rm = TRUE)"),
-      "p10" = paste0("collapse::fquantile(", r_source_var_bare, ", probs = 0.10, na.rm = TRUE)"),
-      "p25" = paste0("collapse::fquantile(", r_source_var_bare, ", probs = 0.25, na.rm = TRUE)"),
-      "p75" = paste0("collapse::fquantile(", r_source_var_bare, ", probs = 0.75, na.rm = TRUE)"),
-      "p90" = paste0("collapse::fquantile(", r_source_var_bare, ", probs = 0.90, na.rm = TRUE)"),
-      "p95" = paste0("collapse::fquantile(", r_source_var_bare, ", probs = 0.95, na.rm = TRUE)"),
-      "p99" = paste0("collapse::fquantile(", r_source_var_bare, ", probs = 0.99, na.rm = TRUE)"),
+      "first" = paste0("collapse::ffirst(", r_source_expr_translated, ")"), # na.rm = TRUE by default
+      "last" = paste0("collapse::flast(", r_source_expr_translated, ")"),   # na.rm = TRUE by default
+      "min" = paste0("collapse::fmin(", r_source_expr_translated, ", na.rm = TRUE)"),
+      "max" = paste0("collapse::fmax(", r_source_expr_translated, ", na.rm = TRUE)"),
+      "median" = paste0("collapse::fmedian(", r_source_expr_translated, ", na.rm = TRUE)"),
+      "sd" = paste0("collapse::fsd(", r_source_expr_translated, ", na.rm = TRUE)"),
+      "p1" = paste0("collapse::fquantile(", r_source_expr_translated, ", probs = 0.01, na.rm = TRUE)"),
+      "p5" = paste0("collapse::fquantile(", r_source_expr_translated, ", probs = 0.05, na.rm = TRUE)"),
+      "p10" = paste0("collapse::fquantile(", r_source_expr_translated, ", probs = 0.10, na.rm = TRUE)"),
+      "p25" = paste0("collapse::fquantile(", r_source_expr_translated, ", probs = 0.25, na.rm = TRUE)"),
+      "p75" = paste0("collapse::fquantile(", r_source_expr_translated, ", probs = 0.75, na.rm = TRUE)"),
+      "p90" = paste0("collapse::fquantile(", r_source_expr_translated, ", probs = 0.90, na.rm = TRUE)"),
+      "p95" = paste0("collapse::fquantile(", r_source_expr_translated, ", probs = 0.95, na.rm = TRUE)"),
+      "p99" = paste0("collapse::fquantile(", r_source_expr_translated, ", probs = 0.99, na.rm = TRUE)"),
       NULL
     )
 
