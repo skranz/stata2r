@@ -139,8 +139,8 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       r_condition = ""
       if (old_part_raw == "else") {
           r_condition = "TRUE" # This rule is the fallback
-      } else if (old_part_raw == "missing") {
-           r_condition = paste0("is.na(", source_var_r, ")") # Missing value rule
+      } else if (old_part_raw == "missing" || stringi::stri_detect_regex(old_part_raw, "^\\.\\w?$")) { # Added regex for .a, .b, etc.
+           r_condition = paste0("is.na(", source_var_r, ")") # Missing value rule (all Stata missing types to R's NA)
       } else if (old_part_raw == "nonmissing") {
            r_condition = paste0("!is.na(", source_var_r, ")") # Non-missing value rule
       } else if (grepl("\\s+thru\\s+", old_part_raw)) {
@@ -164,10 +164,17 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
           old_values = old_values[old_values != ""]
           r_values = sapply(old_values, function(val) {
                # Use translate_stata_expression_to_r for each value in the list
+               # Stata missing values like '.' or '.a' should be handled as NA in R
+               if (val == ".") return("NA_real_")
+               if (stringi::stri_detect_regex(val, "^\\.[a-zA-Z]$")) return("NA_real_")
                translate_stata_expression_to_r(val, context=list(is_by_group=FALSE))
           })
           r_values = r_values[!is.na(r_values)] # Filter out any NA from translation for safety
           if (length(r_values) == 0) return(paste0("## Error translating old values in rule: ", rule_str))
+          # For comparison, ensure values are cast to same type as source_var_r or handled by %in%
+          # For numeric, `c(1, NA_real_)` works. For character, `c("A", NA_character_)`.
+          # The `translate_stata_expression_to_r` should return string literals for string values, numeric literals for numeric.
+          # The `%in%` comparison should handle type coercion.
           r_condition = paste0(source_var_r, " %in% c(", paste(r_values, collapse = ", "), ")")
       }
 
@@ -199,8 +206,9 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
               r_new_value = translate_stata_expression_to_r(new_part_raw, context=list(is_by_group=FALSE))
               # If target is string, ensure the expression result is cast to string
               if (target_is_string) {
+                  # This is the crucial change for Stata's missing value conversion to empty string
                   if (r_new_value == "NA_real_") {
-                      r_new_value = "NA_character_" # Stata recode for missing value maps to missing
+                      r_new_value = '""' # Stata recode for missing numeric to empty string for string variables
                   } else if (!stringi::stri_startswith_fixed(r_new_value, '"') && !stringi::stri_startswith_fixed(r_new_value, "'")) {
                       # Only wrap in as.character() if it's not already a quoted string
                       r_new_value = paste0("as.character(", r_new_value, ")")
