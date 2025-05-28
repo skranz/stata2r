@@ -507,31 +507,27 @@ data = data %>%
 
  20 do:  egen group_numeric_id = group(group_clean)
  20 r:  data = data %>% 
-  dplyr::arrange(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::arrange(stata2r_original_order_idx) %>% 
   dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
   dplyr::mutate(`group_numeric_id` = dplyr::cur_group_id()) %>% 
-  dplyr::ungroup() %>% 
-  dplyr::arrange(stata2r_original_order_idx) 
+  dplyr::ungroup() 
 data = data %>% 
-  dplyr::arrange(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::arrange(stata2r_original_order_idx) %>% 
   dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
   dplyr::mutate(`group_numeric_id` = dplyr::cur_group_id()) %>% 
-  dplyr::ungroup() %>% 
-  dplyr::arrange(stata2r_original_order_idx)
+  dplyr::ungroup()
 
  21 do:  egen tag_first_in_group = tag(group_clean)
  21 r:  data = data %>% 
-  dplyr::arrange(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::arrange(stata2r_original_order_idx) %>% 
   dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
   dplyr::mutate(`tag_first_in_group` = as.numeric(dplyr::row_number() == 1)) %>% 
-  dplyr::ungroup() %>% 
-  dplyr::arrange(stata2r_original_order_idx) 
+  dplyr::ungroup() 
 data = data %>% 
-  dplyr::arrange(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::arrange(stata2r_original_order_idx) %>% 
   dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
   dplyr::mutate(`tag_first_in_group` = as.numeric(dplyr::row_number() == 1)) %>% 
-  dplyr::ungroup() %>% 
-  dplyr::arrange(stata2r_original_order_idx)
+  dplyr::ungroup()
 
  22 do:  egen count_obs_in_group = count(id), by(group_clean)
  22 r:  data = data %>% 
@@ -545,17 +541,15 @@ data = data %>%
 
  23 do:  egen rank_value1_in_group = rank(value1), by(group_clean) fieldstrustmissings
  23 r:  data = data %>% 
-  dplyr::arrange(!!!dplyr::syms(c("group_clean", "value1"))) %>% 
+  dplyr::arrange(stata2r_original_order_idx) %>% 
   dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
   dplyr::mutate(`rank_value1_in_group` = as.numeric(base::rank(as.numeric(dplyr::if_else(is.na(value1), Inf, value1)), ties.method = 'average', na.last = 'keep'))) %>% 
-  dplyr::ungroup() %>% 
-  dplyr::arrange(stata2r_original_order_idx) 
+  dplyr::ungroup() 
 data = data %>% 
-  dplyr::arrange(!!!dplyr::syms(c("group_clean", "value1"))) %>% 
+  dplyr::arrange(stata2r_original_order_idx) %>% 
   dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
   dplyr::mutate(`rank_value1_in_group` = as.numeric(base::rank(as.numeric(dplyr::if_else(is.na(value1), Inf, value1)), ties.method = 'average', na.last = 'keep'))) %>% 
-  dplyr::ungroup() %>% 
-  dplyr::arrange(stata2r_original_order_idx)
+  dplyr::ungroup()
 
  24 do:  egen row_total_v1_v2 = rowtotal(value1 value2)
  24 r:  data = data %>% 
@@ -570,8 +564,10 @@ data = data %>%
   dplyr::mutate(`row_mean_v1_v2` = base::rowMeans(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(c('value1','value2'))), na.rm = TRUE))
 
  26 do:  egen concat_group_num = concat(group_clean num_str)
- 26 r:  # Egen function 'concat' not yet implemented. 
-# Egen function 'concat' not yet implemented.
+ 26 r:  data = data %>% 
+  dplyr::mutate(`concat_group_num` = dplyr::if_else((is.na(data[['group_clean']]) & is.na(data[['num_str']])), NA_character_, stringi::stri_paste(data[['group_clean']], data[['num_str']], sep = '', na_empty = TRUE))) 
+data = data %>% 
+  dplyr::mutate(`concat_group_num` = dplyr::if_else((is.na(data[['group_clean']]) & is.na(data[['num_str']])), NA_character_, stringi::stri_paste(data[['group_clean']], data[['num_str']], sep = '', na_empty = TRUE)))
 
 Error: After Stata line  26 , R data set differs from Stata reference.
 
@@ -644,7 +640,7 @@ tibble [50 × 27] (S3: tbl_df/tbl/data.frame)
 NULL
 
 Data set from R (r_df):
-tibble [50 × 27] (S3: tbl_df/tbl/data.frame)
+tibble [50 × 28] (S3: tbl_df/tbl/data.frame)
  $ id                        : num [1:50] 1 2 3 4 5 6 7 8 9 10 ...
   ..- attr(*, "label")= chr "id"
   ..- attr(*, "format.stata")= chr "%9.0g"
@@ -671,7 +667,7 @@ tibble [50 × 27] (S3: tbl_df/tbl/data.frame)
   ..- attr(*, "format.stata")= chr "%9.0g"
  $ int_value1                : num [1:50] 73 NA 52 29 44 NA 41 20 31 70 ...
  $ rounded_value1            : num [1:50] 73.9 NA 52.8 29.8 44.2 NA 41.7 20 31.9 70.1 ...
- $ random_uniform_draw       : num [1:50] 0.1578 0.2336 0.591 0.8385 0.0703 ...
+ $ random_uniform_draw       : num [1:50] 0.5474 0.5875 0.7113 0.0288 0.6602 ...
  $ id_plus_value2            : num [1:50] 5 5 NA NA 8 8 10 14 15 NA ...
  $ group_clean               : chr [1:50] "gamma" "gamma" "beta" "beta" ...
  $ group_abbr                : chr [1:50] "gam" "gam" "bet" "bet" ...
@@ -686,11 +682,14 @@ tibble [50 × 27] (S3: tbl_df/tbl/data.frame)
  $ count_obs_in_group        : int [1:50] 11 11 20 20 11 20 16 16 20 11 ...
  $ row_total_v1_v2           : num [1:50] 77.9 3 52.8 39.8 47.2 ...
  $ row_mean_v1_v2            : num [1:50] 39 3 52.8 19.9 23.6 ...
+ $ concat_group_num          : chr [1:50] "gamma166TRUE" "gamma181TRUE" "beta101TRUE" "beta136TRUE" ...
 NULL
 
 Differences:List of 2
- $ identical      : logi FALSE
- $ column_mismatch:List of 2
-  ..$ missing_in_do_df: chr(0) 
-  ..$ missing_in_r_df : chr "concat_group_num"
+ $ identical     : logi FALSE
+ $ value_mismatch:'data.frame':	5 obs. of  4 variables:
+  ..$ row      : int [1:5] 1 2 3 4 5
+  ..$ column   : chr [1:5] "concat_group_num" "concat_group_num" "concat_group_num" "concat_group_num" ...
+  ..$ df1_value: chr [1:5] "gamma166" "gamma181" "beta101" "beta136" ...
+  ..$ df2_value: chr [1:5] "gamma166TRUE" "gamma181TRUE" "beta101TRUE" "beta136TRUE" ...
 NULL
