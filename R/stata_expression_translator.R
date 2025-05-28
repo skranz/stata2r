@@ -91,6 +91,8 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     # Date functions
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bdate\\(([^,]+),([^,]+),([^)]+)\\)", "sfun_stata_date($1, $2, $3)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bdate\\(([^,]+),([^)]+)\\)", "sfun_stata_date($1, $2)")
+    # NEW: mdy() function
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmdy\\(([^,]+),([^,]+),([^)]+)\\)", "sfun_stata_mdy($1, $2, $3)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\byear\\(([^)]+)\\)", "as.numeric(format(as.Date($1, origin = '1960-01-01'), '%Y'))") # Stata date epoch is 1960-01-01
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmonth\\(([^)]+)\\)", "sfun_month($1)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bday\\(([^)]+)\\)", "sfun_day($1)") # Use sfun_day
@@ -106,10 +108,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   # 1. A variable name (starts with letter/underscore, then alphanumeric/underscore/dot)
   # 2. A numeric literal
   # 3. A string literal (single or double quoted)
-  # 4. A function call (e.g., `log(x)`, `sfun_stata_add(a, b)`), allowing for one level of nested simple function calls
-  #    within its arguments, for robustness. This is a pragmatic balance for regex complexity.
-  #    The regex `\\b\\w+\\((?:[^()]|\\b\\w+\\([^()]*\\))*\\)` is designed to handle `f(arg)` and `f(g(arg))`
-  #    but not deeper nesting like `f(g(h(arg)))`. Given Stata's expression complexity, this should be sufficient for most cases.
+  # 4. A function call (e.g., `log(x)`, `sfun_stata_add(a, b)`)
   operand_regex = paste0(
       "(?:",
       "[a-zA-Z_][a-zA-Z0-9_.]*|", # Variable name
