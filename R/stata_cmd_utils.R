@@ -86,6 +86,7 @@ stata_cmd_abbreviations = list(
 
 # Function to get the full Stata command name from a token (could be an abbreviation)
 get_stata_full_cmd_name = function(cmd_token) {
+  restore.point("get_stata_full_cmd_name")
   cmd_token_lower = tolower(cmd_token)
   if (cmd_token_lower %in% names(stata_cmd_abbreviations)) {
     return(stata_cmd_abbreviations[[cmd_token_lower]])
@@ -135,6 +136,7 @@ stata_non_data_manip_cmds = c( # This list is for marking FALSE explicitly if ne
 #   by_group_vars: character vector of grouping variables from by/bysort prefix
 #   by_sort_vars: character vector of sort-only variables (in parentheses) from by/bysort prefix
 parse_stata_command_line = function(line_text) {
+  restore.point("parse_stata_command_line")
   trimmed_line = stringi::stri_trim_both(line_text)
 
   is_by_prefix_val = FALSE
@@ -209,6 +211,7 @@ parse_stata_command_line = function(line_text) {
 
 # Helper function to get macro names from a tempfile command's rest_of_cmd
 get_tempfile_macros = function(rest_of_cmd_for_tempfile) {
+    restore.point("get_tempfile_macros")
     if (is.na(rest_of_cmd_for_tempfile) || rest_of_cmd_for_tempfile == "") return(character(0))
     stringi::stri_split_regex(rest_of_cmd_for_tempfile, "\\s+")[[1]] %>%
         stringi::stri_trim_both() %>%
@@ -217,6 +220,7 @@ get_tempfile_macros = function(rest_of_cmd_for_tempfile) {
 
 # Helper function to unquote Stata string literals
 unquote_stata_string_literal = function(s) {
+  restore.point("unquote_stata_string_literal")
   if (is.na(s) || s == "") return(s)
   # Remove outer double quotes
   if (stringi::stri_startswith_fixed(s, '"') && stringi::stri_endswith_fixed(s, '"')) {
@@ -233,6 +237,7 @@ unquote_stata_string_literal = function(s) {
 # Helper function to ensure a string is quoted for R literal use if not already
 # This function expects an already UNQUOTED string (no Stata-style quotes)
 quote_for_r_literal = function(s) {
+  restore.point("quote_for_r_literal")
   if (is.na(s)) return("NA_character_")
   if (s == "") return('""')
   # Check if already quoted with " or '
@@ -245,6 +250,7 @@ quote_for_r_literal = function(s) {
 # Helper function to resolve Stata filenames (literal or macro) to R path expressions
 # default_base_dir_var: name of the variable in stata2r_env (e.g., "working_dir", "data_dir")
 resolve_stata_filename = function(raw_filename_token, cmd_df, line_num, default_base_dir_var = "working_dir") {
+  restore.point("resolve_stata_filename")
   unquoted_content = unquote_stata_string_literal(raw_filename_token)
 
   # Check if it's a Stata local macro reference `macroname'`
@@ -279,5 +285,4 @@ resolve_stata_filename = function(raw_filename_token, cmd_df, line_num, default_
     }
   }
 }
-
 

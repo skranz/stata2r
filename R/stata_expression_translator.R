@@ -12,6 +12,7 @@
 # r_value_mappings: A named list/vector mapping Stata r-value names (e.g. "r(mean)")
 #                   to R variable names (e.g. "stata_r_val_L5_mean")
 translate_stata_expression_to_r = function(stata_expr, context = list(is_by_group = FALSE), r_value_mappings = NULL) {
+  restore.point("translate_stata_expression_to_r")
   if (is.na(stata_expr) || stata_expr == "") return(NA_character_)
 
   r_expr = stata_expr
@@ -124,6 +125,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 # Constructs the R variable name based on the line number of that command
 # Example: r(mean) set by summarize on line 5 becomes "stata_r_val_L5_mean"
 get_r_value_mappings = function(stata_r_value_str, current_line_index, cmd_df) {
+  restore.point("get_r_value_mappings")
   # stata_r_value_str is like "r(mean)", "r(N)", "r(sum)"
   # Extract the stat name, e.g. "mean" from "r(mean)"
   stat_name_match = stringi::stri_match_first_regex(stata_r_value_str, "r\\(([^)]+)\\)")
@@ -157,12 +159,14 @@ get_r_value_mappings = function(stata_r_value_str, current_line_index, cmd_df) {
 
 # Helper to extract all `r(...)` tokens from an expression
 extract_r_values_from_expr = function(stata_expr) {
+  restore.point("extract_r_values_from_expr")
   if (is.na(stata_expr)) return(character(0))
   unique(stringi::stri_match_all_regex(stata_expr, "\\br\\([^)]+\\)")[[1]][,1])
 }
 
 # Main function to translate an expression potentially containing r() values
 translate_stata_expression_with_r_values = function(stata_expr, current_line_index, cmd_df, context = list(is_by_group = FALSE)) {
+  restore.point("translate_stata_expression_with_r_values")
   if (is.na(stata_expr)) return(NA_character_)
 
   all_r_tokens = extract_r_values_from_expr(stata_expr)

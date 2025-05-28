@@ -2,12 +2,11 @@
 # Stata: stritrim(s) removes leading/trailing spaces and replaces multiple internal spaces with one.
 
 sfun_stritrim = function(s) {
+  restore.point("sfun_stritrim")
   # Remove leading/trailing spaces
   s = stringi::stri_trim_both(s)
   # Replace multiple internal spaces with a single space
   s = stringi::stri_replace_all_regex(s, "\\s+", " ")
   return(s)
 }
-
-
 

@@ -1,4 +1,5 @@
 mark_data_manip_cmd = function(cmd_df) {
+  restore.point("mark_data_manip_cmd")
   # Determine commands that actually can transform the Stata data
   # set or generate scalars/temp files that will be used in later
   # commands that change the data set.
@@ -45,6 +46,4 @@ mark_data_manip_cmd = function(cmd_df) {
 
   return(cmd_df)
 }
-
-
 

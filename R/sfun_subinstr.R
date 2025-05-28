@@ -4,6 +4,7 @@
 # If s2 is "", s1 is returned.
 
 sfun_subinstr = function(s1, s2, s3, n) {
+  restore.point("sfun_subinstr")
   # Handle s2 being empty string
   if (is.character(s2) && s2 == "") {
     return(s1)
@@ -25,5 +26,4 @@ sfun_subinstr = function(s1, s2, s3, n) {
     return(stringi::stri_replace_all_fixed(s1, s2, s3))
   }
 }
-
 

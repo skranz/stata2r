@@ -29,7 +29,8 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Updated regex to correctly capture expressions for source and target variables.
   # Changed `([^,=]+?)` to `([a-zA-Z_][a-zA-Z0-9_.]*)` for the variable name part (G2)
   # Changed `([^,=]+?)` to `(.*?)` for the expression part (G3) to be more general
-  aggregate_matches = stringi::stri_match_all_regex(aggregate_part, "\\(([a-zA-Z_][a-zA-Z0-9_]*)\\)\\s*([a-zA-Z_][a-zA-Z0-9_.]*)(?:\\s*=\\s*(.*?))?")[[1]]
+  # FIX: Made the second group regex (for target var name) more robust to not consume part of the expression
+  aggregate_matches = stringi::stri_match_all_regex(aggregate_part, "\\(([a-zA-Z_][a-zA-Z0-9_]*)\\)\\s*([^\\s=,]+?)(?:\\s*=\\s*(.*?))?")[[1]]
 
   if (NROW(aggregate_matches) == 0) {
     return(paste0("# Failed to parse collapse aggregate definitions: ", aggregate_part))
@@ -66,9 +67,9 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   new_vars_created = character(NROW(aggregate_matches))
   for (j in 1:NROW(aggregate_matches)) {
     stat_from_regex = aggregate_matches[j, 2]
-    # g2_val_from_regex is the first captured group after the stat (either newvar or source_expr)
+    # g2_val_from_regex is the second captured group (the target variable name)
     g2_val_from_regex = aggregate_matches[j, 3]
-    # g3_val_from_regex is the second captured group (the source_expr if newvar=source_expr)
+    # g3_val_from_regex is the third captured group (the source expression if newvar=expr)
     g3_val_from_regex = aggregate_matches[j, 4]
 
     actual_stata_source_expr = ""

@@ -10,6 +10,7 @@
 # . (missing numeric) + . (missing numeric): . Result is NA (numeric).
 
 sfun_stata_add = function(x, y) {
+  restore.point("sfun_stata_add")
   # If both are numeric, perform numeric addition.
   # This correctly handles NA + NA = NA, numeric + NA = NA.
   if (is.numeric(x) && is.numeric(y)) {
@@ -35,5 +36,4 @@ sfun_stata_add = function(x, y) {
     }
   }
 }
-
 

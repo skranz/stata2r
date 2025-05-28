@@ -1,5 +1,6 @@
 # Helper function to determine if a Stata expression is likely to produce a string result in R.
 is_stata_expr_string_type = function(stata_expr) {
+  restore.point("is_stata_expr_string_type")
   if (is.na(stata_expr)) return(FALSE)
   # Check for common Stata string functions
   # Note: `string()` converts numeric to string, so it implies a string output.
@@ -11,10 +12,9 @@ is_stata_expr_string_type = function(stata_expr) {
   if (stringi::stri_startswith_fixed(stata_expr, '"') && stringi::stri_endswith_fixed(stata_expr, '"')) {
     return(TRUE)
   }
-  if (stringi::stri_startswith_fixed(stata_expr, "'") && stringi::stri_endswith_fixed(stata_expr, "'")) {
+  if (stringi::stri_startswith_fixed(s, "'") && stringi::stri_endswith_fixed(s, "'")) {
     return(TRUE)
   }
   FALSE
 }
-
 
