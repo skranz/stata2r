@@ -602,6 +602,29 @@ mark_data_manip_cmd = function(cmd_df) {
 
 -----------------------------------------------------------
 
+### FILE: sfun_day.R
+```
+# Custom R implementation for Stata's day() behavior
+# Stata: day(date_value) returns the day of the month (1-31) of a Stata date value.
+
+sfun_day = function(stata_date_values) {
+  restore.point("sfun_day")
+  # Convert Stata date (numeric days since 1960-01-01) to R Date object.
+  # as.Date handles NA values correctly.
+  r_dates = as.Date(stata_date_values, origin = "1960-01-01")
+  
+  # Extract day as numeric.
+  # format() returns a character string, so convert to numeric.
+  # This will result in NA for any invalid date conversions.
+  return(as.numeric(format(r_dates, "%d")))
+}
+
+
+```
+### END OF FILE: sfun_day.R
+
+-----------------------------------------------------------
+
 ### FILE: sfun_missing.R
 ```
 # Custom R implementation of Stata function missing
@@ -1297,7 +1320,8 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bdate\\(([^,]+),([^,]+),([^)]+)\\)", "sfun_stata_date($1, $2, $3)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bdate\\(([^,]+),([^)]+)\\)", "sfun_stata_date($1, $2)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\byear\\(([^)]+)\\)", "as.numeric(format(as.Date($1, origin = '1960-01-01'), '%Y'))") # Stata date epoch is 1960-01-01
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmonth\\(([^)]+)\\)", "sfun_month($1)") # NEW: Add month function
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmonth\\(([^)]+)\\)", "sfun_month($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bday\\(([^)]+)\\)", "sfun_day($1)") # Use sfun_day
   }
 
   # Step 6: Translate Stata '+' operator to sfun_stata_add for polymorphic behavior
@@ -4632,23 +4656,29 @@ data = data %>%
 
  33 do:  gen obs_day = day(obs_date) if !missing(obs_date)
  33 r:  data = data %>% 
-  dplyr::mutate(`obs_day` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), day(obs_date), NA_real_)) 
+  dplyr::mutate(`obs_day` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), sfun_day(obs_date), NA_real_)) 
 data = data %>% 
-  dplyr::mutate(`obs_day` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), day(obs_date), NA_real_))
+  dplyr::mutate(`obs_day` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), sfun_day(obs_date), NA_real_))
 
-Error: Problem with `mutate()` column `obs_day`.
-ℹ `obs_day = dplyr::if_else(...)`.
-✖ could not find function "day"
-Caused by error in `day()`:
-! could not find function "day"
-Error executing R code for Stata line  33 :  data = data %>% 
-  dplyr::mutate(`obs_day` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), day(obs_date), NA_real_))
+ 34 do:  gen obs_quarter = qofd(obs_date) if !missing(obs_date)
+ 34 r:  data = data %>% 
+  dplyr::mutate(`obs_quarter` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), qofd(obs_date), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`obs_quarter` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), qofd(obs_date), NA_real_))
 
-Error: Problem with `mutate()` column `obs_day`.
-ℹ `obs_day = dplyr::if_else(...)`.
-✖ could not find function "day"
-Caused by error in `day()`:
-! could not find function "day" 
+Error: Problem with `mutate()` column `obs_quarter`.
+ℹ `obs_quarter = dplyr::if_else(...)`.
+✖ could not find function "qofd"
+Caused by error in `qofd()`:
+! could not find function "qofd"
+Error executing R code for Stata line  34 :  data = data %>% 
+  dplyr::mutate(`obs_quarter` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), qofd(obs_date), NA_real_))
+
+Error: Problem with `mutate()` column `obs_quarter`.
+ℹ `obs_quarter = dplyr::if_else(...)`.
+✖ could not find function "qofd"
+Caused by error in `qofd()`:
+! could not find function "qofd" 
 
 ##############################
 # YOUR TASK
