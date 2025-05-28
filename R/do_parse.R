@@ -21,6 +21,8 @@ do_parse = function(do_code) {
       is_by_prefix = logical(0),
       by_group_vars = character(0), # Store as comma-separated string or list column
       by_sort_vars = character(0),  # Store as comma-separated string or list column
+      do_translate = logical(0), # Added for consistency
+      stata_translation_error = character(0), # New column
       stringsAsFactors = FALSE
     ))
   }
@@ -38,6 +40,7 @@ do_parse = function(do_code) {
       # Store by_group_vars and by_sort_vars as comma-separated strings
       by_group_vars = if (length(parsed_info$by_group_vars)>0) paste(parsed_info$by_group_vars, collapse=",") else NA_character_,
       by_sort_vars = if (length(parsed_info$by_sort_vars)>0) paste(parsed_info$by_sort_vars, collapse=",") else NA_character_,
+      stata_translation_error = NA_character_, # Initialize as NA
       stringsAsFactors = FALSE
     )
   })
@@ -45,4 +48,5 @@ do_parse = function(do_code) {
   cmd_df = dplyr::bind_rows(cmd_list)
   return(cmd_df)
 }
+
 
