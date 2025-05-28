@@ -2223,19 +2223,19 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   } else if (egen_func_name == "rowtotal") {
     vars_for_rowop_list = stringi::stri_split_regex(r_egen_args, "\\s+")[[1]] # Use non-conditional args here
     vars_for_rowop_list = vars_for_rowop_list[!is.na(vars_for_rowop_list) & vars_for_rowop_list != ""] # Filter empty/NA
-    vars_for_rowop_r_vec_str = paste0('c("', paste(vars_for_rowop_list, collapse='", "'), '")')
 
     # Stata rowtotal treats NA as 0 *before* summing.
-    # Using collapse::fsum_row with fill = 0 achieves this.
-    calc_expr = paste0("collapse::fsum_row(dplyr::cur_data_all(), cols = ", vars_for_rowop_r_vec_str, ", fill = 0)")
+    # Using collapse::fnafill with base::rowSums achieves this.
+    cols_selection_expr = paste0("dplyr::select(dplyr::cur_data_all(), dplyr::all_of(c('", paste(vars_for_rowop_list, collapse="','"), "')))")
+    calc_expr = paste0("base::rowSums(collapse::fnafill(", cols_selection_expr, ", fill = 0), na.rm = FALSE)")
     is_row_function = TRUE
   } else if (egen_func_name == "rowmean") {
     vars_for_rowop_list = stringi::stri_split_regex(r_egen_args, "\\s+")[[1]] # Use non-conditional args here
     vars_for_rowop_list = vars_for_rowop_list[!is.na(vars_for_rowop_list) & vars_for_rowop_list != ""] # Filter empty/NA
-    vars_for_rowop_r_vec_str = paste0('c("', paste(vars_for_rowop_list, collapse='", "'), '")')
 
-    # Stata rowmean ignores NAs. collapse::fmean_row with na.rm = TRUE achieves this.
-    calc_expr = paste0("collapse::fmean_row(dplyr::cur_data_all(), cols = ", vars_for_rowop_r_vec_str, ", na.rm = TRUE)")
+    # Stata rowmean ignores NAs. base::rowMeans with na.rm = TRUE achieves this.
+    cols_selection_expr = paste0("dplyr::select(dplyr::cur_data_all(), dplyr::all_of(c('", paste(vars_for_rowop_list, collapse="','"), "')))")
+    calc_expr = paste0("base::rowMeans(", cols_selection_expr, ", na.rm = TRUE)")
     is_row_function = TRUE
   } else {
     return(paste0("# Egen function '", egen_func_name, "' not yet implemented."))
@@ -4390,23 +4390,23 @@ data = data %>%
 
  24 do:  egen row_total_v1_v2 = rowtotal(value1 value2)
  24 r:  data = data %>% 
-  dplyr::mutate(`row_total_v1_v2` = collapse::fsum_row(dplyr::cur_data_all(), cols = c("value1", "value2"), fill = 0)) 
+  dplyr::mutate(`row_total_v1_v2` = base::rowSums(collapse::fnafill(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(c('value1','value2'))), fill = 0), na.rm = FALSE)) 
 data = data %>% 
-  dplyr::mutate(`row_total_v1_v2` = collapse::fsum_row(dplyr::cur_data_all(), cols = c("value1", "value2"), fill = 0))
+  dplyr::mutate(`row_total_v1_v2` = base::rowSums(collapse::fnafill(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(c('value1','value2'))), fill = 0), na.rm = FALSE))
 
 Error: Problem with `mutate()` column `row_total_v1_v2`.
-ℹ `row_total_v1_v2 = collapse::fsum_row(...)`.
-✖ 'fsum_row' is not an exported object from 'namespace:collapse'
+ℹ `row_total_v1_v2 = base::rowSums(...)`.
+✖ 'fnafill' is not an exported object from 'namespace:collapse'
 Caused by error:
-! 'fsum_row' is not an exported object from 'namespace:collapse'
+! 'fnafill' is not an exported object from 'namespace:collapse'
 Error executing R code for Stata line  24 :  data = data %>% 
-  dplyr::mutate(`row_total_v1_v2` = collapse::fsum_row(dplyr::cur_data_all(), cols = c("value1", "value2"), fill = 0))
+  dplyr::mutate(`row_total_v1_v2` = base::rowSums(collapse::fnafill(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(c('value1','value2'))), fill = 0), na.rm = FALSE))
 
 Error: Problem with `mutate()` column `row_total_v1_v2`.
-ℹ `row_total_v1_v2 = collapse::fsum_row(...)`.
-✖ 'fsum_row' is not an exported object from 'namespace:collapse'
+ℹ `row_total_v1_v2 = base::rowSums(...)`.
+✖ 'fnafill' is not an exported object from 'namespace:collapse'
 Caused by error:
-! 'fsum_row' is not an exported object from 'namespace:collapse' 
+! 'fnafill' is not an exported object from 'namespace:collapse' 
 
 ##############################
 # YOUR TASK

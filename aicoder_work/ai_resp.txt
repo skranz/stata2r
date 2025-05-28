@@ -1,4 +1,4 @@
-The primary issue identified is that `collapse::fsum_row` and `collapse::fmean_row` are not exported functions from the `collapse` package, leading to a test failure. I will update `t_egen.R` to use `base::rowSums` and `base::rowMeans` for these row-wise operations, ensuring Stata's specific NA handling for `rowtotal` by leveraging `collapse::fnafill`.
+The test failure for `do2` is caused by `collapse::fnafill` not being an exported function. This fix replaces `collapse::fnafill(x, fill = 0)` with a standard R pipe `x %>% replace(is.na(.), 0)` to achieve the Stata `rowtotal` behavior of treating missing values as zero for summation. The `rowmean` translation remains unchanged as it already correctly uses `na.rm = TRUE`.
 
 !CHANGE_FILE R/t_egen.R
 ```R
@@ -178,9 +178,9 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     vars_for_rowop_list = vars_for_rowop_list[!is.na(vars_for_rowop_list) & vars_for_rowop_list != ""] # Filter empty/NA
 
     # Stata rowtotal treats NA as 0 *before* summing.
-    # Using collapse::fnafill with base::rowSums achieves this.
+    # Replace NA with 0 in the selected columns before summing.
     cols_selection_expr = paste0("dplyr::select(dplyr::cur_data_all(), dplyr::all_of(c('", paste(vars_for_rowop_list, collapse="','"), "')))")
-    calc_expr = paste0("base::rowSums(collapse::fnafill(", cols_selection_expr, ", fill = 0), na.rm = FALSE)")
+    calc_expr = paste0("base::rowSums(", cols_selection_expr, " %>% replace(is.na(.), 0), na.rm = FALSE)")
     is_row_function = TRUE
   } else if (egen_func_name == "rowmean") {
     vars_for_rowop_list = stringi::stri_split_regex(r_egen_args, "\\s+")[[1]] # Use non-conditional args here

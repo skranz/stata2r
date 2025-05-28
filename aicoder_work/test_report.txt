@@ -559,20 +559,20 @@ data = data %>%
 
  24 do:  egen row_total_v1_v2 = rowtotal(value1 value2)
  24 r:  data = data %>% 
-  dplyr::mutate(`row_total_v1_v2` = collapse::fsum_row(dplyr::cur_data_all(), cols = c("value1", "value2"), fill = 0)) 
+  dplyr::mutate(`row_total_v1_v2` = base::rowSums(collapse::fnafill(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(c('value1','value2'))), fill = 0), na.rm = FALSE)) 
 data = data %>% 
-  dplyr::mutate(`row_total_v1_v2` = collapse::fsum_row(dplyr::cur_data_all(), cols = c("value1", "value2"), fill = 0))
+  dplyr::mutate(`row_total_v1_v2` = base::rowSums(collapse::fnafill(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(c('value1','value2'))), fill = 0), na.rm = FALSE))
 
 Error: Problem with `mutate()` column `row_total_v1_v2`.
-ℹ `row_total_v1_v2 = collapse::fsum_row(...)`.
-✖ 'fsum_row' is not an exported object from 'namespace:collapse'
+ℹ `row_total_v1_v2 = base::rowSums(...)`.
+✖ 'fnafill' is not an exported object from 'namespace:collapse'
 Caused by error:
-! 'fsum_row' is not an exported object from 'namespace:collapse'
+! 'fnafill' is not an exported object from 'namespace:collapse'
 Error executing R code for Stata line  24 :  data = data %>% 
-  dplyr::mutate(`row_total_v1_v2` = collapse::fsum_row(dplyr::cur_data_all(), cols = c("value1", "value2"), fill = 0))
+  dplyr::mutate(`row_total_v1_v2` = base::rowSums(collapse::fnafill(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(c('value1','value2'))), fill = 0), na.rm = FALSE))
 
 Error: Problem with `mutate()` column `row_total_v1_v2`.
-ℹ `row_total_v1_v2 = collapse::fsum_row(...)`.
-✖ 'fsum_row' is not an exported object from 'namespace:collapse'
+ℹ `row_total_v1_v2 = base::rowSums(...)`.
+✖ 'fnafill' is not an exported object from 'namespace:collapse'
 Caused by error:
-! 'fsum_row' is not an exported object from 'namespace:collapse' 
+! 'fnafill' is not an exported object from 'namespace:collapse' 
