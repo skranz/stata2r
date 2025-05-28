@@ -287,4 +287,3 @@ resolve_stata_filename = function(raw_filename_token, cmd_df, line_num, default_
   }
 }
 
-

@@ -194,14 +194,15 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       return(paste0("# egen concat() requires variables to concatenate."))
     }
 
-    # Create a vector of R variable names for data access
-    r_var_names_for_concat = paste0("data[['", vars_to_concat_list, "']]")
+    # Construct the arguments for stri_paste, ensuring explicit character conversion and backticks
+    stri_paste_args = paste0("as.character(`", vars_to_concat_list, "`)", collapse = ", ")
     
-    # Expression to check if all relevant variables in a row are NA
-    all_vars_na_check = paste0("(", paste0("is.na(", r_var_names_for_concat, ")", collapse = " & "), ")")
+    # Expression to check if all relevant variables in a row are NA.
+    # Note that `is.na()` works correctly on all R types, so no `as.character()` needed here.
+    all_vars_na_check = paste0("(", paste0("is.na(`", vars_to_concat_list, "`)", collapse = " & "), ")")
 
-    # Expression for the actual concatenation, assuming NAs are treated as ""
-    concat_part = paste0("stringi::stri_paste(", paste(r_var_names_for_concat, collapse = ", "), ", sep = '', na_empty = TRUE)")
+    # Expression for the actual concatenation
+    concat_part = paste0("stringi::stri_paste(", stri_paste_args, ", sep = '', na_empty = TRUE)")
 
     # Combine using if_else to handle the all-NA case (Stata concat(.,.) returns . (missing))
     calc_expr = paste0("dplyr::if_else(", all_vars_na_check, ", NA_character_, ", concat_part, ")")
