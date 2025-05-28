@@ -413,7 +413,8 @@ do_cmd_to_r = function(cmd_obj, line, cmd_df) { # Corrected signature: added cmd
       "destring" = t_destring(rest_of_cmd_clean, cmd_obj, cmd_df, line),
       "preserve" = t_preserve_restore(cmd_obj, type = "preserve"),
       "restore" = t_preserve_restore(cmd_obj, type = "restore"),
-      "format" = t_format(rest_of_cmd_clean, cmd_obj, cmd_df, line), # NEW: Added format command
+      "format" = t_format(rest_of_cmd_clean, cmd_obj, cmd_df, line),
+      "label" = t_label(rest_of_cmd_clean, cmd_obj, cmd_df, line), # NEW: Added label command
       # Add more commands here...
       # Fallback for unhandled but translatable commands:
       paste0("# Stata command '", cmd_obj$stata_cmd_original, " ", rest_of_cmd_clean, "' not yet fully translated.")
@@ -434,6 +435,7 @@ do_cmd_to_r = function(cmd_obj, line, cmd_df) { # Corrected signature: added cmd
   r_obj = data.frame(line=line, r_code = res$r_code, do_code = cmd_obj$do_code, stata_translation_error = res$stata_translation_error, stringsAsFactors = FALSE)
   return(r_obj)
 }
+
 
 ```
 ### END OF FILE: do_cmd_to_r.R
@@ -654,16 +656,22 @@ sfun_dow = function(stata_date_values) {
 
 # Stata's missing() function checks for system missing (.) and extended missing values (.a to .z).
 # In R, these are typically all read as NA by packages like `haven`.
-# Therefore, `is.na()` is usually sufficient.
-# This function is provided for completeness as requested.
+# Additionally, for string variables, Stata's missing() treats empty strings ("") or strings containing only blanks as missing.
 sfun_missing = function(x) {
   restore.point("sfun_missing")
-  return(is.na(x))
+  if (is.numeric(x)) {
+    return(is.na(x))
+  } else if (is.character(x)) {
+    # For character vectors, consider NA or empty/blank strings as missing
+    return(is.na(x) | stringi::stri_trim_both(x) == "")
+  }
+  return(is.na(x)) # Default for other types
 }
 
 # Example usage if you wanted to call this explicitly:
 # data = data %>% dplyr::mutate(new_var = sfun_missing(old_var))
 # However, direct translation to is.na() is preferred in generated code for simplicity.
+
 
 ```
 ### END OF FILE: sfun_missing.R
@@ -2673,11 +2681,12 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   r_code_lines = c(r_code_lines,
     paste0("temp_source_vector_L", cmd_obj$line, " = data[['", varname_str, "']]"),
     # Get unique, non-NA, sorted string values to define labels
-    paste0("temp_unique_labels_L", cmd_obj$line, " = base::sort(base::unique(stats::na.omit(temp_source_vector_L", cmd_obj$line, "[temp_source_vector_L", cmd_obj$line, " != \"\"])))"), # Exclude empty strings from labels
+    # Stata encode treats empty strings as distinct values.
+    paste0("temp_unique_labels_L", cmd_obj$line, " = base::sort(base::unique(stats::na.omit(temp_source_vector_L", cmd_obj$line, ")))"),
     # Create the integer codes (1, 2, ...) based on the sorted unique labels
     paste0("temp_numeric_values_L", cmd_obj$line, " = base::match(temp_source_vector_L", cmd_obj$line, ", temp_unique_labels_L", cmd_obj$line, ")"),
-    # Define the label mapping: c(label1 = 1, label2 = 2, ...)
-    paste0("temp_label_map_L", cmd_obj$line, " = if (length(temp_unique_labels_L", cmd_obj$line, ") > 0) stats::setNames(seq_along(temp_unique_labels_L", cmd_obj$line, "), temp_unique_labels_L", cmd_obj$line, ") else stats::setNames(integer(0), character(0))"),
+    # Define the label mapping: c(value = "label_string") format for haven::labelled
+    paste0("temp_label_map_L", cmd_obj$line, " = if (length(temp_unique_labels_L", cmd_obj$line, ") > 0) stats::setNames(temp_unique_labels_L", cmd_obj$line, ", as.character(seq_along(temp_unique_labels_L", cmd_obj$line, "))) else stats::setNames(character(0), character(0))"),
     # Create the haven_labelled vector
     paste0(encoded_values_full_tmp_var, " = haven::labelled(as.integer(temp_numeric_values_L", cmd_obj$line, "), labels = temp_label_map_L", cmd_obj$line, ")"),
     # Clean up intermediate temp variables
@@ -2720,6 +2729,7 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
+
 
 ```
 ### END OF FILE: t_encode.R
@@ -3051,6 +3061,119 @@ t_keep = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
 ```
 ### END OF FILE: t_keep.R
+
+-----------------------------------------------------------
+
+### FILE: t_label.R
+```
+# Translate Stata 'label' command
+# Stata: label define lblname value "label" [value "label" ...] [, add|modify|replace]
+# Stata: label values varlist lblname
+# Stata: label variable varname "label"
+
+t_label = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
+  restore.point("t_label")
+  rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
+
+  # Determine subcommand: define, values, variable
+  if (stringi::stri_startswith_fixed(rest_of_cmd_trimmed, "define ")) {
+    return(t_label_define(rest_of_cmd_trimmed, cmd_obj, cmd_df, line_num))
+  } else if (stringi::stri_startswith_fixed(rest_of_cmd_trimmed, "values ")) {
+    return(t_label_values(rest_of_cmd_trimmed, cmd_obj, cmd_df, line_num))
+  } else if (stringi::stri_startswith_fixed(rest_of_cmd_trimmed, "variable ")) {
+    return(t_label_variable(rest_of_cmd_trimmed, cmd_obj, cmd_df, line_num))
+  } else {
+    return(paste0("# Unknown label subcommand: ", rest_of_cmd))
+  }
+}
+
+t_label_define = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
+  # label define lblname value "label" ... [, add|modify|replace]
+  # Parts: "define ", lblname, rules, options
+  define_match = stringi::stri_match_first_regex(rest_of_cmd, "^\\s*define\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*(.*?)(?:,\\s*(.*))?$")
+  if (is.na(define_match[1,1])) {
+      return(paste0("# Failed to parse label define command: ", rest_of_cmd))
+  }
+  lblname = define_match[1,2]
+  rules_str = define_match[1,3]
+  options_str = define_match[1,4]
+
+  # Parse rules: value "label" value "label" ...
+  # Find all pairs of (non-space value) and (quoted label)
+  rule_matches = stringi::stri_match_all_regex(rules_str, "(\\S+)\\s+\"([^\"]*)\"")[[1]]
+  if (NROW(rule_matches) == 0) {
+      return(paste0("# Failed to parse label define rules: ", rules_str))
+  }
+
+  values = as.numeric(rule_matches[,2]) # Numeric values
+  labels = rule_matches[,3]             # Label strings
+
+  # Create the named vector for R in haven::labelled format: c(value = "label_string")
+  new_labels_r_format = stats::setNames(labels, as.character(values))
+
+  # Handle options: replace, add, modify
+  is_replace = !is.na(options_str) && stringi::stri_detect_fixed(options_str, "replace")
+  # Stata's 'add'/'modify' behavior is effectively handled by vector concatenation with overwrite for duplicate names.
+
+  r_code_lines = c()
+  r_code_lines = c(r_code_lines, "if (!exists('stata2r_env$label_defs')) stata2r_env$label_defs = list()")
+  
+  if (is_replace) {
+      r_code_lines = c(r_code_lines, paste0("stata2r_env$label_defs$`", lblname, "` = ", deparse(new_labels_r_format)))
+  } else {
+      # If not replacing, merge existing labels with new ones. New labels overwrite old ones.
+      r_code_lines = c(r_code_lines, paste0("current_labels = stata2r_env$label_defs$`", lblname, "`"))
+      r_code_lines = c(r_code_lines, paste0("new_labels = ", deparse(new_labels_r_format)))
+      # Combine, new_labels (on right) will overwrite current_labels if names (values) conflict
+      r_code_lines = c(r_code_lines, paste0("stata2r_env$label_defs$`", lblname, "` = c(current_labels[!names(current_labels) %in% names(new_labels)], new_labels)"))
+  }
+
+  return(paste(r_code_lines, collapse="\n"))
+}
+
+
+t_label_values = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
+  # label values varlist lblname
+  values_match = stringi::stri_match_first_regex(rest_of_cmd, "^\\s*values\\s+(.*?)\\s+([a-zA-Z_][a-zA-Z0-9_]*)$")
+  if (is.na(values_match[1,1])) {
+      return(paste0("# Failed to parse label values command: ", rest_of_cmd))
+  }
+  varlist_str = stringi::stri_trim_both(values_match[1,2])
+  lblname = values_match[1,3]
+
+  vars_to_label = stringi::stri_split_regex(varlist_str, "\\s+")[[1]]
+  vars_to_label = vars_to_label[vars_to_label != ""]
+
+  r_code_lines = c()
+  r_code_lines = c(r_code_lines, paste0("if (!exists('stata2r_env$label_defs')) stata2r_env$label_defs = list()"))
+  r_code_lines = c(r_code_lines, paste0("if (!is.null(stata2r_env$label_defs$`", lblname, "`)) {"))
+  r_code_lines = c(r_code_lines, paste0("  label_map = stata2r_env$label_defs$`", lblname, "`"))
+  for (varname in vars_to_label) {
+      # Use dplyr::mutate(across()) to apply labels
+      r_code_lines = c(r_code_lines, paste0("  data = dplyr::mutate(data, `", varname, "` = haven::labelled(`", varname, "`, labels = label_map))"))
+  }
+  r_code_lines = c(r_code_lines, "}")
+  return(paste(r_code_lines, collapse="\n"))
+}
+
+t_label_variable = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
+  # label variable varname "label"
+  variable_match = stringi::stri_match_first_regex(rest_of_cmd, "^\\s*variable\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s+\"([^\"]*)\"$")
+  if (is.na(variable_match[1,1])) {
+      return(paste0("# Failed to parse label variable command: ", rest_of_cmd))
+  }
+  varname = variable_match[1,2]
+  label_str = variable_match[1,3]
+
+  r_code_lines = c(
+      paste0("attr(data$`", varname, "`, \"label\") = \"", label_str, "\"")
+  )
+  return(paste(r_code_lines, collapse="\n"))
+}
+
+
+```
+### END OF FILE: t_label.R
 
 -----------------------------------------------------------
 
@@ -4187,9 +4310,9 @@ translate_stata_expression_with_r_values = function(stata_expr, line_num, cmd_df
 #################
 # TEST RESULTS
 #################
-In total 1 of 3 tests failed:
+In total 2 of 3 tests failed:
 
-In total 1 of 3 tests failed.
+In total 2 of 3 tests failed.
 
 
 ---
@@ -4199,7 +4322,7 @@ All R files could be sourced.
 
 
 ---
-Outcome of test 'do1': ok
+Outcome of test 'do1': not ok
 
 
 Details:
@@ -4383,9 +4506,9 @@ rm(stata_tmp_is_duplicate_L20, stata_tmp_satisfies_cond_L20)
  21 do:  encode group, gen(group_code)
  21 r:  data = dplyr::mutate(data, `group_code` = haven::labelled(rep(NA_integer_, NROW(data)), labels = c()))
 temp_source_vector_L21 = data[['group']]
-temp_unique_labels_L21 = base::sort(base::unique(stats::na.omit(temp_source_vector_L21[temp_source_vector_L21 != ""])))
+temp_unique_labels_L21 = base::sort(base::unique(stats::na.omit(temp_source_vector_L21)))
 temp_numeric_values_L21 = base::match(temp_source_vector_L21, temp_unique_labels_L21)
-temp_label_map_L21 = if (length(temp_unique_labels_L21) > 0) stats::setNames(seq_along(temp_unique_labels_L21), temp_unique_labels_L21) else stats::setNames(integer(0), character(0))
+temp_label_map_L21 = if (length(temp_unique_labels_L21) > 0) stats::setNames(temp_unique_labels_L21, as.character(seq_along(temp_unique_labels_L21))) else stats::setNames(character(0), character(0))
 stata_tmp_encoded_full_L21 = haven::labelled(as.integer(temp_numeric_values_L21), labels = temp_label_map_L21)
 rm(temp_source_vector_L21, temp_unique_labels_L21, temp_numeric_values_L21, temp_label_map_L21)
 data[['group_code']] = stata_tmp_encoded_full_L21
@@ -4394,152 +4517,44 @@ data = dplyr::mutate(data, `group_code` = haven::labelled(rep(NA_integer_, NROW(
 
 temp_source_vector_L21 = data[['group']]
 
-temp_unique_labels_L21 = base::sort(base::unique(stats::na.omit(temp_source_vector_L21[temp_source_vector_L21 != ""])))
+temp_unique_labels_L21 = base::sort(base::unique(stats::na.omit(temp_source_vector_L21)))
 
 temp_numeric_values_L21 = base::match(temp_source_vector_L21, temp_unique_labels_L21)
 
-temp_label_map_L21 = if (length(temp_unique_labels_L21) > 0) stats::setNames(seq_along(temp_unique_labels_L21), temp_unique_labels_L21) else stats::setNames(integer(0), character(0))
+temp_label_map_L21 = if (length(temp_unique_labels_L21) > 0) stats::setNames(temp_unique_labels_L21, as.character(seq_along(temp_unique_labels_L21))) else stats::setNames(character(0), character(0))
 
 stata_tmp_encoded_full_L21 = haven::labelled(as.integer(temp_numeric_values_L21), labels = temp_label_map_L21)
 
+Error: Can't convert `labels` <character> to match type of `x` <integer>.
 rm(temp_source_vector_L21, temp_unique_labels_L21, temp_numeric_values_L21, temp_label_map_L21)
 
 data[['group_code']] = stata_tmp_encoded_full_L21
 
+Error: object 'stata_tmp_encoded_full_L21' not found
 rm(stata_tmp_encoded_full_L21)
 
- 22 do:  decode group_code, gen(group_str)
- 22 r:  data = dplyr::mutate(data, `group_str` = NA_character_)
-## Decode values using haven::as_factor
-stata_tmp_decoded_values_L22 = with(data, as.character(haven::as_factor(data$`group_code`, levels = 'labels')))
-data = dplyr::mutate(data, `group_str` = stata_tmp_decoded_values_L22)
-rm(stata_tmp_decoded_values_L22) 
-data = dplyr::mutate(data, `group_str` = NA_character_)
+Warning: object 'stata_tmp_encoded_full_L21' not found
+Error executing R code for Stata line  21 :  data = dplyr::mutate(data, `group_code` = haven::labelled(rep(NA_integer_, NROW(data)), labels = c()))
 
-## Decode values using haven::as_factor
+temp_source_vector_L21 = data[['group']]
 
-stata_tmp_decoded_values_L22 = with(data, as.character(haven::as_factor(data$`group_code`, levels = 'labels')))
+temp_unique_labels_L21 = base::sort(base::unique(stats::na.omit(temp_source_vector_L21)))
 
-data = dplyr::mutate(data, `group_str` = stata_tmp_decoded_values_L22)
+temp_numeric_values_L21 = base::match(temp_source_vector_L21, temp_unique_labels_L21)
 
-rm(stata_tmp_decoded_values_L22)
+temp_label_map_L21 = if (length(temp_unique_labels_L21) > 0) stats::setNames(temp_unique_labels_L21, as.character(seq_along(temp_unique_labels_L21))) else stats::setNames(character(0), character(0))
 
- 23 do:  sort group_code
- 23 r:  data = dplyr::arrange(data, !!!dplyr::syms(c("group_code"))) 
-data = dplyr::arrange(data, !!!dplyr::syms(c("group_code")))
+stata_tmp_encoded_full_L21 = haven::labelled(as.integer(temp_numeric_values_L21), labels = temp_label_map_L21)
 
- 24 do:  tempfile t1
- 24 r:  R_tempfile_L24_t1_path = tempfile(fileext = '.dta') # Stata tempfile 't1' 
-R_tempfile_L24_t1_path = tempfile(fileext = '.dta') # Stata tempfile 't1'
+Error: Can't convert `labels` <character> to match type of `x` <integer>.
+rm(temp_source_vector_L21, temp_unique_labels_L21, temp_numeric_values_L21, temp_label_map_L21)
 
- 25 do:  save "`t1'"
- 25 r:  haven::write_dta(data, path = R_tempfile_L24_t1_path) 
-haven::write_dta(data, path = R_tempfile_L24_t1_path)
+data[['group_code']] = stata_tmp_encoded_full_L21
 
- 26 do:  keep if group_code==1
- 26 r:  data = dplyr::filter(data, group_code==1) 
-data = dplyr::filter(data, group_code==1)
+Error: object 'stata_tmp_encoded_full_L21' not found
+rm(stata_tmp_encoded_full_L21)
 
- 27 do:  merge 1:m group_code using "`t1'", keep(match master) nogenerate
- 27 r:  stata_tmp_using_data_L27 = haven::read_dta(R_tempfile_L24_t1_path)
-common_cols = intersect(names(data), names(stata_tmp_using_data_L27))
-common_cols_not_by = setdiff(common_cols, c("group_code"))
-if (length(common_cols_not_by) > 0) { stata_tmp_using_data_L27 = dplyr::select(stata_tmp_using_data_L27, -dplyr::all_of(common_cols_not_by)) }
-data = dplyr::left_join(data, stata_tmp_using_data_L27, by = c("group_code"), indicator = "_merge_status_tmp_L27")
- # _merge variable was not generated due to 'nogenerate' option.
-data = dplyr::select(data, -dplyr::any_of('_merge_status_tmp_L27'))
-rm(stata_tmp_using_data_L27, common_cols, common_cols_not_by)
-# Stata merge type: 1:m, keep(master), nogenerate 
-stata_tmp_using_data_L27 = haven::read_dta(R_tempfile_L24_t1_path)
-
-common_cols = intersect(names(data), names(stata_tmp_using_data_L27))
-
-common_cols_not_by = setdiff(common_cols, c("group_code"))
-
-if (length(common_cols_not_by) > 0) { stata_tmp_using_data_L27 = dplyr::select(stata_tmp_using_data_L27, -dplyr::all_of(common_cols_not_by)) }
-
-data = dplyr::left_join(data, stata_tmp_using_data_L27, by = c("group_code"), indicator = "_merge_status_tmp_L27")
-
- # _merge variable was not generated due to 'nogenerate' option.
-
-data = dplyr::select(data, -dplyr::any_of('_merge_status_tmp_L27'))
-
-rm(stata_tmp_using_data_L27, common_cols, common_cols_not_by)
-
-# Stata merge type: 1:m, keep(master), nogenerate
-
- 28 do:  append using "`t1'"
- 28 r:  data = dplyr::bind_rows(data, haven::read_dta(R_tempfile_L24_t1_path)) 
-data = dplyr::bind_rows(data, haven::read_dta(R_tempfile_L24_t1_path))
-
- 29 do:  gen id = _n
- 29 r:  data = data %>% 
-  dplyr::mutate(`id` = as.numeric(dplyr::row_number())) 
-data = data %>% 
-  dplyr::mutate(`id` = as.numeric(dplyr::row_number()))
-
- 30 do:  bysort group_code (mean_i_overall): gen diff_mean = mean_i_overall - mean_i_overall[_n-1]
- 30 r:  data = dplyr::arrange(data, !!!dplyr::syms(c("group_code", "mean_i_overall")))
-data = data %>% 
-  dplyr::group_by(!!!dplyr::syms(c("group_code"))) %>% 
-  dplyr::mutate(`diff_mean` = mean_i_overall - dplyr::lag(mean_i_overall, n = 1)) %>% 
-  dplyr::ungroup() 
-data = dplyr::arrange(data, !!!dplyr::syms(c("group_code", "mean_i_overall")))
-
-data = data %>% 
-  dplyr::group_by(!!!dplyr::syms(c("group_code"))) %>% 
-  dplyr::mutate(`diff_mean` = mean_i_overall - dplyr::lag(mean_i_overall, n = 1)) %>% 
-  dplyr::ungroup()
-
- 31 do:  recode group_code (1=10)(2=20)(3=30)
- 31 r:  data = dplyr::mutate(data, `group_code` = dplyr::case_when(
-    group_code %in% c(1) ~ 10,
-    group_code %in% c(2) ~ 20,
-    group_code %in% c(3) ~ 30
-  )) 
-data = dplyr::mutate(data, `group_code` = dplyr::case_when(
-    group_code %in% c(1) ~ 10,
-    group_code %in% c(2) ~ 20,
-    group_code %in% c(3) ~ 30
-  ))
-
- 32 do:  drop if missing(mean_i_overall)
- 32 r:  data = dplyr::filter(data, !(sfun_missing(mean_i_overall))) 
-data = dplyr::filter(data, !(sfun_missing(mean_i_overall)))
-
- 33 do:  order id group_code mean_i_overall
- 33 r:  data = dplyr::select(data, id, group_code, mean_i_overall, dplyr::everything()) 
-data = dplyr::select(data, id, group_code, mean_i_overall, dplyr::everything())
-
- 34 do:  collapse (sum) sum_mean = mean_i_overall, by(group_code)
- 34 r:  data = data %>% 
-  collapse::fgroup_by(group_code) %>% 
-  collapse::fsummarise(`sum_mean` = collapse::fsum(mean_i_overall, na.rm = TRUE)) %>% 
-  collapse::fungroup() 
-data = data %>% 
-  collapse::fgroup_by(group_code) %>% 
-  collapse::fsummarise(`sum_mean` = collapse::fsum(mean_i_overall, na.rm = TRUE)) %>% 
-  collapse::fungroup()
-
- 35 do:  egen total_sum = total(sum_mean)
- 35 r:  data = data %>% 
-  dplyr::mutate(`total_sum` = sum(sum_mean, na.rm = TRUE)) 
-data = data %>% 
-  dplyr::mutate(`total_sum` = sum(sum_mean, na.rm = TRUE))
-
- 36 do:  gen proportion = sum_mean/total_sum
- 36 r:  data = data %>% 
-  dplyr::mutate(`proportion` = sum_mean/total_sum) 
-data = data %>% 
-  dplyr::mutate(`proportion` = sum_mean/total_sum)
-
- 37 do:  sort proportion
- 37 r:  data = dplyr::arrange(data, !!!dplyr::syms(c("proportion"))) 
-data = dplyr::arrange(data, !!!dplyr::syms(c("proportion")))
-
- 38 do:  save "result_data.dta", replace
- 38 r:  haven::write_dta(data, path = file.path(stata2r_env$working_dir, "result_data.dta")) # Options ignored: replace 
-haven::write_dta(data, path = file.path(stata2r_env$working_dir, "result_data.dta")) # Options ignored: replace
+Warning: object 'stata_tmp_encoded_full_L21' not found 
 
 
 ---
@@ -4861,9 +4876,9 @@ data = data %>%
  41 do:  encode group_clean, generate(group_code_num)
  41 r:  data = dplyr::mutate(data, `group_code_num` = haven::labelled(rep(NA_integer_, NROW(data)), labels = c()))
 temp_source_vector_L41 = data[['group_clean']]
-temp_unique_labels_L41 = base::sort(base::unique(stats::na.omit(temp_source_vector_L41[temp_source_vector_L41 != ""])))
+temp_unique_labels_L41 = base::sort(base::unique(stats::na.omit(temp_source_vector_L41)))
 temp_numeric_values_L41 = base::match(temp_source_vector_L41, temp_unique_labels_L41)
-temp_label_map_L41 = if (length(temp_unique_labels_L41) > 0) stats::setNames(seq_along(temp_unique_labels_L41), temp_unique_labels_L41) else stats::setNames(integer(0), character(0))
+temp_label_map_L41 = if (length(temp_unique_labels_L41) > 0) stats::setNames(temp_unique_labels_L41, as.character(seq_along(temp_unique_labels_L41))) else stats::setNames(character(0), character(0))
 stata_tmp_encoded_full_L41 = haven::labelled(as.integer(temp_numeric_values_L41), labels = temp_label_map_L41)
 rm(temp_source_vector_L41, temp_unique_labels_L41, temp_numeric_values_L41, temp_label_map_L41)
 data[['group_code_num']] = stata_tmp_encoded_full_L41
@@ -4872,223 +4887,44 @@ data = dplyr::mutate(data, `group_code_num` = haven::labelled(rep(NA_integer_, N
 
 temp_source_vector_L41 = data[['group_clean']]
 
-temp_unique_labels_L41 = base::sort(base::unique(stats::na.omit(temp_source_vector_L41[temp_source_vector_L41 != ""])))
+temp_unique_labels_L41 = base::sort(base::unique(stats::na.omit(temp_source_vector_L41)))
 
 temp_numeric_values_L41 = base::match(temp_source_vector_L41, temp_unique_labels_L41)
 
-temp_label_map_L41 = if (length(temp_unique_labels_L41) > 0) stats::setNames(seq_along(temp_unique_labels_L41), temp_unique_labels_L41) else stats::setNames(integer(0), character(0))
+temp_label_map_L41 = if (length(temp_unique_labels_L41) > 0) stats::setNames(temp_unique_labels_L41, as.character(seq_along(temp_unique_labels_L41))) else stats::setNames(character(0), character(0))
 
 stata_tmp_encoded_full_L41 = haven::labelled(as.integer(temp_numeric_values_L41), labels = temp_label_map_L41)
 
+Error: Can't convert `labels` <character> to match type of `x` <integer>.
 rm(temp_source_vector_L41, temp_unique_labels_L41, temp_numeric_values_L41, temp_label_map_L41)
 
 data[['group_code_num']] = stata_tmp_encoded_full_L41
 
+Error: object 'stata_tmp_encoded_full_L41' not found
 rm(stata_tmp_encoded_full_L41)
 
- 42 do:  label define group_label_map 1 "alpha" 2 "beta" 3 "gamma" 4 "unknown", replace
- 42 r:  # Stata command 'label define group_label_map 1 "alpha" 2 "beta" 3 "gamma" 4 "unknown", replace' not yet fully translated. 
-# Stata command 'label define group_label_map 1 "alpha" 2 "beta" 3 "gamma" 4 "unknown", replace' not yet fully translated.
+Warning: object 'stata_tmp_encoded_full_L41' not found
+Error executing R code for Stata line  41 :  data = dplyr::mutate(data, `group_code_num` = haven::labelled(rep(NA_integer_, NROW(data)), labels = c()))
 
- 43 do:  label values group_code_num group_label_map
- 43 r:  # Stata command 'label values group_code_num group_label_map' not yet fully translated. 
-# Stata command 'label values group_code_num group_label_map' not yet fully translated.
+temp_source_vector_L41 = data[['group_clean']]
 
- 44 do:  label variable group_code_num "Numeric code for cleaned group"
- 44 r:  # Stata command 'label variable group_code_num "Numeric code for cleaned group"' not yet fully translated. 
-# Stata command 'label variable group_code_num "Numeric code for cleaned group"' not yet fully translated.
+temp_unique_labels_L41 = base::sort(base::unique(stats::na.omit(temp_source_vector_L41)))
 
- 45 do:  decode group_code_num, generate(group_from_decode)
- 45 r:  data = dplyr::mutate(data, `group_from_decode` = NA_character_)
-## Decode values using haven::as_factor
-stata_tmp_decoded_values_L45 = with(data, as.character(haven::as_factor(data$`group_code_num`, levels = 'labels')))
-data = dplyr::mutate(data, `group_from_decode` = stata_tmp_decoded_values_L45)
-rm(stata_tmp_decoded_values_L45) 
-data = dplyr::mutate(data, `group_from_decode` = NA_character_)
+temp_numeric_values_L41 = base::match(temp_source_vector_L41, temp_unique_labels_L41)
 
-## Decode values using haven::as_factor
+temp_label_map_L41 = if (length(temp_unique_labels_L41) > 0) stats::setNames(temp_unique_labels_L41, as.character(seq_along(temp_unique_labels_L41))) else stats::setNames(character(0), character(0))
 
-stata_tmp_decoded_values_L45 = with(data, as.character(haven::as_factor(data$`group_code_num`, levels = 'labels')))
+stata_tmp_encoded_full_L41 = haven::labelled(as.integer(temp_numeric_values_L41), labels = temp_label_map_L41)
 
-data = dplyr::mutate(data, `group_from_decode` = stata_tmp_decoded_values_L45)
+Error: Can't convert `labels` <character> to match type of `x` <integer>.
+rm(temp_source_vector_L41, temp_unique_labels_L41, temp_numeric_values_L41, temp_label_map_L41)
 
-rm(stata_tmp_decoded_values_L45)
+data[['group_code_num']] = stata_tmp_encoded_full_L41
 
-Error: After Stata line  45 , R data set differs from Stata reference.
+Error: object 'stata_tmp_encoded_full_L41' not found
+rm(stata_tmp_encoded_full_L41)
 
-Data set from Stata (do_df):
-tibble [50 × 40] (S3: tbl_df/tbl/data.frame)
- $ id                    : num [1:50] 1 2 3 4 5 6 7 8 9 10 ...
-  ..- attr(*, "label")= chr "id"
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ group_orig            : chr [1:50] " Gamma" " Gamma" "Beta" "Beta" ...
-  ..- attr(*, "label")= chr "group_orig"
-  ..- attr(*, "format.stata")= chr "%6s"
- $ value1                : num [1:50] 73.9 NA 52.8 29.8 44.2 ...
-  ..- attr(*, "label")= chr "value1"
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ value2                : num [1:50] 4 3 NA 10 3 2 3 6 6 8 ...
-  ..- attr(*, "label")= chr "value2"
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ date_str              : chr [1:50] "2020-09-21" "2022-08-26" "2022-02-09" "2021-05-20" ...
-  ..- attr(*, "label")= chr "date_str"
-  ..- attr(*, "format.stata")= chr "%10s"
- $ num_str               : chr [1:50] "166" "181" "101" "136" ...
-  ..- attr(*, "label")= chr "num_str"
-  ..- attr(*, "format.stata")= chr "%3s"
- $ num_val_from_str      : num [1:50] 166 181 101 136 162 175 112 141 160 169 ...
-  ..- attr(*, "label")= chr "num_str"
-  ..- attr(*, "format.stata")= chr "%10.0g"
- $ mixed_var             : chr [1:50] "apple" "42" "10" "20" ...
-  ..- attr(*, "label")= chr "mixed_var"
-  ..- attr(*, "format.stata")= chr "%6s"
- $ mixed_val_num         : num [1:50] NA 42 10 20 55 42 NA NA 10 20 ...
-  ..- attr(*, "label")= chr "mixed_var"
-  ..- attr(*, "format.stata")= chr "%10.0g"
- $ value1_log            : num [1:50] 4.3 NA 3.97 3.39 3.79 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ value2_squared        : num [1:50] 16 9 NA 100 9 4 9 36 36 64 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ int_value1            : num [1:50] 73 NA 52 29 44 NA 41 20 31 70 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ rounded_value1        : num [1:50] 73.9 NA 52.8 29.8 44.2 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ random_uniform_draw   : num [1:50] 0.3489 0.2669 0.1366 0.0286 0.8689 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ id_plus_value2        : num [1:50] 5 5 NA NA 8 8 10 14 15 NA ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ group_clean           : chr [1:50] "gamma" "gamma" "beta" "beta" ...
-  ..- attr(*, "format.stata")= chr "%9s"
- $ group_abbr            : chr [1:50] "gam" "gam" "bet" "bet" ...
-  ..- attr(*, "format.stata")= chr "%9s"
- $ contact_info          : chr [1:50] "gamma:166" "gamma:181" "delta:101" "delta:136" ...
-  ..- attr(*, "format.stata")= chr "%9s"
- $ str_len_group         : num [1:50] 5 5 4 4 5 4 5 5 4 5 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ mean_overall_value1   : num [1:50] 66.8 66.8 66.8 66.8 66.8 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ sd_overall_value1     : num [1:50] 38 38 38 38 38 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ total_value2_by_group : num [1:50] 49 49 86 86 49 86 71 71 86 49 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ median_value1_by_group: num [1:50] 44.2 44.2 47.3 47.3 44.2 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ group_numeric_id      : num [1:50] 3 3 2 2 3 2 1 1 2 3 ...
-  ..- attr(*, "label")= chr "group(group_clean)"
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ tag_first_in_group    : num [1:50] 1 0 1 0 0 0 1 0 0 0 ...
-  ..- attr(*, "label")= chr "tag(group_clean)"
-  ..- attr(*, "format.stata")= chr "%8.0g"
- $ count_obs_in_group    : num [1:50] 11 11 20 20 11 20 16 16 20 11 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ row_total_v1_v2       : num [1:50] 77.9 3 52.8 39.8 47.2 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ row_mean_v1_v2        : num [1:50] 39 3 52.8 19.9 23.6 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ concat_group_num      : chr [1:50] "gamma166" "gamma181" "beta101" "beta136" ...
-  ..- attr(*, "format.stata")= chr "%9s"
- $ value2_dev_from_mean  : num [1:50] -0.667 -1.667 NA 5.333 -1.667 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ obs_date              : Date[1:50], format: "2020-09-21" "2022-08-26" ...
- $ obs_year              : num [1:50] 2020 2022 2022 2021 2020 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ obs_month             : num [1:50] 9 8 2 5 9 7 7 10 12 10 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ obs_day               : num [1:50] 21 26 9 20 6 18 17 5 25 20 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ obs_quarter           : num [1:50] 242 250 248 245 242 250 242 251 247 247 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ days_since_2021_start : num [1:50] -102 602 404 139 -117 563 -168 642 358 292 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ is_weekend_day        : num [1:50] 0 0 0 0 1 0 0 0 1 0 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ mixed_var_as_str      : chr [1:50] "" "42" "10" "20" ...
-  ..- attr(*, "format.stata")= chr "%9s"
- $ group_code_num        : dbl+lbl [1:50] 3, 3, 2, 2, 3, 2, 1, 1, 2, 3, 2, 3, 3, 1, 4, 4, 1, 2, ...
-   ..@ label       : chr "Numeric code for cleaned group"
-   ..@ format.stata: chr "%8.0g"
-   ..@ labels      : Named num [1:4] 1 2 3 4
-   .. ..- attr(*, "names")= chr [1:4] "alpha" "beta" "gamma" "unknown"
- $ group_from_decode     : chr [1:50] "gamma" "gamma" "beta" "beta" ...
-  ..- attr(*, "label")= chr "Numeric code for cleaned group"
-  ..- attr(*, "format.stata")= chr "%9s"
- - attr(*, "label")= chr "Written by R."
-NULL
-
-Data set from R (r_df):
-tibble [50 × 41] (S3: tbl_df/tbl/data.frame)
- $ id                        : num [1:50] 1 2 3 4 5 6 7 8 9 10 ...
-  ..- attr(*, "label")= chr "id"
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ group_orig                : chr [1:50] " Gamma" " Gamma" "Beta" "Beta" ...
-  ..- attr(*, "label")= chr "group_orig"
-  ..- attr(*, "format.stata")= chr "%6s"
- $ value1                    : num [1:50] 73.9 NA 52.8 29.8 44.2 ...
- $ value2                    : num [1:50] 4 3 NA 10 3 2 3 6 6 8 ...
-  ..- attr(*, "label")= chr "value2"
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ date_str                  : chr [1:50] "2020-09-21" "2022-08-26" "2022-02-09" "2021-05-20" ...
-  ..- attr(*, "label")= chr "date_str"
-  ..- attr(*, "format.stata")= chr "%10s"
- $ num_str                   : chr [1:50] "166" "181" "101" "136" ...
-  ..- attr(*, "label")= chr "num_str"
-  ..- attr(*, "format.stata")= chr "%3s"
- $ mixed_var                 : chr [1:50] "apple" "42" "10" "20" ...
-  ..- attr(*, "label")= chr "mixed_var"
-  ..- attr(*, "format.stata")= chr "%6s"
- $ stata2r_original_order_idx: int [1:50] 1 2 3 4 5 6 7 8 9 10 ...
- $ value1_log                : num [1:50] 4.3 NA 3.97 3.39 3.79 ...
- $ value2_squared            : num [1:50] 16 9 NA 100 9 4 9 36 36 64 ...
-  ..- attr(*, "label")= chr "value2"
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ int_value1                : num [1:50] 73 NA 52 29 44 NA 41 20 31 70 ...
- $ rounded_value1            : num [1:50] 73.9 NA 52.8 29.8 44.2 NA 41.7 20 31.9 70.1 ...
- $ random_uniform_draw       : num [1:50] 0.5081 0.14107 0.00401 0.50065 0.86818 ...
- $ id_plus_value2            : num [1:50] 5 5 NA NA 8 8 10 14 15 NA ...
- $ group_clean               : chr [1:50] "gamma" "gamma" "beta" "beta" ...
- $ group_abbr                : chr [1:50] "gam" "gam" "bet" "bet" ...
- $ contact_info              : chr [1:50] "gamma:166" "gamma:181" "delta:101" "delta:136" ...
- $ str_len_group             : int [1:50] 5 5 4 4 5 4 5 5 4 5 ...
- $ mean_overall_value1       : num [1:50] 66.8 66.8 66.8 66.8 66.8 ...
- $ sd_overall_value1         : num [1:50] 38 38 38 38 38 ...
- $ total_value2_by_group     : num [1:50] 49 49 86 86 49 86 71 71 86 49 ...
- $ median_value1_by_group    : num [1:50] 44.2 44.2 47.3 47.3 44.2 ...
- $ group_numeric_id          : int [1:50] 3 3 2 2 3 2 1 1 2 3 ...
- $ tag_first_in_group        : num [1:50] 1 0 1 0 0 0 1 0 0 0 ...
- $ count_obs_in_group        : int [1:50] 11 11 20 20 11 20 16 16 20 11 ...
- $ row_total_v1_v2           : num [1:50] 77.9 3 52.8 39.8 47.2 ...
- $ row_mean_v1_v2            : num [1:50] 39 3 52.8 19.9 23.6 ...
- $ concat_group_num          : chr [1:50] "gamma166" "gamma181" "beta101" "beta136" ...
- $ value2_dev_from_mean      : num [1:50] -0.667 -1.667 NA 5.333 -1.667 ...
- $ obs_date                  : num [1:50] 22179 22883 22685 22420 22164 ...
- $ obs_year                  : num [1:50] 2020 2022 2022 2021 2020 ...
- $ obs_month                 : num [1:50] 9 8 2 5 9 7 7 10 12 10 ...
- $ obs_day                   : num [1:50] 21 26 9 20 6 18 17 5 25 20 ...
- $ obs_quarter               : num [1:50] 242 250 248 245 242 250 242 251 247 247 ...
- $ days_since_2021_start     : num [1:50] -102 602 404 139 -117 563 -168 642 358 292 ...
- $ is_weekend_day            : num [1:50] 0 0 0 0 1 0 0 0 1 0 ...
- $ num_val_from_str          : num [1:50] 166 181 101 136 162 175 112 141 160 169 ...
- $ mixed_val_num             : num [1:50] NA 42 10 20 55 42 NA NA 10 20 ...
-  ..- attr(*, "problems")= tibble [12 × 4] (S3: tbl_df/tbl/data.frame)
-  .. ..$ row     : int [1:12] 1 7 8 16 20 29 32 36 37 38 ...
-  .. ..$ col     : int [1:12] NA NA NA NA NA NA NA NA NA NA ...
-  .. ..$ expected: chr [1:12] "a number" "a number" "a number" "a number" ...
-  .. ..$ actual  : chr [1:12] "apple" "apple" "apple" "banana" ...
- $ mixed_var_as_str          : chr [1:50] "" "42" "10" "20" ...
- $ group_code_num            : int+lbl [1:50] 3, 3, 2, 2, 3, 2, 1, 1, 2, 3, 2, 3, 3, 1, 4, 4, 1, 2, ...
-   ..@ labels: Named int [1:4] 1 2 3 4
-   .. ..- attr(*, "names")= chr [1:4] "alpha" "beta" "gamma" "na"
- $ group_from_decode         : chr [1:50] "gamma" "gamma" "beta" "beta" ...
-NULL
-
-Differences:List of 2
- $ identical     : logi FALSE
- $ value_mismatch:'data.frame':	3 obs. of  4 variables:
-  ..$ row      : int [1:3] 15 16 19
-  ..$ column   : chr [1:3] "group_from_decode" "group_from_decode" "group_from_decode"
-  ..$ df1_value: chr [1:3] "unknown" "unknown" "unknown"
-  ..$ df2_value: chr [1:3] "na" "na" "na"
-NULL
+Warning: object 'stata_tmp_encoded_full_L41' not found 
 
 ##############################
 # YOUR TASK
