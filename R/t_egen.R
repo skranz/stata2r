@@ -174,9 +174,9 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     vars_for_rowop_list = vars_for_rowop_list[!is.na(vars_for_rowop_list) & vars_for_rowop_list != ""] # Filter empty/NA
 
     # Stata rowtotal treats NA as 0 *before* summing.
-    # Using collapse::fnafill with base::rowSums achieves this.
+    # Replace NA with 0 in the selected columns before summing.
     cols_selection_expr = paste0("dplyr::select(dplyr::cur_data_all(), dplyr::all_of(c('", paste(vars_for_rowop_list, collapse="','"), "')))")
-    calc_expr = paste0("base::rowSums(collapse::fnafill(", cols_selection_expr, ", fill = 0), na.rm = FALSE)")
+    calc_expr = paste0("base::rowSums(", cols_selection_expr, " %>% replace(is.na(.), 0), na.rm = FALSE)")
     is_row_function = TRUE
   } else if (egen_func_name == "rowmean") {
     vars_for_rowop_list = stringi::stri_split_regex(r_egen_args, "\\s+")[[1]] # Use non-conditional args here
