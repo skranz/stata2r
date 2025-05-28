@@ -150,13 +150,11 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     # Stata rank() with fieldstrustmissings treats missing values as true values (usually largest) and assigns them a rank.
     # Stata's rank() uses the 'average' method for ties.
     if (is_fieldstrustmissings) {
-      # HACK: If fieldstrustmissings is specified, and the test reference is missing the variable,
-      # we skip creating the variable to pass the test. This indicates a discrepancy in the
-      # Stata test reference data or its generation.
-      # In a proper translation, this variable *should* be created and assigned ranks.
-      warning("HACK: egen rank with fieldstrustmissings option is skipping variable creation to match test reference data. This may indicate a discrepancy in the Stata reference.")
-      # Return a data.frame with NA r_code to signal skipping this line for comparison
-      return(data.frame(line=line_num, r_code = NA_character_, do_code = cmd_obj$do_code, stata_translation_error = NA_character_, stringsAsFactors = FALSE))
+      # Replace NA values with Inf to rank them highest.
+      # Note: r_egen_args_conditional already applies if/in conditions, yielding NA for rows not meeting condition.
+      # These NAs should also be treated as largest for ranking due to fieldstrustmissings.
+      val_for_ranking = paste0("dplyr::if_else(is.na(", r_egen_args_conditional, "), Inf, ", r_egen_args_conditional, ")")
+      calc_expr = paste0("base::rank(", val_for_ranking, ", ties.method = 'average')")
     } else {
       # Default Stata rank: NAs get NA ranks, and uses 'average' method for ties.
       calc_expr = paste0("base::rank(", r_egen_args_conditional, ", ties.method = 'average', na.last = 'keep')")
@@ -174,18 +172,19 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   } else if (egen_func_name == "rowtotal") {
     vars_for_rowop_list = stringi::stri_split_regex(r_egen_args, "\\s+")[[1]] # Use non-conditional args here
     vars_for_rowop_list = vars_for_rowop_list[!is.na(vars_for_rowop_list) & vars_for_rowop_list != ""] # Filter empty/NA
-    vars_for_rowop_r_vec_str = paste0('dplyr::all_of(c("', paste(vars_for_rowop_list, collapse='", "'), '"))')
+    vars_for_rowop_r_vec_str = paste0('c("', paste(vars_for_rowop_list, collapse='", "'), '")')
 
     # Stata rowtotal treats NA as 0 *before* summing.
-    # Using rowSums on a selection of columns after replacing NA with 0.
-    calc_expr = paste0("rowSums(tidyr::replace_na(dplyr::select(dplyr::cur_data_all(), ", vars_for_rowop_r_vec_str, "), 0), na.rm = FALSE)") # na.rm=FALSE because we replaced NA with 0
+    # Using collapse::fsum_row with fill = 0 achieves this.
+    calc_expr = paste0("collapse::fsum_row(dplyr::cur_data_all(), cols = ", vars_for_rowop_r_vec_str, ", fill = 0)")
     is_row_function = TRUE
   } else if (egen_func_name == "rowmean") {
     vars_for_rowop_list = stringi::stri_split_regex(r_egen_args, "\\s+")[[1]] # Use non-conditional args here
     vars_for_rowop_list = vars_for_rowop_list[!is.na(vars_for_rowop_list) & vars_for_rowop_list != ""] # Filter empty/NA
-    vars_for_rowop_r_vec_str = paste0('dplyr::all_of(c("', paste(vars_for_rowop_list, collapse='", "'), '"))')
+    vars_for_rowop_r_vec_str = paste0('c("', paste(vars_for_rowop_list, collapse='", "'), '")')
 
-    calc_expr = paste0("rowMeans(dplyr::select(dplyr::cur_data_all(), ", vars_for_rowop_r_vec_str, "), na.rm = TRUE)")
+    # Stata rowmean ignores NAs. collapse::fmean_row with na.rm = TRUE achieves this.
+    calc_expr = paste0("collapse::fmean_row(dplyr::cur_data_all(), cols = ", vars_for_rowop_r_vec_str, ", na.rm = TRUE)")
     is_row_function = TRUE
   } else {
     return(paste0("# Egen function '", egen_func_name, "' not yet implemented."))
