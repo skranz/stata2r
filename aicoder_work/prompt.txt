@@ -683,7 +683,6 @@ sfun_stata_round = function(x, unit = 1) {
 # sfun_stata_round(2.35, 0.1) # Expected: 2.4
 # sfun_stata_round(c(2.5, -2.5, NA, 5.25), 0.5) # Expected: c(2.5, -2.5, NA, 5.5) # Stata: round(5.25, .5) is 5.5. My formula: sign(5.25)*floor(abs(5.25)/.5 + .5)*.5 = 1*floor(10.5+0.5)*.5 = 1*floor(11)*.5 = 1*11*.5 = 5.5
 
-
 ```
 ### END OF FILE: sfun_stata_round.R
 
@@ -1074,7 +1073,6 @@ resolve_stata_filename = function(raw_filename_token, cmd_df, line_num, default_
     }
   }
 }
-
 
 ```
 ### END OF FILE: stata_cmd_utils.R
@@ -2245,14 +2243,15 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       return(paste0("# egen concat() requires variables to concatenate."))
     }
 
-    # Create a vector of R variable names for data access
-    r_var_names_for_concat = paste0("data[['", vars_to_concat_list, "']]")
+    # Construct the arguments for stri_paste, ensuring explicit character conversion and backticks
+    stri_paste_args = paste0("as.character(`", vars_to_concat_list, "`)", collapse = ", ")
     
-    # Expression to check if all relevant variables in a row are NA
-    all_vars_na_check = paste0("(", paste0("is.na(", r_var_names_for_concat, ")", collapse = " & "), ")")
+    # Expression to check if all relevant variables in a row are NA.
+    # Note that `is.na()` works correctly on all R types, so no `as.character()` needed here.
+    all_vars_na_check = paste0("(", paste0("is.na(`", vars_to_concat_list, "`)", collapse = " & "), ")")
 
-    # Expression for the actual concatenation, assuming NAs are treated as ""
-    concat_part = paste0("stringi::stri_paste(", paste(r_var_names_for_concat, collapse = ", "), ", sep = '', na_empty = TRUE)")
+    # Expression for the actual concatenation
+    concat_part = paste0("stringi::stri_paste(", stri_paste_args, ", sep = '', na_empty = TRUE)")
 
     # Combine using if_else to handle the all-NA case (Stata concat(.,.) returns . (missing))
     calc_expr = paste0("dplyr::if_else(", all_vars_na_check, ", NA_character_, ", concat_part, ")")
@@ -4420,9 +4419,9 @@ data = data %>%
 
  26 do:  egen concat_group_num = concat(group_clean num_str)
  26 r:  data = data %>% 
-  dplyr::mutate(`concat_group_num` = dplyr::if_else((is.na(data[['group_clean']]) & is.na(data[['num_str']])), NA_character_, stringi::stri_paste(data[['group_clean']], data[['num_str']], sep = '', na_empty = TRUE))) 
+  dplyr::mutate(`concat_group_num` = dplyr::if_else((is.na(`group_clean`) & is.na(`num_str`)), NA_character_, stringi::stri_paste(as.character(`group_clean`), as.character(`num_str`), sep = '', na_empty = TRUE))) 
 data = data %>% 
-  dplyr::mutate(`concat_group_num` = dplyr::if_else((is.na(data[['group_clean']]) & is.na(data[['num_str']])), NA_character_, stringi::stri_paste(data[['group_clean']], data[['num_str']], sep = '', na_empty = TRUE)))
+  dplyr::mutate(`concat_group_num` = dplyr::if_else((is.na(`group_clean`) & is.na(`num_str`)), NA_character_, stringi::stri_paste(as.character(`group_clean`), as.character(`num_str`), sep = '', na_empty = TRUE)))
 
 Error: After Stata line  26 , R data set differs from Stata reference.
 
@@ -4522,7 +4521,7 @@ tibble [50 × 28] (S3: tbl_df/tbl/data.frame)
   ..- attr(*, "format.stata")= chr "%9.0g"
  $ int_value1                : num [1:50] 73 NA 52 29 44 NA 41 20 31 70 ...
  $ rounded_value1            : num [1:50] 73.9 NA 52.8 29.8 44.2 NA 41.7 20 31.9 70.1 ...
- $ random_uniform_draw       : num [1:50] 0.5474 0.5875 0.7113 0.0288 0.6602 ...
+ $ random_uniform_draw       : num [1:50] 0.156 0.734 0.605 0.996 0.93 ...
  $ id_plus_value2            : num [1:50] 5 5 NA NA 8 8 10 14 15 NA ...
  $ group_clean               : chr [1:50] "gamma" "gamma" "beta" "beta" ...
  $ group_abbr                : chr [1:50] "gam" "gam" "bet" "bet" ...
