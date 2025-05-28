@@ -3452,6 +3452,12 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   stata_merge_map_right_only_var_in_r = paste0("stata_merge_map_right_only_L", line_num)
   stata_merge_map_both_var_in_r = paste0("stata_merge_map_both_L", line_num)
 
+  # New temp vars for package and function name resolution in generated R code
+  pkg_name_in_r_code = paste0("pkg_name_L", line_num)
+  fun_name_in_r_code = paste0("fun_name_L", line_num)
+  merge_fun_obj_in_r_code = paste0("merge_fun_obj_L", line_num)
+
+
   # Default values in generated R code
   r_code_lines = c(r_code_lines, paste0(join_type_var_in_r, " = \"dplyr::left_join\""))
   r_code_lines = c(r_code_lines, paste0(stata_merge_map_left_only_var_in_r, " = 1L"))
@@ -3483,8 +3489,8 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
           paste0("using_ids_merge_key = dplyr::pull(dplyr::distinct(dplyr::select(", temp_using_data_var, ", dplyr::all_of(", vars_to_merge_on_r_vec_str, "))), 1)"),
           paste0("if (any(base::duplicated(dplyr::select(data, dplyr::all_of(", vars_to_merge_on_r_vec_str, "))))) { stop('Merge 1:1 failed: Duplicate keys found in master dataset (data).') }"),
           paste0("if (any(base::duplicated(dplyr::select(", temp_using_data_var, ", dplyr::all_of(", vars_to_merge_on_r_vec_str, "))))) { stop('Merge 1:1 failed: Duplicate keys found in using dataset (', ", using_source_r_expr, ", ').') }"),
-          # FIX: Added quotes around join_type_var_in_r for string comparison in generated R code
-          paste0("if (\"", join_type_var_in_r, "\" == \"dplyr::left_join\" && length(base::setdiff(master_ids_merge_key, using_ids_merge_key)) == 0 && length(base::setdiff(using_ids_merge_key, master_ids_merge_key)) > 0) {"),
+          # Corrected: removed quotes around `join_type_var_in_r` in the `if` condition.
+          paste0("if (", join_type_var_in_r, " == \"dplyr::left_join\" && length(base::setdiff(master_ids_merge_key, using_ids_merge_key)) == 0 && length(base::setdiff(using_ids_merge_key, master_ids_merge_key)) > 0) {"),
           paste0("  ", join_type_var_in_r, " = \"dplyr::right_join\""),
           paste0("  ", stata_merge_map_left_only_var_in_r, " = 1L"),
           paste0("  ", stata_merge_map_right_only_var_in_r, " = 1L"),
@@ -3504,9 +3510,17 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     paste0("if (length(common_cols_not_by) > 0) { ", temp_using_data_var, " = dplyr::select(", temp_using_data_var, ", -dplyr::all_of(common_cols_not_by)) }")
   )
 
+  # NEW: Resolve function using get and asNamespace before do.call
+  r_code_lines = c(r_code_lines,
+    paste0("parts_fun_split = stringi::stri_split_fixed(", join_type_var_in_r, ", \"::\", n=2)[[1]]"),
+    paste0(pkg_name_in_r_code, " = parts_fun_split[1]"),
+    paste0(fun_name_in_r_code, " = parts_fun_split[2]"),
+    paste0(merge_fun_obj_in_r_code, " = get(", fun_name_in_r_code, ", envir = asNamespace(", pkg_name_in_r_code, "))")
+  )
+
   # Perform the join with indicator
   r_code_lines = c(r_code_lines,
-    paste0("data = do.call(", join_type_var_in_r, ", list(data, ", temp_using_data_var, ", by = ", vars_to_merge_on_r_vec_str, ", indicator = \"", indicator_col_name, "\"))")
+    paste0("data = do.call(", merge_fun_obj_in_r_code, ", list(data, ", temp_using_data_var, ", by = ", vars_to_merge_on_r_vec_str, ", indicator = \"", indicator_col_name, "\"))")
   )
 
   # Generate _merge variable unless nogenerate option is present
@@ -3527,7 +3541,7 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   r_code_lines = c(r_code_lines, paste0("data = dplyr::select(data, -dplyr::any_of('", indicator_col_name, "'))"))
 
   # Clean up temporary variables
-  r_code_lines = c(r_code_lines, paste0("rm(", temp_using_data_var, ", common_cols, common_cols_not_by)"))
+  r_code_lines = c(r_code_lines, paste0("rm(", temp_using_data_var, ", common_cols, common_cols_not_by, parts_fun_split)"))
   
   # Clean up temporary master_ids_merge_key, using_ids_merge_key if they were created
   if (merge_type == "1:1") { # This condition is evaluated at translation time, deciding if the rm calls should be generated
@@ -3535,6 +3549,8 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
   # Clean up the new temporary variables created for the generated R code
   r_code_lines = c(r_code_lines, paste0("rm(", join_type_var_in_r, ", ", stata_merge_map_left_only_var_in_r, ", ", stata_merge_map_right_only_var_in_r, ", ", stata_merge_map_both_var_in_r, ")"))
+  # NEW: Clean up the new temp vars
+  r_code_lines = c(r_code_lines, paste0("rm(", pkg_name_in_r_code, ", ", fun_name_in_r_code, ", ", merge_fun_obj_in_r_code, ")"))
 
 
   # Add comment about options
@@ -4658,9 +4674,9 @@ translate_stata_expression_with_r_values = function(stata_expr, line_num, cmd_df
 #################
 # TEST RESULTS
 #################
-In total 2 of 3 tests failed:
+In total 1 of 3 tests failed:
 
-In total 2 of 3 tests failed.
+In total 1 of 3 tests failed.
 
 
 ---
@@ -4670,7 +4686,7 @@ All R files could be sourced.
 
 
 ---
-Outcome of test 'do1': not ok
+Outcome of test 'do1': ok
 
 
 Details:
@@ -4942,11 +4958,16 @@ if (grepl("\\ball\\b", "match master")) {
 common_cols = intersect(names(data), names(stata_tmp_using_data_L27))
 common_cols_not_by = setdiff(common_cols, c("group_code"))
 if (length(common_cols_not_by) > 0) { stata_tmp_using_data_L27 = dplyr::select(stata_tmp_using_data_L27, -dplyr::all_of(common_cols_not_by)) }
-data = do.call(join_type_r_func_L27, list(data, stata_tmp_using_data_L27, by = c("group_code"), indicator = "stata_merge_indicator_L27"))
+parts_fun_split = stringi::stri_split_fixed(join_type_r_func_L27, "::", n=2)[[1]]
+pkg_name_L27 = parts_fun_split[1]
+fun_name_L27 = parts_fun_split[2]
+merge_fun_obj_L27 = get(fun_name_L27, envir = asNamespace(pkg_name_L27))
+data = do.call(merge_fun_obj_L27, list(data, stata_tmp_using_data_L27, by = c("group_code"), indicator = "stata_merge_indicator_L27"))
  # _merge variable was not generated due to 'nogenerate' option.
 data = dplyr::select(data, -dplyr::any_of('stata_merge_indicator_L27'))
-rm(stata_tmp_using_data_L27, common_cols, common_cols_not_by)
+rm(stata_tmp_using_data_L27, common_cols, common_cols_not_by, parts_fun_split)
 rm(join_type_r_func_L27, stata_merge_map_left_only_L27, stata_merge_map_right_only_L27, stata_merge_map_both_L27)
+rm(pkg_name_L27, fun_name_L27, merge_fun_obj_L27)
 # Stata merge type: 1:m, keep(master), nogenerate 
 stata_tmp_using_data_L27 = haven::read_dta(R_tempfile_L24_t1_path)
 
@@ -4982,66 +5003,100 @@ common_cols_not_by = setdiff(common_cols, c("group_code"))
 
 if (length(common_cols_not_by) > 0) { stata_tmp_using_data_L27 = dplyr::select(stata_tmp_using_data_L27, -dplyr::all_of(common_cols_not_by)) }
 
-data = do.call(join_type_r_func_L27, list(data, stata_tmp_using_data_L27, by = c("group_code"), indicator = "stata_merge_indicator_L27"))
+parts_fun_split = stringi::stri_split_fixed(join_type_r_func_L27, "::", n=2)[[1]]
 
-Error: could not find function "dplyr::left_join"
+pkg_name_L27 = parts_fun_split[1]
+
+fun_name_L27 = parts_fun_split[2]
+
+merge_fun_obj_L27 = get(fun_name_L27, envir = asNamespace(pkg_name_L27))
+
+data = do.call(merge_fun_obj_L27, list(data, stata_tmp_using_data_L27, by = c("group_code"), indicator = "stata_merge_indicator_L27"))
+
  # _merge variable was not generated due to 'nogenerate' option.
 
 data = dplyr::select(data, -dplyr::any_of('stata_merge_indicator_L27'))
 
-rm(stata_tmp_using_data_L27, common_cols, common_cols_not_by)
+rm(stata_tmp_using_data_L27, common_cols, common_cols_not_by, parts_fun_split)
 
 rm(join_type_r_func_L27, stata_merge_map_left_only_L27, stata_merge_map_right_only_L27, stata_merge_map_both_L27)
 
-# Stata merge type: 1:m, keep(master), nogenerate
-
-Error executing R code for Stata line  27 :  stata_tmp_using_data_L27 = haven::read_dta(R_tempfile_L24_t1_path)
-
-data = sfun_strip_stata_attributes(data)
-
-stata_tmp_using_data_L27 = sfun_strip_stata_attributes(stata_tmp_using_data_L27)
-
-data = dplyr::mutate(data, `group_code` = as.numeric(`group_code`))
-
-stata_tmp_using_data_L27 = dplyr::mutate(stata_tmp_using_data_L27, `group_code` = as.numeric(`group_code`))
-
-join_type_r_func_L27 = "dplyr::left_join"
-
-stata_merge_map_left_only_L27 = 1L
-
-stata_merge_map_right_only_L27 = 2L
-
-stata_merge_map_both_L27 = 3L
-
-if (grepl("\\ball\\b", "match master")) {
-  join_type_r_func_L27 = "dplyr::full_join"
-} else if (grepl("\\bmaster\\b", "match master")) {
-  join_type_r_func_L27 = "dplyr::left_join"
-} else if (grepl("\\busing\\b", "match master")) {
-  join_type_r_func_L27 = "dplyr::right_join"
-} else if (grepl("\\bmatch\\b", "match master")) {
-  join_type_r_func_L27 = "dplyr::inner_join"
-}
-
-common_cols = intersect(names(data), names(stata_tmp_using_data_L27))
-
-common_cols_not_by = setdiff(common_cols, c("group_code"))
-
-if (length(common_cols_not_by) > 0) { stata_tmp_using_data_L27 = dplyr::select(stata_tmp_using_data_L27, -dplyr::all_of(common_cols_not_by)) }
-
-data = do.call(join_type_r_func_L27, list(data, stata_tmp_using_data_L27, by = c("group_code"), indicator = "stata_merge_indicator_L27"))
-
-Error: could not find function "dplyr::left_join"
- # _merge variable was not generated due to 'nogenerate' option.
-
-data = dplyr::select(data, -dplyr::any_of('stata_merge_indicator_L27'))
-
-rm(stata_tmp_using_data_L27, common_cols, common_cols_not_by)
-
-rm(join_type_r_func_L27, stata_merge_map_left_only_L27, stata_merge_map_right_only_L27, stata_merge_map_both_L27)
+rm(pkg_name_L27, fun_name_L27, merge_fun_obj_L27)
 
 # Stata merge type: 1:m, keep(master), nogenerate
- 
+
+ 28 do:  append using "`t1'"
+ 28 r:  data = dplyr::bind_rows(data, haven::read_dta(R_tempfile_L24_t1_path)) 
+data = dplyr::bind_rows(data, haven::read_dta(R_tempfile_L24_t1_path))
+
+ 29 do:  gen id = _n
+ 29 r:  data = data %>% 
+  dplyr::mutate(`id` = as.numeric(dplyr::row_number())) 
+data = data %>% 
+  dplyr::mutate(`id` = as.numeric(dplyr::row_number()))
+
+ 30 do:  bysort group_code (mean_i_overall): gen diff_mean = mean_i_overall - mean_i_overall[_n-1]
+ 30 r:  data = dplyr::arrange(data, !!!dplyr::syms(c("group_code", "mean_i_overall")))
+data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_code"))) %>% 
+  dplyr::mutate(`diff_mean` = mean_i_overall - dplyr::lag(mean_i_overall, n = 1)) %>% 
+  dplyr::ungroup() 
+data = dplyr::arrange(data, !!!dplyr::syms(c("group_code", "mean_i_overall")))
+
+data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_code"))) %>% 
+  dplyr::mutate(`diff_mean` = mean_i_overall - dplyr::lag(mean_i_overall, n = 1)) %>% 
+  dplyr::ungroup()
+
+ 31 do:  recode group_code (1=10)(2=20)(3=30)
+ 31 r:  data = dplyr::mutate(data, `group_code` = dplyr::case_when(
+    group_code %in% c(1) ~ 10,
+    group_code %in% c(2) ~ 20,
+    group_code %in% c(3) ~ 30
+  )) 
+data = dplyr::mutate(data, `group_code` = dplyr::case_when(
+    group_code %in% c(1) ~ 10,
+    group_code %in% c(2) ~ 20,
+    group_code %in% c(3) ~ 30
+  ))
+
+ 32 do:  drop if missing(mean_i_overall)
+ 32 r:  data = dplyr::filter(data, !dplyr::coalesce(sfun_missing(mean_i_overall), FALSE)) 
+data = dplyr::filter(data, !dplyr::coalesce(sfun_missing(mean_i_overall), FALSE))
+
+ 33 do:  order id group_code mean_i_overall
+ 33 r:  data = dplyr::select(data, id, group_code, mean_i_overall, dplyr::everything()) 
+data = dplyr::select(data, id, group_code, mean_i_overall, dplyr::everything())
+
+ 34 do:  collapse (sum) sum_mean = mean_i_overall, by(group_code)
+ 34 r:  data = data %>% 
+  collapse::fgroup_by(group_code) %>% 
+  collapse::fsummarise(`sum_mean` = collapse::fsum(mean_i_overall, na.rm = TRUE)) %>% 
+  collapse::fungroup() 
+data = data %>% 
+  collapse::fgroup_by(group_code) %>% 
+  collapse::fsummarise(`sum_mean` = collapse::fsum(mean_i_overall, na.rm = TRUE)) %>% 
+  collapse::fungroup()
+
+ 35 do:  egen total_sum = total(sum_mean)
+ 35 r:  data = data %>% 
+  dplyr::mutate(`total_sum` = sum(sum_mean, na.rm = TRUE)) 
+data = data %>% 
+  dplyr::mutate(`total_sum` = sum(sum_mean, na.rm = TRUE))
+
+ 36 do:  gen proportion = sum_mean/total_sum
+ 36 r:  data = data %>% 
+  dplyr::mutate(`proportion` = sum_mean/total_sum) 
+data = data %>% 
+  dplyr::mutate(`proportion` = sum_mean/total_sum)
+
+ 37 do:  sort proportion
+ 37 r:  data = dplyr::arrange(data, !!!dplyr::syms(c("proportion"))) 
+data = dplyr::arrange(data, !!!dplyr::syms(c("proportion")))
+
+ 38 do:  save "result_data.dta", replace
+ 38 r:  haven::write_dta(data, path = file.path(stata2r_env$working_dir, "result_data.dta")) # Options ignored: replace 
+haven::write_dta(data, path = file.path(stata2r_env$working_dir, "result_data.dta")) # Options ignored: replace
 
 
 ---
@@ -5594,7 +5649,7 @@ master_ids_merge_key = dplyr::pull(dplyr::distinct(dplyr::select(data, dplyr::al
 using_ids_merge_key = dplyr::pull(dplyr::distinct(dplyr::select(stata_tmp_using_data_L70, dplyr::all_of(c("id")))), 1)
 if (any(base::duplicated(dplyr::select(data, dplyr::all_of(c("id")))))) { stop('Merge 1:1 failed: Duplicate keys found in master dataset (data).') }
 if (any(base::duplicated(dplyr::select(stata_tmp_using_data_L70, dplyr::all_of(c("id")))))) { stop('Merge 1:1 failed: Duplicate keys found in using dataset (', file.path(stata2r_env$working_dir, "extra_data_temp.dta"), ').') }
-if ("join_type_r_func_L70" == "dplyr::left_join" && length(base::setdiff(master_ids_merge_key, using_ids_merge_key)) == 0 && length(base::setdiff(using_ids_merge_key, master_ids_merge_key)) > 0) {
+if (join_type_r_func_L70 == "dplyr::left_join" && length(base::setdiff(master_ids_merge_key, using_ids_merge_key)) == 0 && length(base::setdiff(using_ids_merge_key, master_ids_merge_key)) > 0) {
   join_type_r_func_L70 = "dplyr::right_join"
   stata_merge_map_left_only_L70 = 1L
   stata_merge_map_right_only_L70 = 1L
@@ -5603,12 +5658,17 @@ if ("join_type_r_func_L70" == "dplyr::left_join" && length(base::setdiff(master_
 common_cols = intersect(names(data), names(stata_tmp_using_data_L70))
 common_cols_not_by = setdiff(common_cols, c("id"))
 if (length(common_cols_not_by) > 0) { stata_tmp_using_data_L70 = dplyr::select(stata_tmp_using_data_L70, -dplyr::all_of(common_cols_not_by)) }
-data = do.call(join_type_r_func_L70, list(data, stata_tmp_using_data_L70, by = c("id"), indicator = "stata_merge_indicator_L70"))
+parts_fun_split = stringi::stri_split_fixed(join_type_r_func_L70, "::", n=2)[[1]]
+pkg_name_L70 = parts_fun_split[1]
+fun_name_L70 = parts_fun_split[2]
+merge_fun_obj_L70 = get(fun_name_L70, envir = asNamespace(pkg_name_L70))
+data = do.call(merge_fun_obj_L70, list(data, stata_tmp_using_data_L70, by = c("id"), indicator = "stata_merge_indicator_L70"))
  # _merge variable was not generated due to 'nogenerate' option.
 data = dplyr::select(data, -dplyr::any_of('stata_merge_indicator_L70'))
-rm(stata_tmp_using_data_L70, common_cols, common_cols_not_by)
+rm(stata_tmp_using_data_L70, common_cols, common_cols_not_by, parts_fun_split)
 if (exists('master_ids_merge_key')) rm(master_ids_merge_key, using_ids_merge_key)
 rm(join_type_r_func_L70, stata_merge_map_left_only_L70, stata_merge_map_right_only_L70, stata_merge_map_both_L70)
+rm(pkg_name_L70, fun_name_L70, merge_fun_obj_L70)
 # Stata merge type: 1:1, keep(master match), nogenerate 
 stata_tmp_using_data_L70 = haven::read_dta(file.path(stata2r_env$working_dir, "extra_data_temp.dta"))
 
@@ -5636,7 +5696,7 @@ if (any(base::duplicated(dplyr::select(data, dplyr::all_of(c("id")))))) { stop('
 
 if (any(base::duplicated(dplyr::select(stata_tmp_using_data_L70, dplyr::all_of(c("id")))))) { stop('Merge 1:1 failed: Duplicate keys found in using dataset (', file.path(stata2r_env$working_dir, "extra_data_temp.dta"), ').') }
 
-if ("join_type_r_func_L70" == "dplyr::left_join" && length(base::setdiff(master_ids_merge_key, using_ids_merge_key)) == 0 && length(base::setdiff(using_ids_merge_key, master_ids_merge_key)) > 0) {
+if (join_type_r_func_L70 == "dplyr::left_join" && length(base::setdiff(master_ids_merge_key, using_ids_merge_key)) == 0 && length(base::setdiff(using_ids_merge_key, master_ids_merge_key)) > 0) {
   join_type_r_func_L70 = "dplyr::right_join"
   stata_merge_map_left_only_L70 = 1L
   stata_merge_map_right_only_L70 = 1L
@@ -5649,75 +5709,119 @@ common_cols_not_by = setdiff(common_cols, c("id"))
 
 if (length(common_cols_not_by) > 0) { stata_tmp_using_data_L70 = dplyr::select(stata_tmp_using_data_L70, -dplyr::all_of(common_cols_not_by)) }
 
-data = do.call(join_type_r_func_L70, list(data, stata_tmp_using_data_L70, by = c("id"), indicator = "stata_merge_indicator_L70"))
+parts_fun_split = stringi::stri_split_fixed(join_type_r_func_L70, "::", n=2)[[1]]
 
-Error: could not find function "dplyr::left_join"
+pkg_name_L70 = parts_fun_split[1]
+
+fun_name_L70 = parts_fun_split[2]
+
+merge_fun_obj_L70 = get(fun_name_L70, envir = asNamespace(pkg_name_L70))
+
+data = do.call(merge_fun_obj_L70, list(data, stata_tmp_using_data_L70, by = c("id"), indicator = "stata_merge_indicator_L70"))
+
  # _merge variable was not generated due to 'nogenerate' option.
 
 data = dplyr::select(data, -dplyr::any_of('stata_merge_indicator_L70'))
 
-rm(stata_tmp_using_data_L70, common_cols, common_cols_not_by)
+rm(stata_tmp_using_data_L70, common_cols, common_cols_not_by, parts_fun_split)
 
 if (exists('master_ids_merge_key')) rm(master_ids_merge_key, using_ids_merge_key)
 
 rm(join_type_r_func_L70, stata_merge_map_left_only_L70, stata_merge_map_right_only_L70, stata_merge_map_both_L70)
 
-# Stata merge type: 1:1, keep(master match), nogenerate
-
-Error executing R code for Stata line  70 :  stata_tmp_using_data_L70 = haven::read_dta(file.path(stata2r_env$working_dir, "extra_data_temp.dta"))
-
-data = sfun_strip_stata_attributes(data)
-
-stata_tmp_using_data_L70 = sfun_strip_stata_attributes(stata_tmp_using_data_L70)
-
-data = dplyr::mutate(data, `id` = as.numeric(`id`))
-
-stata_tmp_using_data_L70 = dplyr::mutate(stata_tmp_using_data_L70, `id` = as.numeric(`id`))
-
-join_type_r_func_L70 = "dplyr::left_join"
-
-stata_merge_map_left_only_L70 = 1L
-
-stata_merge_map_right_only_L70 = 2L
-
-stata_merge_map_both_L70 = 3L
-
-master_ids_merge_key = dplyr::pull(dplyr::distinct(dplyr::select(data, dplyr::all_of(c("id")))), 1)
-
-using_ids_merge_key = dplyr::pull(dplyr::distinct(dplyr::select(stata_tmp_using_data_L70, dplyr::all_of(c("id")))), 1)
-
-if (any(base::duplicated(dplyr::select(data, dplyr::all_of(c("id")))))) { stop('Merge 1:1 failed: Duplicate keys found in master dataset (data).') }
-
-if (any(base::duplicated(dplyr::select(stata_tmp_using_data_L70, dplyr::all_of(c("id")))))) { stop('Merge 1:1 failed: Duplicate keys found in using dataset (', file.path(stata2r_env$working_dir, "extra_data_temp.dta"), ').') }
-
-if ("join_type_r_func_L70" == "dplyr::left_join" && length(base::setdiff(master_ids_merge_key, using_ids_merge_key)) == 0 && length(base::setdiff(using_ids_merge_key, master_ids_merge_key)) > 0) {
-  join_type_r_func_L70 = "dplyr::right_join"
-  stata_merge_map_left_only_L70 = 1L
-  stata_merge_map_right_only_L70 = 1L
-  stata_merge_map_both_L70 = 3L
-}
-
-common_cols = intersect(names(data), names(stata_tmp_using_data_L70))
-
-common_cols_not_by = setdiff(common_cols, c("id"))
-
-if (length(common_cols_not_by) > 0) { stata_tmp_using_data_L70 = dplyr::select(stata_tmp_using_data_L70, -dplyr::all_of(common_cols_not_by)) }
-
-data = do.call(join_type_r_func_L70, list(data, stata_tmp_using_data_L70, by = c("id"), indicator = "stata_merge_indicator_L70"))
-
-Error: could not find function "dplyr::left_join"
- # _merge variable was not generated due to 'nogenerate' option.
-
-data = dplyr::select(data, -dplyr::any_of('stata_merge_indicator_L70'))
-
-rm(stata_tmp_using_data_L70, common_cols, common_cols_not_by)
-
-if (exists('master_ids_merge_key')) rm(master_ids_merge_key, using_ids_merge_key)
-
-rm(join_type_r_func_L70, stata_merge_map_left_only_L70, stata_merge_map_right_only_L70, stata_merge_map_both_L70)
+rm(pkg_name_L70, fun_name_L70, merge_fun_obj_L70)
 
 # Stata merge type: 1:1, keep(master match), nogenerate
- 
+
+Error: After Stata line 70, R data set has 36 rows, but Stata reference has 53 rows.
+This discrepancy might indicate an issue with the test data or an unexpected behavior difference in row manipulation.
+
+Error: After Stata line  70 , R data set differs from Stata reference.
+
+Data set from Stata (do_df):
+tibble [53 × 18] (S3: tbl_df/tbl/data.frame)
+ $ id                   : num [1:53] 1 3 4 5 7 8 9 10 11 14 ...
+  ..- attr(*, "label")= chr "id"
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ orig_group_name      : chr [1:53] " Gamma" "Beta" "Beta" " Gamma" ...
+  ..- attr(*, "label")= chr "group_orig"
+  ..- attr(*, "format.stata")= chr "%6s"
+ $ group_clean          : chr [1:53] "gamma" "beta" "beta" "gamma" ...
+  ..- attr(*, "format.stata")= chr "%9s"
+ $ log_val1             : num [1:53] 4.3 3.97 3.39 3.79 3.73 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ value1               : num [1:53] 77.6 50.1 28.3 42 65.6 ...
+  ..- attr(*, "label")= chr "value1"
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ value2               : num [1:53] 4 NA 10 3 3 6 6 8 6 6 ...
+  ..- attr(*, "label")= chr "value2"
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ num_val_from_str     : num [1:53] 166 101 136 162 112 141 160 169 137 198 ...
+  ..- attr(*, "label")= chr "num_str"
+  ..- attr(*, "format.stata")= chr "%10.0g"
+ $ value2_squared       : num [1:53] 16 NA 100 9 9 36 36 64 36 36 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ mean_overall_value1  : num [1:53] 66.8 66.8 66.8 66.8 66.8 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ total_value2_by_group: num [1:53] 49 86 86 49 71 71 86 49 86 71 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ obs_date             : Date[1:53], format: "2020-09-21" "2022-02-09" ...
+ $ group_code_num       : dbl+lbl [1:53]  3,  2,  2,  3,  1,  1,  2,  3,  2,  1,  4,  1,  2,  2...
+   ..@ label       : chr "Numeric code for cleaned group"
+   ..@ format.stata: chr "%8.0g"
+   ..@ labels      : Named num [1:4] 1 2 3 4
+   .. ..- attr(*, "names")= chr [1:4] "alpha" "beta" "gamma" "unknown"
+ $ value2_cat_str       : dbl+lbl [1:53]     2, NA(a),     3,     2,     2,     3,     3,     3...
+   ..@ label       : chr "RECODE of value2 (value2)"
+   ..@ format.stata: chr "%9.0g"
+   ..@ labels      : Named num [1:3] 1 2 3
+   .. ..- attr(*, "names")= chr [1:3] "Very Low" "Low-Mid" "High"
+ $ high_value1_indicator: num [1:53] 1 0 0 0 0 0 0 1 0 1 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ observation_seq_num  : num [1:53] 14 21 34 26 18 33 32 16 23 15 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ total_obs_count      : num [1:53] 36 36 36 36 36 36 36 36 36 36 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ extra_info_val       : num [1:53] NA NA NA NA NA NA NA NA NA NA ...
+  ..- attr(*, "label")= chr "extra_info_val"
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ extra_cat_code       : chr [1:53] "" "" "" "" ...
+  ..- attr(*, "label")= chr "category_code"
+  ..- attr(*, "format.stata")= chr "%2s"
+ - attr(*, "label")= chr "Written by R."
+NULL
+
+Data set from R (r_df):
+tibble [36 × 19] (S3: tbl_df/tbl/data.frame)
+ $ id                        : num [1:36] 1 3 4 5 7 8 9 10 11 14 ...
+ $ orig_group_name           : chr [1:36] " Gamma" "Beta" "Beta" " Gamma" ...
+ $ group_clean               : chr [1:36] "gamma" "beta" "beta" "gamma" ...
+ $ log_val1                  : num [1:36] 4.3 3.97 3.39 3.79 3.73 ...
+ $ value1                    : num [1:36] 77.6 50.1 28.3 42 65.6 ...
+ $ value2                    : num [1:36] 4 NA 10 3 3 6 6 8 6 6 ...
+ $ value2_squared            : num [1:36] 16 NA 100 9 9 36 36 64 36 36 ...
+ $ obs_date                  : num [1:36] 22179 22685 22420 22164 22113 ...
+ $ num_val_from_str          : num [1:36] 166 101 136 162 112 141 160 169 137 198 ...
+ $ value2_cat_str            : num [1:36] 2 NA 3 2 2 3 3 3 3 3 ...
+ $ mean_overall_value1       : num [1:36] 66.8 66.8 66.8 66.8 66.8 ...
+ $ total_value2_by_group     : num [1:36] 49 86 86 49 71 71 86 49 86 71 ...
+ $ group_code_num            : num [1:36] 3 2 2 3 1 1 2 3 2 1 ...
+ $ high_value1_indicator     : num [1:36] 1 0 0 0 0 0 0 1 0 1 ...
+ $ observation_seq_num       : num [1:36] 14 21 34 26 18 33 32 16 23 15 ...
+ $ total_obs_count           : num [1:36] 36 36 36 36 36 36 36 36 36 36 ...
+ $ stata2r_original_order_idx: num [1:36] 14 21 34 26 18 33 32 16 23 15 ...
+ $ extra_info_val            : num [1:36] NA NA NA NA NA NA NA NA NA NA ...
+ $ extra_cat_code            : chr [1:36] NA NA NA NA ...
+NULL
+
+Differences:List of 2
+ $ identical     : logi FALSE
+ $ value_mismatch:'data.frame':	25 obs. of  4 variables:
+  ..$ row      : int [1:25] 37 38 39 40 41 37 38 39 40 41 ...
+  ..$ column   : chr [1:25] "id" "id" "id" "id" ...
+  ..$ df1_value: chr [1:25] "44" "50" "51" "52" ...
+  ..$ df2_value: chr [1:25] NA NA NA NA ...
+NULL
 
 ##############################
 # YOUR TASK
