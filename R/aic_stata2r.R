@@ -19,7 +19,7 @@ example = function() {
 
 
   # Run with Gemini
-  for (i in 1:4) {
+  for (i in 1:10) {
     library(aicoder)
     main_dir = "~/aicoder"
     files = paste0(main_dir, "/stata2r/R/",  c("aic_stata2r.R", "aic_do_test.R","aic_stata_ex.R"))
