@@ -3608,7 +3608,7 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
           break
       }
       # Check for 'value "label"' syntax
-      label_match = stringi::stri_match_first_regex(new_part_raw, "^\\s*(-?\\d*\\.?\\d+e?-?\\d*|-?\\.\\w?|\\S+)\\s+(?:\"([^\"]*)\"|'([^']*)')\\s*$")
+      label_match = stringi::stri_match_first_regex(new_part_raw, "^\\s*([^\\s]+)\\s+(?:\"([^\"]*)\"|'([^']*)')\\s*$")
       if (!is.na(label_match[1,1])) {
           any_rule_implies_string = TRUE
           break
@@ -3640,6 +3640,7 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # new_value can be: single value, copy (use original value), missing (.)
 
   translate_recode_rule = function(rule_str, source_var_r, target_is_string) {
+      restore.point("translate_recode_rule")
       rule_str = stringi::stri_trim_both(rule_str)
       parts_eq = stringi::stri_split_fixed(rule_str, "=", n=2)[[1]]
       if (length(parts_eq) != 2) {
@@ -3685,9 +3686,7 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
           r_values = r_values[!is.na(r_values)] # Filter out any NA from translation for safety
           if (length(r_values) == 0) return(paste0("## Error translating old values in rule: ", rule_str))
           # For comparison, ensure values are cast to same type as source_var_r or handled by %in%
-          # For numeric, `c(1, NA_real_)` works. For character, `c("A", NA_character_)`.
           # The `translate_stata_expression_to_r` should return string literals for string values, numeric literals for numeric.
-          # The `%in%` comparison should handle type coercion.
           r_condition = paste0(source_var_r, " %in% c(", paste(r_values, collapse = ", "), ")")
       }
 
@@ -3702,7 +3701,7 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
           }
       } else {
           # Check for numeric value with optional label, e.g., '1 "Very Low"'
-          label_match = stringi::stri_match_first_regex(new_part_raw, "^\\s*(-?\\d*\\.?\\d+e?-?\\d*|-?\\.\\w?|\\S+)\\s+(?:\"([^\"]*)\"|'([^']*)')\\s*$")
+          label_match = stringi::stri_match_first_regex(new_part_raw, "^\\s*([^\\s]+)\\s+(?:\"([^\"]*)\"|'([^']*)')\\s*$")
           if (!is.na(label_match[1,1])) {
               # It's a "value label" syntax
               string_label_part = ifelse(!is.na(label_match[1,3]), label_match[1,3], label_match[1,4])
