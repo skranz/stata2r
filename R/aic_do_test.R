@@ -209,6 +209,9 @@ compare_df = function(df1, df2,
     # Convert to regular data.frame to simplify ordering, then convert back.
     df1 = as.data.frame(df1)
     df2 = as.data.frame(df2)
+    # Before ordering, strip all Stata/haven attributes to ensure base R `order` works
+    df1 = sfun_strip_stata_attributes(df1)
+    df2 = sfun_strip_stata_attributes(df2)
     # Ensure numeric columns are treated consistently for ordering (e.g., NAs last)
     # Stata's default sort behavior for numeric types places missing values last.
     # For character, NA is also typically last.

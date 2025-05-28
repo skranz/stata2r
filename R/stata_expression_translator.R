@@ -116,23 +116,21 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   # Order of alternatives matters: specific patterns should come before general ones.
   # A function call like `as.numeric(dplyr::row_number())` could be incorrectly matched
   # by the variable name pattern if it comes first, as `as.numeric` itself is a valid variable name.
-  operand_regex = paste0(
-      "(?:",
-      "\"[^\"]*\"|'[^']*'|",     # String literal (double or single quoted)
-      "\\d+(?:\\.\\d+)?|",       # Numeric literal
-      "\\b", func_name_pattern, "\\((?:[^()]|\\b", func_name_pattern, "\\([^()]*\\))*\\)|", # Function call (allows one level of nesting)
-      "[a-zA-Z_][a-zA-Z0-9_.]*" # Variable name (must be last to avoid premature matching)
-      ")"
-  )
+  operand_regex_part1 = "(?:\"[^\"]*\"|'[^']*'|"
+  operand_regex_part2 = "\\d+(?:\\.\\d+)?|"
+  operand_regex_part3 = paste0("\\b", func_name_pattern, "\\((?:[^()]|\\b", func_name_pattern, "\\([^()]*\\))*\\)|")
+  operand_regex_part4 = "[a-zA-Z_][a-zA-Z0-9_.]*)"
+  operand_regex = paste0(operand_regex_part1, operand_regex_part2, operand_regex_part3, operand_regex_part4)
+
 
   old_r_expr_add = ""
   while (r_expr != old_r_expr_add) {
     old_r_expr_add = r_expr
     # Regex: Match 'operand' + 'operand', where an operand is defined by `operand_regex`.
     # It ensures that `+` is treated as an operator, not part of `==` or `!=`.
-    r_expr = stringi::stri_replace_all_regex(r_expr,
-                                           paste0("(", operand_regex, ")\\s*(?<![<>=!~])\\+\\s*(?!\\s*\\+|\\s*=\\s*)(", operand_regex, ")"),
-                                           "sfun_stata_add($1, $2)")
+    add_regex_middle_part = "\\s*(?<![<>=!~])\\+\\s*(?!\\s*\\+|\\s*=\\s*)"
+    add_regex_full = paste0("(", operand_regex, ")", add_regex_middle_part, "(", operand_regex, ")")
+    r_expr = stringi::stri_replace_all_regex(r_expr, add_regex_full, "sfun_stata_add($1, $2)")
   }
 
   # Defensive check: if r_expr became empty or NA for some reason (should not happen for valid input)
