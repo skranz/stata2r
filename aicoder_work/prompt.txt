@@ -1174,8 +1174,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   # Step 5: Handle Stata missing value literal '.' (MOVED AND REFINED)
   # This must happen after functions like `is.na()` and `as.numeric()` are formed
   # to avoid replacing '.' within their names. Use word boundaries to match standalone dot.
-  # Corrected regex to avoid matching decimal points in numbers (e.g., 0.1)
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![0-9])\\.(?![0-9])", "NA_real_")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b\\.\\b", "NA_real_")
 
   # Step 6: Translate Stata '+' operator to sfun_stata_add for polymorphic behavior
   # This needs to be applied iteratively until no more '+' signs (that are not part of comparison operators) exist.
@@ -3977,29 +3976,19 @@ data = data %>%
 
  5 do:  generate rounded_value1 = round(value1, 0.1) if !missing(value1)
  5 r:  data = data %>% 
-  dplyr::mutate(`rounded_value1` = dplyr::if_else(dplyr::coalesce(!sfun_missing(value1), FALSE), sfun_stata_round(value1,  0.1), NA_real_)) 
+  dplyr::mutate(`rounded_value1` = dplyr::if_else(dplyr::coalesce(!sfun_missing(value1), FALSE), sfun_stata_round(value1,  0NA_real_1), NA_real_)) 
 data = data %>% 
-  dplyr::mutate(`rounded_value1` = dplyr::if_else(dplyr::coalesce(!sfun_missing(value1), FALSE), sfun_stata_round(value1,  0.1), NA_real_))
-
- 6 do:  generate random_uniform_draw = runiform()
- 6 r:  data = data %>% 
-  dplyr::mutate(`random_uniform_draw` = stats::runif(asNA_real_numeric(dplyr::n()))) 
-data = data %>% 
-  dplyr::mutate(`random_uniform_draw` = stats::runif(asNA_real_numeric(dplyr::n())))
-
-Error: Problem with `mutate()` column `random_uniform_draw`.
-ℹ `random_uniform_draw = stats::runif(asNA_real_numeric(dplyr::n()))`.
-✖ could not find function "asNA_real_numeric"
-Caused by error in `asNA_real_numeric()`:
-! could not find function "asNA_real_numeric"
-Error executing R code for Stata line  6 :  data = data %>% 
-  dplyr::mutate(`random_uniform_draw` = stats::runif(asNA_real_numeric(dplyr::n())))
-
-Error: Problem with `mutate()` column `random_uniform_draw`.
-ℹ `random_uniform_draw = stats::runif(asNA_real_numeric(dplyr::n()))`.
-✖ could not find function "asNA_real_numeric"
-Caused by error in `asNA_real_numeric()`:
-! could not find function "asNA_real_numeric" 
+  dplyr::mutate(`rounded_value1` = dplyr::if_else(dplyr::coalesce(!sfun_missing(value1), FALSE), sfun_stata_round(value1,  0NA_real_1), NA_real_))
+Error: <text>:2:125: unexpected symbol
+1: data = data %>% 
+2:   dplyr::mutate(`rounded_value1` = dplyr::if_else(dplyr::coalesce(!sfun_missing(value1), FALSE), sfun_stata_round(value1,  0NA_real_1
+                                                                                                                               ^
+Error executing R code for Stata line  5 :  data = data %>% 
+  dplyr::mutate(`rounded_value1` = dplyr::if_else(dplyr::coalesce(!sfun_missing(value1), FALSE), sfun_stata_round(value1,  0NA_real_1), NA_real_))
+Error: <text>:2:125: unexpected symbol
+1: data = data %>% 
+2:   dplyr::mutate(`rounded_value1` = dplyr::if_else(dplyr::coalesce(!sfun_missing(value1), FALSE), sfun_stata_round(value1,  0NA_real_1
+                                                                                                                               ^ 
 
 ##############################
 # YOUR TASK
