@@ -585,26 +585,32 @@ data = data %>%
 data = data %>% 
   dplyr::mutate(`obs_date` = sfun_stata_date(date_str,  "YMD",  2050))
 
- 30 do:  format obs_date %tdCY-N-D
- 30 r:  # Stata format command 'format obs_date %tdCY-N-D' ignored for data transformation. 
-# Stata format command 'format obs_date %tdCY-N-D' ignored for data transformation.
+ 30 do:  format obs_date %tdCY-N-D 
+
+ 30 r:  not translated since not flagged as data manipulation
 
  31 do:  gen obs_year = year(obs_date) if !missing(obs_date)
  31 r:  data = data %>% 
-  dplyr::mutate(`obs_year` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), collapse::fyear(obs_date - 3652), NA_real_)) 
+  dplyr::mutate(`obs_year` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), as.numeric(format(as.Date(obs_date, origin = '1960-01-01'), '%Y')), NA_real_)) 
 data = data %>% 
-  dplyr::mutate(`obs_year` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), collapse::fyear(obs_date - 3652), NA_real_))
+  dplyr::mutate(`obs_year` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), as.numeric(format(as.Date(obs_date, origin = '1960-01-01'), '%Y')), NA_real_))
 
-Error: Problem with `mutate()` column `obs_year`.
-ℹ `obs_year = dplyr::if_else(...)`.
-✖ 'fyear' is not an exported object from 'namespace:collapse'
-Caused by error:
-! 'fyear' is not an exported object from 'namespace:collapse'
-Error executing R code for Stata line  31 :  data = data %>% 
-  dplyr::mutate(`obs_year` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), collapse::fyear(obs_date - 3652), NA_real_))
+ 32 do:  gen obs_month = month(obs_date) if !missing(obs_date)
+ 32 r:  data = data %>% 
+  dplyr::mutate(`obs_month` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), month(obs_date), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`obs_month` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), month(obs_date), NA_real_))
 
-Error: Problem with `mutate()` column `obs_year`.
-ℹ `obs_year = dplyr::if_else(...)`.
-✖ 'fyear' is not an exported object from 'namespace:collapse'
-Caused by error:
-! 'fyear' is not an exported object from 'namespace:collapse' 
+Error: Problem with `mutate()` column `obs_month`.
+ℹ `obs_month = dplyr::if_else(...)`.
+✖ could not find function "month"
+Caused by error in `month()`:
+! could not find function "month"
+Error executing R code for Stata line  32 :  data = data %>% 
+  dplyr::mutate(`obs_month` = dplyr::if_else(dplyr::coalesce(!sfun_missing(obs_date), FALSE), month(obs_date), NA_real_))
+
+Error: Problem with `mutate()` column `obs_month`.
+ℹ `obs_month = dplyr::if_else(...)`.
+✖ could not find function "month"
+Caused by error in `month()`:
+! could not find function "month" 
