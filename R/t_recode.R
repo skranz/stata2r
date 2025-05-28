@@ -96,27 +96,30 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
           target_var_will_be_string_in_R = TRUE
           # If any rule implies string, the whole var becomes string. Labels are not applicable.
           target_var_is_numeric_with_labels = FALSE
-          break 
+          # No need to process further rules for labels if it's already determined to be a string target
+          # break # Don't break immediately, still need to parse all rules to build case_when
       }
 
       # Check for 'value "label"' syntax
       label_match = stringi::stri_match_first_regex(new_part_raw, "^\\s*([^\\s]+)\\s+(?:\"([^\"]*)\"|'([^']*)')\\s*$")
       if (!is.na(label_match[1,1])) {
-          target_var_is_numeric_with_labels = TRUE
-          numeric_val_part = stringi::stri_trim_both(label_match[1,2])
-          string_label_part = ifelse(!is.na(label_match[1,3]), label_match[1,3], label_match[1,4])
+          # If we already determined it's a string target, don't try to collect labels.
+          if (!target_var_will_be_string_in_R) {
+              target_var_is_numeric_with_labels = TRUE
+              numeric_val_part = stringi::stri_trim_both(label_match[1,2])
+              string_label_part = ifelse(!is.na(label_match[1,3]), label_match[1,3], label_match[1,4])
 
-          # Convert numeric value to R numeric (handling Stata's missing values)
-          r_numeric_val = NA_real_
-          if (numeric_val_part == ".") r_numeric_val = NA_real_
-          else if (stringi::stri_detect_regex(numeric_val_part, "^\\.[a-zA-Z]$")) r_numeric_val = NA_real_
-          else r_numeric_val = as.numeric(numeric_val_part)
+              # Convert numeric value to R numeric (handling Stata's missing values)
+              r_numeric_val = NA_real_
+              if (numeric_val_part == ".") r_numeric_val = NA_real_
+              else if (stringi::stri_detect_regex(numeric_val_part, "^\\.[a-zA-Z]$")) r_numeric_val = NA_real_
+              else r_numeric_val = as.numeric(numeric_val_part)
 
-          if (!is.na(r_numeric_val)) {
-            # Collect label: key is numeric value, value is label string
-            # This is for haven::labelled(..., labels = c(num_val = "label_str"))
-            # For haven, labels are names, values are the actual codes. So we store label=value.
-            collected_labels_temp[[string_label_part]] = r_numeric_val
+              if (!is.na(r_numeric_val)) {
+                # Collect label: key is numeric value, value is label string
+                # For haven, labels are names, values are the actual codes. So we store label=value.
+                collected_labels_temp[[string_label_part]] = r_numeric_val
+              }
           }
       }
   }
@@ -131,6 +134,7 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       # Convert to a data.frame for easier manipulation and duplicate handling
       # If a label is reused for different values, haven::labelled will just use it.
       # If a value is given multiple labels, the last one for that value applies.
+      
       temp_df_labels = data.frame(
           label = names(collected_labels_temp),
           value = unlist(collected_labels_temp, use.names = FALSE),
@@ -337,5 +341,4 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
-
 

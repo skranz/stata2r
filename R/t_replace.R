@@ -85,6 +85,16 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   if (!target_var_will_be_string && stringi::stri_detect_regex(stata_expr, "==|!=|~=|<=|>=|<|>|&|\\|")) {
     calculated_value_expr = paste0("as.numeric(", r_expr, ")")
   }
+  # If target is string, ensure the expression result is cast to string and NA_real_ becomes ""
+  if (target_var_will_be_string) {
+      if (calculated_value_expr == "NA_real_") {
+          calculated_value_expr = '""' # Stata replace for missing numeric to empty string for string variables
+      } else if (!stringi::stri_startswith_fixed(calculated_value_expr, '"') && !stringi::stri_startswith_fixed(calculated_value_expr, "'")) {
+          # Only wrap in as.character() if it's not already a quoted string
+          calculated_value_expr = paste0("as.character(", calculated_value_expr, ")")
+      }
+  }
+
 
   # For 'replace' command, if condition is FALSE or NA, the value should be left unchanged.
   # Use dplyr::coalesce(condition, FALSE) to treat NA condition as FALSE.
@@ -116,5 +126,4 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
-
 

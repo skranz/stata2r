@@ -160,4 +160,3 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   return(r_code_str)
 }
 
-

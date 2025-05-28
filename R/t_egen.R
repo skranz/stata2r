@@ -7,7 +7,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Remove type prefix if any (byte, int, long, float, double, str#, etc.)
   # Pattern: ^\s*(byte|int|long|float|double|str\\d+)\\s+
-  rest_of_cmd_no_type = stringi::stri_replace_first_regex(rest_of_cmd, "^\\s*(?:byte|int|long|float|double|str\\d+)\\s+", "")
+  rest_of_cmd_no_type = stringi::stri_replace_first_regex(rest_of_cmd, "^\\s*(?:byte|int|long|float|double|str\\d+|strL)\\s+", "")
 
   # Re-parse rest_of_cmd_no_type looking for `newvar = fcn(args) [if cond] [, options]`
   # Split at the first `=`. Left is `newvar`. Right is `fcn(args) [if cond] [, options]`
@@ -209,10 +209,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
     # Expression for the actual concatenation
     # Use na_empty = FALSE (default) because NAs are already handled.
-    concat_result_expr = paste0("stringi::stri_paste(", stri_paste_args_with_na_empty, ", sep = '')")
-
-    # Combine using if_else to handle the all-NA case (Stata concat(.,.) returns . (missing))
-    calc_expr = paste0("dplyr::if_else(", all_vars_na_check_expr, ", NA_character_, ", concat_result_expr, ")")
+    calc_expr = paste0("dplyr::if_else(", all_vars_na_check_expr, ", NA_character_, stringi::stri_paste(", stri_paste_args_with_na_empty, ", sep = ''))")
 
     is_row_function = TRUE # Concatenation is inherently row-wise.
   } else {
@@ -327,5 +324,4 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
-
 

@@ -18,4 +18,3 @@ is_stata_expr_string_type = function(stata_expr) {
   FALSE
 }
 
-

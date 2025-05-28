@@ -82,7 +82,7 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
           paste0(is_duplicate_tmp_var, " = ", is_duplicate_expr),
           paste0("## Calculate condition flag"),
           paste0(satisfies_cond_tmp_var, " = ", cond_vector_expr_with_data),
-          paste0("data = dplyr::filter(data, !(", is_duplicate_tmp_var, " & ", satisfies_cond_tmp_var, "))"),
+          paste0("data = dplyr::filter(data, !(stata_tmp_is_duplicate_L", cmd_obj$line, " & stata_tmp_satisfies_cond_L", cmd_obj$line, "))"),
           paste0("rm(", is_duplicate_tmp_var, ", ", satisfies_cond_tmp_var, ")")
       )
 
@@ -163,5 +163,4 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   return(r_code_str)
 }
-
 

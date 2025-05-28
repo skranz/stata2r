@@ -91,6 +91,21 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   temp_using_data_var = paste0("stata_tmp_using_data_L", line_num)
   r_code_lines = c(r_code_lines, paste0(temp_using_data_var, " = haven::read_dta(", using_source_r_expr, ")"))
 
+  # For 1:1 merge, check for unique keys in both master and using datasets to replicate Stata's strictness
+  if (merge_type == "1:1") {
+      r_code_lines = c(r_code_lines,
+          paste0("if (any(duplicated(data[[", vars_to_merge_on_r_vec_str, ", drop=FALSE]]))) { stop('Merge 1:1 failed: Duplicate keys found in master dataset (data).') }"),
+          paste0("if (any(duplicated(", temp_using_data_var, "[[", vars_to_merge_on_r_vec_str, ", drop=FALSE]]))) { stop('Merge 1:1 failed: Duplicate keys found in using dataset (', ", using_source_r_expr, ", ').') }")
+      )
+  }
+
+  # Ensure merge keys are plain numeric for robustness against haven-specific types
+  r_code_lines = c(r_code_lines,
+      paste0("data = dplyr::mutate(data, ", paste0("`", vars_to_merge_on, "` = as.numeric(`", vars_to_merge_on, "`)", collapse = ", "), ")"),
+      paste0(temp_using_data_var, " = dplyr::mutate(", temp_using_data_var, ", ", paste0("`", vars_to_merge_on, "` = as.numeric(`", vars_to_merge_on, "`)", collapse = ", "), ")")
+  )
+
+
   # Identify common columns that are NOT merge keys
   r_code_lines = c(r_code_lines,
     paste0("common_cols = intersect(names(data), names(", temp_using_data_var, "))"),
@@ -150,5 +165,4 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
-
 
