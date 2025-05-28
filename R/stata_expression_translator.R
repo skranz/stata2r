@@ -109,6 +109,12 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
                                            "sfun_stata_add($1, $2)")
   }
 
+  # Defensive check: if r_expr became empty or NA for some reason (should not happen for valid input)
+  if (is.na(r_expr) || r_expr == "") {
+      warning(paste0("R expression became NA or empty during translation. Original Stata expression: '", stata_expr, "'"))
+      return(NA_character_)
+  }
+
   return(r_expr)
 }
 
