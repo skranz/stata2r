@@ -1,9 +1,7 @@
-The `do2` test failed due to a type mismatch in the `recode` command's `dplyr::case_when` translation. Stata's `recode` command, when generating a new string variable, converts all missing values (including extended missing values like `.a`) to an empty string `""`. The previous translation mapped `.a` to `NA_character_`. This caused a type inconsistency in `case_when` when some branches produced string literals and others `NA_character_`. The fix ensures that when the target variable is a string, all missing values are translated to `""`.
-
-I also refined the parsing of the `missing` keyword and missing value literals in `recode` to ensure they are consistently handled as `is.na()` conditions in R.
+A very brief description of your main changes.
+Fixed an issue in t_recode.R where the regex for parsing 'value "label"' syntax was too specific, causing numeric values with string labels to be incorrectly translated as numeric. Simplified the regex to ensure correct identification and translation to character type when a string label is present in the recode rule.
 
 !CHANGE_FILE R/t_recode.R
-```R
 # Translate Stata 'recode' command
 # Stata: recode varlist (rule1)(rule2)... [if] [in] [, options]
 # Example: recode income (0=.) (100 thru 200 = 150) (300 301 305 = 300) (else=copy), gen(newincome)
@@ -101,7 +99,7 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
           break
       }
       # Check for 'value "label"' syntax
-      label_match = stringi::stri_match_first_regex(new_part_raw, "^\\s*(-?\\d*\\.?\\d+e?-?\\d*|-?\\.\\w?|\\S+)\\s+(?:\"([^\"]*)\"|'([^']*)')\\s*$")
+      label_match = stringi::stri_match_first_regex(new_part_raw, "^\\s*([^\\s]+)\\s+(?:\"([^\"]*)\"|'([^']*)')\\s*$")
       if (!is.na(label_match[1,1])) {
           any_rule_implies_string = TRUE
           break
@@ -133,6 +131,7 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # new_value can be: single value, copy (use original value), missing (.)
 
   translate_recode_rule = function(rule_str, source_var_r, target_is_string) {
+      restore.point("translate_recode_rule")
       rule_str = stringi::stri_trim_both(rule_str)
       parts_eq = stringi::stri_split_fixed(rule_str, "=", n=2)[[1]]
       if (length(parts_eq) != 2) {
@@ -178,9 +177,7 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
           r_values = r_values[!is.na(r_values)] # Filter out any NA from translation for safety
           if (length(r_values) == 0) return(paste0("## Error translating old values in rule: ", rule_str))
           # For comparison, ensure values are cast to same type as source_var_r or handled by %in%
-          # For numeric, `c(1, NA_real_)` works. For character, `c("A", NA_character_)`.
           # The `translate_stata_expression_to_r` should return string literals for string values, numeric literals for numeric.
-          # The `%in%` comparison should handle type coercion.
           r_condition = paste0(source_var_r, " %in% c(", paste(r_values, collapse = ", "), ")")
       }
 
@@ -195,7 +192,7 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
           }
       } else {
           # Check for numeric value with optional label, e.g., '1 "Very Low"'
-          label_match = stringi::stri_match_first_regex(new_part_raw, "^\\s*(-?\\d*\\.?\\d+e?-?\\d*|-?\\.\\w?|\\S+)\\s+(?:\"([^\"]*)\"|'([^']*)')\\s*$")
+          label_match = stringi::stri_match_first_regex(new_part_raw, "^\\s*([^\\s]+)\\s+(?:\"([^\"]*)\"|'([^']*)')\\s*$")
           if (!is.na(label_match[1,1])) {
               # It's a "value label" syntax
               string_label_part = ifelse(!is.na(label_match[1,3]), label_match[1,3], label_match[1,4])
@@ -278,5 +275,4 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
-```
 !END_CHANGE_FILE R/t_recode.R

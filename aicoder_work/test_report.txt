@@ -767,13 +767,13 @@ rm(stata_tmp_decoded_values_L45, stata_tmp_original_values_L45)
     value2 >= 0 & value2 <= 1 ~ "Very Low",
     value2 >= 2 & value2 <= 4 ~ "Low-Mid",
     !is.na(value2) ~ "High",
-    is.na(value2) ~ NA_character_
+    is.na(value2) ~ ""
   )) 
 data = dplyr::mutate(data, `value2_cat_str` = dplyr::case_when(
     value2 >= 0 & value2 <= 1 ~ "Very Low",
     value2 >= 2 & value2 <= 4 ~ "Low-Mid",
     !is.na(value2) ~ "High",
-    is.na(value2) ~ NA_character_
+    is.na(value2) ~ ""
   ))
 Error in vec_equal(e1, e2) : 
   Can't combine `..1` <character> and `..2` <double>.
