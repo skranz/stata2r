@@ -83,10 +83,12 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     paste0("temp_unique_values_L", cmd_obj$line, " = base::sort(base::unique(temp_source_vector_L", cmd_obj$line, "[!is.na(temp_source_vector_L", cmd_obj$line, ")]))"),
     # Create the integer codes (1, 2, ...) based on the sorted unique values. NA values in source remain NA.
     paste0("temp_numeric_values_L", cmd_obj$line, " = base::match(temp_source_vector_L", cmd_obj$line, ", temp_unique_values_L", cmd_obj$line, ")"),
-    # Assign the plain integer vector. Labels will be applied later by `label values`.
-    paste0(encoded_values_full_tmp_var, " = as.integer(temp_numeric_values_L", cmd_obj$line, ")"),
+    # Create the labels vector in the R code for haven::labelled
+    paste0("temp_labels_vector_L", cmd_obj$line, " = stats::setNames(as.numeric(1:length(temp_unique_values_L", cmd_obj$line, ")), temp_unique_values_L", cmd_obj$line, ")"),
+    # Create the haven::labelled object
+    paste0(encoded_values_full_tmp_var, " = haven::labelled(as.integer(temp_numeric_values_L", cmd_obj$line, "), labels = temp_labels_vector_L", cmd_obj$line, ")"),
     # Clean up intermediate temp variables
-    paste0("rm(temp_source_vector_L", cmd_obj$line, ", temp_unique_values_L", cmd_obj$line, ", temp_numeric_values_L", cmd_obj$line, ")")
+    paste0("rm(temp_source_vector_L", cmd_obj$line, ", temp_unique_values_L", cmd_obj$line, ", temp_numeric_values_L", cmd_obj$line, ", temp_labels_vector_L", cmd_obj$line, ")")
   )
 
   # Apply the if/in condition for assignment to the target column in 'data'
