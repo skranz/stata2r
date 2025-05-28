@@ -55,7 +55,7 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # If no keep() option is specified, default to left_join.
   join_type_r_func = "dplyr::left_join"
   keep_spec_for_comment = "match master" # Default if no keep() specified
-  indicator_col_name = "_merge_status_tmp_L" # Temporary column for join status, unique per line
+  indicator_col_name = paste0("_merge_status_tmp_L", line_num) # Make unique per line
 
   if (!is.na(options_str)) {
       keep_opt_match = stringi::stri_match_first_regex(options_str, "\\bkeep\\s*\\(([^)]+)\\)")
@@ -101,7 +101,9 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   )
 
   # Perform the join with indicator
-  r_code_lines = c(r_code_lines, paste0("data = ", join_type_r_func, "(data, ", temp_using_data_var, ", by = ", vars_to_merge_on_r_vec_str, ", indicator = \"", indicator_col_name, "\")"))
+  r_code_lines = c(r_code_lines,
+    paste0("data = ", join_type_r_func, "(data, ", temp_using_data_var, ", by = ", vars_to_merge_on_r_vec_str, ", indicator = \"", indicator_col_name, "\")")
+  )
 
   # Generate _merge variable unless nogenerate option is present
   if (!has_nogenerate) {
@@ -111,11 +113,14 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
           paste0("  `", indicator_col_name, "` == \"right_only\" ~ 2L,"),
           paste0("  `", indicator_col_name, "` == \"both\" ~ 3L,"),
           paste0("  TRUE ~ NA_integer_ # Should not happen if join is successful, but for safety"),
-          paste0(")) %>% dplyr::select(-`", indicator_col_name, "`)") # Remove temporary indicator column
+          paste0("))")
       )
   } else {
     r_code_lines = c(r_code_lines, paste0(" # _merge variable was not generated due to 'nogenerate' option."))
   }
+
+  # Always remove the temporary indicator column
+  r_code_lines = c(r_code_lines, paste0("data = dplyr::select(data, -`", indicator_col_name, "`)"))
 
   # Clean up temporary variables
   r_code_lines = c(r_code_lines, paste0("rm(", temp_using_data_var, ", common_cols, common_cols_not_by)"))
