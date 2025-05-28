@@ -77,8 +77,11 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   # Step 4: Handle r() values using the mapping
   if (!is.null(r_value_mappings) && length(r_value_mappings) > 0) {
     for (stata_r_name in names(r_value_mappings)) {
+      # Remove word boundaries (\\b) for r() values.
+      # r() is not a word boundary, so \\b prevents proper matching.
+      # stata_r_regex already escapes parentheses.
       stata_r_regex = gsub("(", "\\(", gsub(")", "\\)", stata_r_name, fixed=TRUE), fixed=TRUE)
-      r_expr = stringi::stri_replace_all_regex(r_expr, paste0("\\b", stata_r_regex, "\\b"), r_value_mappings[[stata_r_name]])
+      r_expr = stringi::stri_replace_all_regex(r_expr, stata_r_regex, r_value_mappings[[stata_r_name]])
     }
   }
 
