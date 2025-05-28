@@ -149,13 +149,13 @@ aic_test_stata2r = function(aic) {
 
 
 aic_stata2r_deploy_tests = function(test_dir) {
-  test_dir = "C:/libraries/aicoder/stata2r/aicoder_work/tests"
-  case_dirs = list.dirs("C:/libraries/aicoder/stata2r/inst/cases",full.names = TRUE, recursive=FALSE)
+  test_dir = "~/aicoder/stata2r/aicoder_work/tests"
+  case_dirs = list.dirs("~/aicoder/stata2r/inst/cases",full.names = TRUE, recursive=FALSE)
 
   # init base files in test dir
-  case_dir = case_dirs[1]
+  case_dir = case_dirs[3]
   files = list.files(case_dir,full.names = TRUE)
-  dest_dir = file.path("C:/libraries/aicoder/stata2r/aicoder_work/tests", basename(case_dir))
+  dest_dir = file.path("~/aicoder/stata2r/aicoder_work/tests", basename(case_dir))
   file.copy(files, dest_dir)
 
   templ_file = file.path("C:/libraries/aicoder/stata2r/inst/test_tpl/test_tpl.R")

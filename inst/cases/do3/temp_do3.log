@@ -1,0 +1,349 @@
+
+  ___  ____  ____  ____  ____ ®
+ /__    /   ____/   /   ____/      17.0
+___/   /   /___/   /   /___/       SE—Standard Edition
+
+ Statistics and Data Science       Copyright 1985-2021 StataCorp LLC
+                                   StataCorp
+                                   4905 Lakeway Drive
+                                   College Station, Texas 77845 USA
+                                   800-STATA-PC        https://www.stata.com
+                                   979-696-4600        stata@stata.com
+
+Stata license: Single-user  perpetual
+Serial number: 401706320773
+  Licensed to: Sebastian Kranz
+               Ulm University
+
+Notes:
+      1. Stata is running in batch mode.
+      2. Unicode is supported; see help unicode_advice.
+      3. Maximum number of variables is set to 5,000; see help set_maxvar.
+
+. do "temp_do3.do", nostop 
+
+. use "tricky_data.dta", clear
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-1.dta", replac
+> e emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-1.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-1.dta saved
+
+. label var id "Individual ID"
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-2.dta", replac
+> e emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-2.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-2.dta saved
+
+. label var time "Time Period"
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-3.dta", replac
+> e emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-3.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-3.dta saved
+
+. label var group_cat "Treatment Group"
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-4.dta", replac
+> e emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-4.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-4.dta saved
+
+. label var region_cat "Geographic Region"
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-5.dta", replac
+> e emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-5.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-5.dta saved
+
+. label var x_numeric "Continuous Covariate X"
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-6.dta", replac
+> e emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-6.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-6.dta saved
+
+. label var y_outcome "Outcome Variable Y"
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-7.dta", replac
+> e emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-7.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-7.dta saved
+
+. label var baseline_char "Baseline Characteristic"
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-8.dta", replac
+> e emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-8.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-8.dta saved
+
+. label var another_factor "Another Factor for xi"
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-9.dta", replac
+> e emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-9.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-9.dta saved
+
+. quietly regress y_outcome x_numeric
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-10.dta", repla
+> ce emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-10.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-10.dta saved
+
+. gen _temp_eN_reg1 = e(N)
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-11.dta", repla
+> ce emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-11.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-11.dta saved
+
+. gen obs_from_reg1 = _temp_eN_reg1
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-12.dta", repla
+> ce emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-12.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-12.dta saved
+
+. bysort id: replace obs_from_reg1 = cond(_n == 1, obs_from_reg1, .)
+(200 real changes made, 200 to missing)
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-13.dta", repla
+> ce emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-13.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-13.dta saved
+
+. gen _temp_df_r_reg1 = e(df_r)
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-14.dta", repla
+> ce emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-14.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-14.dta saved
+
+. gen df_resid_from_reg1 = _temp_df_r_reg1
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-15.dta", repla
+> ce emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-15.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-15.dta saved
+
+. bysort id: replace df_resid_from_reg1 = cond(_n == 1, df_resid_from_reg1, .)
+(200 real changes made, 200 to missing)
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-16.dta", repla
+> ce emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-16.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-16.dta saved
+
+. gen in_estimation_sample1 = e(sample)
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-17.dta", repla
+> ce emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-17.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-17.dta saved
+
+. assert in_estimation_sample1 == 1 | in_estimation_sample1 == 0 | missing(in_e
+> stimation_sample1)
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-18.dta", repla
+> ce emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-18.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-18.dta saved
+
+. gen y_mod_by_esample1 = y_outcome
+(3 missing values generated)
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-19.dta", repla
+> ce emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-19.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-19.dta saved
+
+. gen _cond_ymod1 = (in_estimation_sample1 == 1 & group_cat == 2)
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-20.dta", repla
+> ce emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-20.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-20.dta saved
+
+. gen _new_val_ymod1 = y_outcome * 1.1
+(3 missing values generated)
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-21.dta", repla
+> ce emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-21.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-21.dta saved
+
+. replace y_mod_by_esample1 = cond(_cond_ymod1, _new_val_ymod1, y_mod_by_esampl
+> e1)
+(82 real changes made)
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-22.dta", repla
+> ce emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-22.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-22.dta saved
+
+. xi i.group_cat
+i.group_cat       _Igroup_cat_1-3     (naturally coded; _Igroup_cat_1 omitted)
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-23.dta", repla
+> ce emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-23.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-23.dta saved
+
+. summarize _Igroup_cat_2 _Igroup_cat_3
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+_Igroup_ca~2 |        250         .34     .474659          0          1
+_Igroup_ca~3 |        250        .376    .4853517          0          1
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-24.dta", repla
+> ce emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-24.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-24.dta saved
+
+. gen _cond_xw = (_Igroup_cat_2 == 1 & !missing(_Igroup_cat_2))
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-25.dta", repla
+> ce emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-25.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-25.dta saved
+
+. gen x_weighted_by_Igroup2 = cond(_cond_xw, x_numeric * _Igroup_cat_2, .)
+(168 missing values generated)
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-26.dta", repla
+> ce emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-26.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-26.dta saved
+
+. drop _Igroup_cat*
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-27.dta", repla
+> ce emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-27.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-27.dta saved
+
+. xi i.another_factor
+i.another_fac~r   _Ianother_f_1-3     (naturally coded; _Ianother_f_1 omitted)
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-28.dta", repla
+> ce emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-28.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-28.dta saved
+
+. gen _interaction_another_f_2_xnum = _Ianother_f_2 * x_numeric
+(9 missing values generated)
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-29.dta", repla
+> ce emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-29.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-29.dta saved
+
+. gen _interaction_another_f_3_xnum = _Ianother_f_3 * x_numeric
+(9 missing values generated)
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-30.dta", repla
+> ce emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-30.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-30.dta saved
+
+. summarize _Ianother_f_2 _Ianother_f_3 _interaction_another_f_2_xnum _interact
+> ion_another_f_3_xnum
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+_Ianother_~2 |        246    .3658537    .4826507          0          1
+_Ianother_~3 |        246     .300813    .4595465          0          1
+_inte~2_xnum |        241    3.734274    5.053316          0   14.15342
+_inte~3_xnum |        241      3.2771    7.784883          0        100
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-31.dta", repla
+> ce emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-31.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-31.dta saved
+
+. drop _Ianother_f* _interaction_another_f*
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-32.dta", repla
+> ce emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-32.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-32.dta saved
+
+. xi i.region_cat*i.group_cat
+i.region_cat      _Iregion_ca_1-4     (naturally coded; _Iregion_ca_1 omitted)
+i.group_cat       _Igroup_cat_1-3     (naturally coded; _Igroup_cat_1 omitted)
+i.reg~t*i.gro~t   _IregXgro_#_#       (coded as above)
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-33.dta", repla
+> ce emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-33.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-33.dta saved
+
+. summarize _IregXgro_2_2 _IregXgro_3_3
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+_IregXgr~2_2 |        250         .08    .2718374          0          1
+_IregXgr~3_3 |        250         .08    .2718374          0          1
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-34.dta", repla
+> ce emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-34.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-34.dta saved
+
+. gen y_if_xi_interaction_specific = cond((_IregXgro_2_2 == 1), y_outcome * 100
+> , .)
+(230 missing values generated)
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-35.dta", repla
+> ce emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-35.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-35.dta saved
+
+. drop  _Igroup_cat* _IregXgro_2_2 _IregXgro_3_3
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-36.dta", repla
+> ce emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-36.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do3/do_data/do3-36.dta saved
+
+. 
+end of do-file

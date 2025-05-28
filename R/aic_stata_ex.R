@@ -5,9 +5,14 @@ example = function() {
   run_do_with_data_save(do_file)
   do_file = normalizePath("~/aicoder/stata2r/inst/cases/do2/do2.do")
   run_do_with_data_save(do_file)
+
+  do_file = normalizePath("~/aicoder/stata2r/inst/cases/do3/do3.do")
+  run_do_with_data_save(do_file)
+
 }
 
 run_do_with_data_save = function(do_file) {
+  restore.point("run_do_with_data_save")
   library(dplyr)
   dir = dirname(do_file)
   id = tools::file_path_sans_ext(basename(do_file))
