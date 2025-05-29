@@ -931,6 +931,33 @@ sfun_stata_add = function(x, y) {
 
 -----------------------------------------------------------
 
+### FILE: sfun_stata_cond.R
+```
+# Custom R implementation for Stata's cond() function.
+# Stata: cond(x, a, b) returns a if x is true (non-zero and non-missing), otherwise returns b.
+
+sfun_stata_cond = function(condition_val, true_val, false_val) {
+  restore.point("sfun_stata_cond")
+  # Convert condition_val to numeric. NAs in original numeric_cond will propagate.
+  numeric_cond = as.numeric(condition_val)
+  
+  # The condition for 'true' in Stata's cond() is: not missing AND not zero.
+  # This correctly handles Stata's missing values (e.g., .) and 0 as 'false'.
+  is_true_in_stata = !is.na(numeric_cond) & numeric_cond != 0
+  
+  # Use dplyr::if_else for vectorized conditional selection.
+  # dplyr::if_else handles NA in its `condition` argument by propagating it,
+  # but our `is_true_in_stata` explicitly converts NAs from `numeric_cond` to `FALSE`,
+  # which matches Stata's behavior of returning `false_val` when the condition is missing.
+  return(dplyr::if_else(is_true_in_stata, true_val, false_val))
+}
+
+
+```
+### END OF FILE: sfun_stata_cond.R
+
+-----------------------------------------------------------
+
 ### FILE: sfun_stata_date_single.R
 ```
 # Helper function for sfun_stata_date (non-vectorized core logic)
@@ -1623,7 +1650,8 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   while (dplyr::coalesce(r_expr != old_r_expr, FALSE)) {
     old_r_expr = r_expr
 
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bcond\\(([^,]+),([^,]+),([^)]+)\\)", "dplyr::if_else(as.logical(dplyr::coalesce(as.numeric($1), 0)), $2, $3)")
+    # Fix: Use the new sfun_stata_cond helper for robust cond() translation
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bcond\\(([^,]+),([^,]+),([^)]+)\\)", "sfun_stata_cond($1, $2, $3)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^,]+),([^)]+)\\)", "sfun_stata_round($1, $2)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^)]+)\\)", "sfun_stata_round($1, 1)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmod\\(([^,]+),([^)]+)\\)", "($1 %% $2)")
@@ -1675,7 +1703,8 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     "sfun_missing", "sfun_stata_add", "sfun_stata_round", "sfun_string", "sfun_stritrim",
     "sfun_strpos", "sfun_subinstr", "sfun_stata_mdy", "sfun_stata_date", "sfun_day",
     "sfun_month", "sfun_qofd", "sfun_dow", "sfun_normalize_string_nas", "sfun_strip_stata_attributes",
-    "sfun_compress_col_type", "sfun_is_stata_expression_string_typed", "as.logical"
+    "sfun_compress_col_type", "sfun_is_stata_expression_string_typed", "as.logical",
+    "sfun_stata_cond" # Added new helper function
   )
   
   locations = stringi::stri_locate_all_regex(r_expr, "\\b([a-zA-Z_][a-zA-Z0-9_.]*)\\b")[[1]]
@@ -1741,19 +1770,9 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   return(r_expr)
 }
 
+
 ```
 ### END OF FILE: stata_expression_translator.R
-
------------------------------------------------------------
-
-### FILE: stata_fun.R
-```
-# Possible replacements for Stata functions that cannot easily
-# directly translated to R functions.
-# Start each function with prefix s_
-
-```
-### END OF FILE: stata_fun.R
 
 -----------------------------------------------------------
 
@@ -3253,13 +3272,11 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       # Ensure logicals become 0/1. Stata converts TRUE/FALSE to 1/0 for numeric types.
       # This handles `gen newvar = x==y` resulting in numeric 0/1.
       # The check for logical operators needs to be robust.
-      # If the expression is a simple number or variable, no change.
       # If it's a logical expression, cast to numeric.
-      # Ensure is_a_logical_expression is always TRUE/FALSE, never NA.
-      is_a_logical_expression = dplyr::coalesce(
+      # Fix: Use isTRUE() to handle potential NA from `&&` operation
+      is_a_logical_expression = isTRUE(
           stringi::stri_detect_regex(calculated_value_expr_raw, "\\bTRUE\\b|\\bFALSE\\b|==|!=|<=|>=|<|>|&|\\||\\bsfun_missing\\b") &&
-          !stringi::stri_detect_fixed(calculated_value_expr_raw, "dplyr::if_else"),
-          FALSE
+          !stringi::stri_detect_fixed(calculated_value_expr_raw, "dplyr::if_else")
       )
 
       if (is_a_logical_expression) {
@@ -3299,6 +3316,7 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   
   return(paste(r_code_lines, collapse="\n"))
 }
+
 
 ```
 ### END OF FILE: t_generate.R
@@ -4304,13 +4322,11 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       # Ensure logicals become 0/1. Stata converts TRUE/FALSE to 1/0 for numeric types.
       # This handles `gen newvar = x==y` resulting in numeric 0/1.
       # The check for logical operators needs to be robust.
-      # If the expression is a simple number or variable, no change.
       # If it's a logical expression, cast to numeric.
-      # Ensure is_a_logical_expression is always TRUE/FALSE, never NA.
-      is_a_logical_expression = dplyr::coalesce(
+      # Fix: Use isTRUE() to handle potential NA from `&&` operation
+      is_a_logical_expression = isTRUE(
           stringi::stri_detect_regex(calculated_value_expr_raw, "\\bTRUE\\b|\\bFALSE\\b|==|!=|<=|>=|<|>|&|\\||\\bsfun_missing\\b") &&
-          !stringi::stri_detect_fixed(calculated_value_expr_raw, "dplyr::if_else"),
-          FALSE
+          !stringi::stri_detect_fixed(calculated_value_expr_raw, "dplyr::if_else")
       )
 
       if (is_a_logical_expression) {
@@ -4346,6 +4362,7 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 
 ```
 ### END OF FILE: t_replace.R
