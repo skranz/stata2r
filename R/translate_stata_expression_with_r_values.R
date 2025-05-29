@@ -1,5 +1,5 @@
 translate_stata_expression_with_r_values = function(stata_expr, line_num, cmd_df, context) {
-  restore.point("translate_stata_expression_with_r_values")
+  restore.point("translate_stata_expression_with_r_values") # Added restore.point
   
   r_value_mappings = list()
 
@@ -69,4 +69,5 @@ translate_stata_expression_with_r_values = function(stata_expr, line_num, cmd_df
   translated_expr = translate_stata_expression_to_r(stata_expr, context = context, r_value_mappings = r_value_mappings)
   return(translated_expr)
 }
+
 

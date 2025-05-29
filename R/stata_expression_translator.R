@@ -18,9 +18,11 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   # This prevents them from being backticked or otherwise mangled by other regexes.
   string_literal_map = list()
   # Find all string literals (double or single quoted)
-  literal_matches = stringi::stri_match_all_regex(r_expr, '"[^"]*"|\'[^\']*\'')[[1]]
+  literal_matches_list = stringi::stri_match_all_regex(r_expr, '"[^"]*"|\'[^\']*\'')
   
-  if (!is.null(literal_matches) && NROW(literal_matches) > 0) {
+  # Corrected logic to handle cases where no string literals are found (returns a matrix of NAs)
+  if (length(literal_matches_list) > 0 && !is.null(literal_matches_list[[1]]) && !is.na(literal_matches_list[[1]][1,1])) {
+      literal_matches = literal_matches_list[[1]]
       # Iterate and replace. Sorting by end position descending is safer for overlapping regexes
       # but here we are replacing fixed strings, so order doesn't strictly matter.
       # However, to avoid issues if a placeholder becomes part of a later literal,
@@ -32,7 +34,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
       for (k in seq_len(NROW(literal_matches))) {
           literal_text = literal_matches[k, 1]
           # Check if this literal_text is already a placeholder from a previous iteration (unlikely but safe)
-          if (stringi::stri_startswith_fixed(literal_text, "STATA2R_STR_LITERAL_PLACEHOLDER_") && stringi::stri_endswith_fixed(literal_text, "_")) {
+          if (dplyr::coalesce(stringi::stri_startswith_fixed(literal_text, "STATA2R_STR_LITERAL_PLACEHOLDER_") && stringi::stri_endswith_fixed(literal_text, "_"), FALSE)) {
             next # Already a placeholder, skip
           }
           placeholder_counter = placeholder_counter + 1
@@ -132,9 +134,11 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     "sfun_stata_cond"
   )
   
-  locations = stringi::stri_locate_all_regex(r_expr, "\\b([a-zA-Z_][a-zA-Z0-9_.]*)\\b")[[1]]
-  
-  if (!is.null(locations) && NROW(locations) > 0) {
+  locations_list = stringi::stri_locate_all_regex(r_expr, "\\b([a-zA-Z_][a-zA-Z0-9_.]*)\\b")
+  locations = locations_list[[1]]
+
+  # Corrected logic to handle cases where no words match (returns a matrix of NAs)
+  if (!is.null(locations) && NROW(locations) > 0 && !is.na(locations[1,1])) {
       locations = locations[order(locations[,2], decreasing = TRUE), , drop = FALSE]
       
       for (k in seq_len(NROW(locations))) {
@@ -147,7 +151,8 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
           
           is_already_backticked = FALSE
           # Check if the word is already backticked by looking at characters before and after
-          if (dplyr::coalesce(start_pos > 1 && end_pos < stringi::stri_length(r_expr), FALSE)) { # end_pos < length to ensure there's a char after
+          # Ensure position checks are robust against NA
+          if (dplyr::coalesce(start_pos > 1 && end_pos < stringi::stri_length(r_expr), FALSE)) { 
             char_before = dplyr::coalesce(stringi::stri_sub(r_expr, start_pos - 1, start_pos - 1), "")
             char_after = dplyr::coalesce(stringi::stri_sub(r_expr, end_pos + 1, end_pos + 1), "")
             is_already_backticked = (char_before == "`" && char_after == "`")
