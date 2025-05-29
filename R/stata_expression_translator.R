@@ -13,6 +13,14 @@
 #                   to R variable names (e.g. "stata_r_val_L5_mean")
 translate_stata_expression_to_r = function(stata_expr, context = list(is_by_group = FALSE), r_value_mappings = NULL) {
   restore.point("translate_stata_expression_to_r")
+  
+  # Ensure stata_expr is a single character string or NA
+  if (is.null(stata_expr) || length(stata_expr) == 0) {
+      stata_expr = NA_character_
+  } else {
+      stata_expr = as.character(stata_expr[1]) # Ensure it's a single string
+  }
+
   if (is.na(stata_expr) || stata_expr == "") {
     # If the expression is empty or NA, it generally means missing.
     # For Stata, missing numeric is '.', missing string is "".
@@ -24,7 +32,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     return("NA_real_") 
   }
 
-  r_expr = as.character(stata_expr) # Ensure r_expr is always a character string
+  r_expr = stata_expr # Now r_expr is guaranteed to be a single, non-NA, non-empty character string.
 
   # Step 1: Handle Stata missing value literals '.', '.a', ..., '.z'
   # This must happen early to prevent interference with decimal numbers or variable names.
@@ -208,5 +216,4 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   return(r_expr)
 }
-
 
