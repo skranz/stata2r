@@ -24,14 +24,14 @@ t_expand = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # but _n/_N in them needs to be resolved correctly (usually globally for these conditions)
   eval_context = list(is_by_group = FALSE) # Conditions in expand are typically global context
 
-  r_n_expr = translate_stata_expression_with_r_values(stata_n_expr, line_num, cmd_df, context = eval_context)
+  r_n_expr = translate_stata_expression_with_r_values(stata_n_expr, line_num, cmd_df, eval_context)
    if (is.na(r_n_expr) || r_n_expr == "") {
        return(paste0("# Failed to translate N expression for expand: ", stata_n_expr))
    }
 
   r_if_cond = NA_character_
   if (!is.na(stata_if_cond) && stata_if_cond != "") {
-    r_if_cond = translate_stata_expression_with_r_values(stata_if_cond, line_num, cmd_df, context = eval_context)
+    r_if_cond = translate_stata_expression_with_r_values(stata_if_cond, line_num, cmd_df, eval_context)
   }
 
   r_in_range_cond = NA_character_
@@ -79,7 +79,7 @@ t_expand = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
                           }
   # For final_r_subset_cond:
   cond_expr_with_context = if (!is.na(final_r_subset_cond) && final_r_subset_cond != "") {
-                             paste0("with(data, ", final_r_subset_cond, ")")
+                             paste0("as.logical(dplyr::coalesce(with(data, ", final_r_subset_cond, "), FALSE))")
                            } else {
                              NA_character_ # or "TRUE" if it's to be used directly
                            }
@@ -89,7 +89,7 @@ t_expand = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
        r_code_lines = c(
            paste0(temp_n_values_var, " = ", n_expr_with_context),
            paste0(temp_cond_values_var, " = ", cond_expr_with_context),
-           paste0(final_times_calc_var, " = ifelse(!is.na(", temp_cond_values_var, ") & ", temp_cond_values_var, ", ",
+           paste0(final_times_calc_var, " = ifelse(", temp_cond_values_var, ", ",
                                              "ifelse(is.na(", temp_n_values_var, "), 1, pmax(0, as.integer(", temp_n_values_var, "))), ",
                                              "1)"),
            paste0("data = data[base::rep(1:NROW(data), times = ", final_times_calc_var, "), ]"),
@@ -115,4 +115,5 @@ t_expand = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
+
 

@@ -75,7 +75,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     old_r_expr = r_expr
 
     # Apply more specific regexes first if there are overlaps (e.g., round(x,y) before round(x))
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bcond\\(([^,]+),([^,]+),([^)]+)\\)", "dplyr::if_else(dplyr::coalesce($1, FALSE), $2, $3)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bcond\\(([^,]+),([^,]+),([^)]+)\\)", "dplyr::if_else(dplyr::coalesce(as.logical($1), FALSE), $2, $3)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^,]+),([^)]+)\\)", "sfun_stata_round($1, $2)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^)]+)\\)", "sfun_stata_round($1, 1)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmod\\(([^,]+),([^)]+)\\)", "($1 %% $2)")
@@ -127,7 +127,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     "sfun_missing", "sfun_stata_add", "sfun_stata_round", "sfun_string", "sfun_stritrim",
     "sfun_strpos", "sfun_subinstr", "sfun_stata_mdy", "sfun_stata_date", "sfun_day",
     "sfun_month", "sfun_qofd", "sfun_dow", "sfun_normalize_string_nas", "sfun_strip_stata_attributes",
-    "sfun_compress_col_type", "sfun_is_stata_expression_string_typed"
+    "sfun_compress_col_type", "sfun_is_stata_expression_string_typed", "as.logical"
   )
   
   # Find all occurrences of words matching Stata variable names and their locations
@@ -211,4 +211,5 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   return(r_expr)
 }
+
 

@@ -83,7 +83,7 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       is_logical_r_expr = FALSE # Default to FALSE
       if (!is.na(calculated_value_expr_raw) && calculated_value_expr_raw != "") {
         # Check if the expression contains logical operators or literals, and is not already an if_else.
-        regex_match = stringi::stri_detect_regex(calculated_value_expr_raw, "\\bTRUE\\b|\\bFALSE\\b|==|!=|<=|>=|<|>|&|\\|")
+        regex_match = stringi::stri_detect_regex(calculated_value_expr_raw, "\\bTRUE\\b|\\bFALSE\\b|==|!=|<=|>=|<|>|&|\\||\\bsfun_missing\\b")
         fixed_match = stringi::stri_detect_fixed(calculated_value_expr_raw, "dplyr::if_else")
         # Ensure the result of logical operations is always TRUE/FALSE, never NA.
         is_logical_r_expr = dplyr::coalesce(regex_match, FALSE) && !dplyr::coalesce(fixed_match, FALSE)
@@ -102,7 +102,7 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Use dplyr::coalesce(condition, FALSE) to treat NA condition as FALSE.
   # Apply condition only if it exists
   if (!is.na(r_if_cond) && r_if_cond != "") {
-    calc_expr = paste0("dplyr::if_else(dplyr::coalesce(", r_if_cond, ", FALSE), ", calculated_value_expr, ", data$`", var_to_replace, "`)")
+    calc_expr = paste0("dplyr::if_else(as.logical(dplyr::coalesce(", r_if_cond, ", FALSE)), ", calculated_value_expr, ", data$`", var_to_replace, "`)")
   } else {
     calc_expr = calculated_value_expr
   }
@@ -125,4 +125,5 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 

@@ -96,7 +96,7 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
        r_code_lines = c(r_code_lines,
            paste0("## Calculate condition flag for encode"),
            # Stata 'if' treats missing as false. Ensure logical vector for subsetting.
-           paste0(satisfies_cond_tmp_var, " = dplyr::coalesce(with(data, ", r_if_in_cond, "), FALSE)"),
+           paste0(satisfies_cond_tmp_var, " = as.logical(dplyr::coalesce(with(data, ", r_if_in_cond, "), FALSE))"),
            # Assign only for rows meeting the condition
            paste0("data[['", gen_var, "']][", satisfies_cond_tmp_var, "] = ", encoded_values_full_tmp_var, "[", satisfies_cond_tmp_var, "]"),
            paste0("rm(", satisfies_cond_tmp_var, ")")
@@ -127,4 +127,5 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
+
 

@@ -81,7 +81,7 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
           paste0("## Calculate duplicate flag based on ", comment_vars_part),
           paste0(is_duplicate_tmp_var, " = ", is_duplicate_expr),
           paste0("## Calculate condition flag"),
-          paste0(satisfies_cond_tmp_var, " = ", cond_vector_expr_with_data),
+          paste0(satisfies_cond_tmp_var, " = as.logical(dplyr::coalesce(", cond_vector_expr_with_data, ", FALSE))"),
           paste0("data = dplyr::filter(data, !(stata_tmp_is_duplicate_L", cmd_obj$line, " & stata_tmp_satisfies_cond_L", cmd_obj$line, "))"),
           paste0("rm(", is_duplicate_tmp_var, ", ", satisfies_cond_tmp_var, ")")
       )
@@ -102,7 +102,7 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
       }
 
       # Stata `if` condition treats missing as false.
-      cond_vector_expr_with_data = if (!is.na(r_subset_cond) && r_subset_cond != "") paste0("dplyr::coalesce(with(data, ", r_subset_cond, "), FALSE)") else "TRUE"
+      cond_vector_expr_with_data = if (!is.na(r_subset_cond) && r_subset_cond != "") paste0("with(data, ", r_subset_cond, ")") else "TRUE"
       comment_vars_part = if(is.na(vars_for_duplicates)) "all variables" else paste0("variables: ", varlist_str)
 
        if (is.na(vars_for_duplicates)) {
@@ -116,9 +116,9 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
           paste0("## Calculate first occurrence flag based on ", comment_vars_part),
           paste0(is_first_tmp_var, " = ", is_first_occurrence_expr),
           paste0("## Calculate condition flag, treating NA as FALSE"),
-          paste0(satisfies_cond_tmp_var, " = ", cond_vector_expr_with_data),
+          paste0(satisfies_cond_tmp_var, " = as.logical(dplyr::coalesce(", cond_vector_expr_with_data, ", FALSE))"),
           # The if_else condition itself must treat any NA as FALSE for Stata compatibility.
-          paste0("data = dplyr::mutate(data, `", gen_var, "` = dplyr::if_else(dplyr::coalesce(", is_first_tmp_var, ", FALSE) & ", satisfies_cond_tmp_var, ", 1, 0))"),
+          paste0("data = dplyr::mutate(data, `", gen_var, "` = dplyr::if_else(as.logical(dplyr::coalesce(", is_first_tmp_var, ", FALSE)) & ", satisfies_cond_tmp_var, ", 1, 0))"),
           paste0("rm(", is_first_tmp_var, ", ", satisfies_cond_tmp_var, ")")
        )
 
@@ -138,7 +138,7 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
           paste0("## Calculate duplicate flag based on ", comment_vars_part),
           paste0(is_duplicate_tmp_var, " = ", is_duplicate_expr),
           paste0("## Calculate condition flag"),
-          paste0(satisfies_cond_tmp_var, " = ", cond_vector_expr_with_data),
+          paste0(satisfies_cond_tmp_var, " = as.logical(dplyr::coalesce(", cond_vector_expr_with_data, ", FALSE))"),
           paste0(data_duplicates_tmp_var, " = dplyr::filter(data, ", is_duplicate_tmp_var, " & ", satisfies_cond_tmp_var, ")"),
           paste0("print(", data_duplicates_tmp_var, ")"),
           paste0("rm(", is_duplicate_tmp_var, ", ", satisfies_cond_tmp_var, ", ", data_duplicates_tmp_var, ")")
@@ -163,4 +163,5 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   return(r_code_str)
 }
+
 

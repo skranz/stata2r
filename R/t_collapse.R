@@ -58,7 +58,7 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
            return(paste0("# Failed to translate if/in condition for collapse: ", stata_if_in_cond))
       }
       # Using collapse::fsubset. r_subset_cond is a string representing the logical condition.
-      r_code_lines = c(r_code_lines, paste0("data = collapse::fsubset(data, ", r_subset_cond, ")"))
+      r_code_lines = c(r_code_lines, paste0("data = collapse::fsubset(data, as.logical(dplyr::coalesce(", r_subset_cond, ", FALSE)))"))
       # data_source_for_collapse remains "data" as it's modified in place by fsubset
   }
 
@@ -98,7 +98,7 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       "p1" = paste0("collapse::fquantile(", r_source_expr_translated, ", probs = 0.01, na.rm = TRUE)"),
       "p5" = paste0("collapse::fquantile(", r_source_expr_translated, ", probs = 0.05, na.rm = TRUE)"),
       "p10" = paste0("collapse::fquantile(", r_source_expr_translated, ", probs = 0.10, na.rm = TRUE)"),
-      "p25" = paste0("collapse::fquantile(", r_source_expr_translated, ", probs = 0.25, na.rm = TRUE)"), # Corrected
+      "p25" = paste0("collapse::fquantile(", r_source_expr_translated, ", probs = 0.01, na.rm = TRUE)"), # Corrected
       "p75" = paste0("collapse::fquantile(", r_source_expr_translated, ", probs = 0.75, na.rm = TRUE)"),
       "p90" = paste0("collapse::fquantile(", r_source_expr_translated, ", probs = 0.90, na.rm = TRUE)"),
       "p95" = paste0("collapse::fquantile(", r_source_expr_translated, ", probs = 0.95, na.rm = TRUE)"),
@@ -159,4 +159,5 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
+
 

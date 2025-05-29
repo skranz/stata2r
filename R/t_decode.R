@@ -93,7 +93,7 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   if (!is.na(r_if_in_cond) && r_if_in_cond != "") {
        r_code_lines = c(r_code_lines,
            paste0("## Calculate condition flag using with(data, ...)"),
-           paste0(satisfies_cond_tmp_var, " = with(data, ", r_if_in_cond, ")"),
+           paste0(satisfies_cond_tmp_var, " = as.logical(dplyr::coalesce(with(data, ", r_if_in_cond, "), FALSE))"),
            paste0("data = dplyr::mutate(data, `", gen_var, "` = dplyr::if_else(", satisfies_cond_tmp_var, ", ", decoded_values_tmp_var, ", `", gen_var, "`))"),
            paste0("rm(", satisfies_cond_tmp_var, ")")
        )
@@ -120,4 +120,5 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
+
 

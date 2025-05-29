@@ -48,7 +48,7 @@ t_summarize = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   if (!is.na(stata_if_cond_expr)) {
     r_subset_cond = translate_stata_expression_with_r_values(stata_if_cond_expr, cmd_obj$line, cmd_df, context = list(is_by_group = FALSE))
     data_subset_varname = paste0("data_subset_L", cmd_obj$line)
-    r_code_lines = c(r_code_lines, paste0(data_subset_varname, " = dplyr::filter(data, ", r_subset_cond, ")"))
+    r_code_lines = c(r_code_lines, paste0(data_subset_varname, " = dplyr::filter(data, as.logical(dplyr::coalesce(", r_subset_cond, ", FALSE)))"))
     data_source_for_summary = data_subset_varname
   }
 
