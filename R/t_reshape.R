@@ -99,29 +99,32 @@ t_reshape = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
       # it expects columns like `inc1990`, `inc1991`, `limit1990`, `limit1991`.
 
       # Construct the `cols` argument for `pivot_longer`
-      # Stata's reshape long can infer columns, e.g., `reshape long income, i(id) j(year)` implies `income*`
-      # `reshape long income educ, i(id) j(year)` implies `income*` and `educ*`
-      # dplyr::matches is suitable for this.
-      cols_to_gather_regex = paste0("^(", paste(stubnames_or_varlist, collapse = "|"), ")")
+      # It should match columns like 'value1101', 'value2102' etc.
+      # The `stubnames_or_varlist` are "value1", "value2"
+      # The `j` values are numeric suffixes.
+      cols_to_gather_regex = paste0("^(", paste(stubnames_or_varlist, collapse = "|"), ")[0-9]+$")
       cols_to_gather_expr = paste0("dplyr::matches(\"", cols_to_gather_regex, "\")")
 
-
       # Construct the `names_pattern` to capture stubname and j_value
-      # e.g., (inc|limit)(\\d+)
-      names_pattern = paste0("^(", paste(stubnames_or_varlist, collapse = "|"), ")(.*)$")
+      # e.g., (value1|value2)(\\d+)
+      names_pattern = paste0("^(", paste(stubnames_or_varlist, collapse = "|"), ")([0-9]+)$")
 
       # names_to should be c(".value", j_var) to create new columns for each stubname
-      # .value will map the captured stubname part to the correct column name (e.g., "income", "educ")
       names_to_r = paste0('c(".value", "', j_var, '")')
 
-      r_code_str = paste0("data = tidyr::pivot_longer(data, cols = ", cols_to_gather_expr, ", names_to = ", names_to_r, ", names_pattern = \"", names_pattern, "\")")
+      # `id_cols` should be explicitly passed to `pivot_longer` to specify non-pivoted columns.
+      # This ensures that only the columns matching the `cols_to_gather_expr` regex are pivoted,
+      # and other non-i variables are retained.
+      r_code_str = paste0("data = tidyr::pivot_longer(data, cols = ", cols_to_gather_expr, ", names_to = ", names_to_r, ", names_pattern = \"", names_pattern, "\", id_cols = ", i_vars_r_vec_str, ")")
+
 
       # If j() string option was NOT used, need to convert the resulting j_var to numeric.
       # tidyr's names_pattern captures as string by default.
       if (!j_is_string) {
-         # Convert j_var to numeric after reshape
-         r_code_str = paste0(r_code_str, " %>%\n  dplyr::mutate(", j_var, " = as.numeric(", j_var, "))")
+         r_code_str = paste0(r_code_str, " %>% \n  dplyr::mutate(`", j_var, "` = as.numeric(`", j_var, "`))")
       }
+      # Normalize string NAs after reshape, as new string columns or NA values might appear
+      r_code_str = paste0(r_code_str, " %>% \n  sfun_normalize_string_nas()")
 
   } else {
       r_code_str = paste0("# Unknown reshape type: ", reshape_type)
@@ -135,4 +138,5 @@ t_reshape = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   return(r_code_str)
 }
+
 
