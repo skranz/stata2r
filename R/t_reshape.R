@@ -74,11 +74,12 @@ t_reshape = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
       # If stubnames are `inc limit`, R columns become inc_1990, inc_1991, limit_1990, limit_1991
       # Stata by default creates `stubnamejvalue` columns.
       # tidyr default is `stubname_jvalue`. Can control with `names_sep` or `names_from` + `values_from`.
-      # Let's use default `names_sep = "_"` for now.
 
       stubnames_r_vec_str = paste0('c("', paste(stubnames_or_varlist, collapse = '", "'), '")')
 
-      r_code_str = paste0("data = tidyr::pivot_wider(data, id_cols = dplyr::all_of(", i_vars_r_vec_str, "), names_from = ", j_var, ", values_from = dplyr::all_of(", stubnames_r_vec_str, "))")
+      # Changed id_cols and values_from to directly use string vectors (no dplyr::all_of)
+      # Added names_sep = "" to match Stata's default concatenation behavior.
+      r_code_str = paste0("data = tidyr::pivot_wider(data, id_cols = ", i_vars_r_vec_str, ", names_from = ", j_var, ", values_from = ", stubnames_r_vec_str, ", names_sep = \"\")")
 
   } else if (reshape_type == "long") {
       # Stata `reshape long stubnames, i(i) j(jname)`
@@ -131,5 +132,4 @@ t_reshape = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   return(r_code_str)
 }
-
 
