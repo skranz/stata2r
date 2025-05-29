@@ -1870,7 +1870,7 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       "p1" = paste0("collapse::fquantile(", r_source_expr_translated, ", probs = 0.01, na.rm = TRUE)"),
       "p5" = paste0("collapse::fquantile(", r_source_expr_translated, ", probs = 0.05, na.rm = TRUE)"),
       "p10" = paste0("collapse::fquantile(", r_source_expr_translated, ", probs = 0.10, na.rm = TRUE)"),
-      "p25" = paste0("collapse::fquantile(", r_source_expr_translated, ", probs = 0.01, na.rm = TRUE)"),
+      "p25" = paste0("collapse::fquantile(", r_source_expr_translated, ", probs = 0.25, na.rm = TRUE)"), # Corrected
       "p75" = paste0("collapse::fquantile(", r_source_expr_translated, ", probs = 0.75, na.rm = TRUE)"),
       "p90" = paste0("collapse::fquantile(", r_source_expr_translated, ", probs = 0.90, na.rm = TRUE)"),
       "p95" = paste0("collapse::fquantile(", r_source_expr_translated, ", probs = 0.95, na.rm = TRUE)"),
@@ -3168,8 +3168,11 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       # Added robustness check for NA or empty `calculated_value_expr_raw`
       is_logical_r_expr = FALSE # Default to FALSE
       if (!is.na(calculated_value_expr_raw) && calculated_value_expr_raw != "") {
-        is_logical_r_expr = stringi::stri_detect_regex(calculated_value_expr_raw, "\\bTRUE\\b|\\bFALSE\\b|==|!=|<=|>=|<|>|&|\\|") &&
-                            !stringi::stri_detect_fixed(calculated_value_expr_raw, "dplyr::if_else")
+        # Check if the expression contains logical operators or literals, and is not already an if_else.
+        regex_match = stringi::stri_detect_regex(calculated_value_expr_raw, "\\bTRUE\\b|\\bFALSE\\b|==|!=|<=|>=|<|>|&|\\|")
+        fixed_match = stringi::stri_detect_fixed(calculated_value_expr_raw, "dplyr::if_else")
+        # Ensure the result of logical operations is always TRUE/FALSE, never NA.
+        is_logical_r_expr = dplyr::coalesce(regex_match, FALSE) && !dplyr::coalesce(fixed_match, FALSE)
       }
       if (is_logical_r_expr) {
           calculated_value_expr = paste0("as.numeric(", calculated_value_expr_raw, ")")
@@ -4214,8 +4217,11 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       # Added robustness check for NA or empty `calculated_value_expr_raw`
       is_logical_r_expr = FALSE # Default to FALSE
       if (!is.na(calculated_value_expr_raw) && calculated_value_expr_raw != "") {
-        is_logical_r_expr = stringi::stri_detect_regex(calculated_value_expr_raw, "\\bTRUE\\b|\\bFALSE\\b|==|!=|<=|>=|<|>|&|\\|") &&
-                            !stringi::stri_detect_fixed(calculated_value_expr_raw, "dplyr::if_else")
+        # Check if the expression contains logical operators or literals, and is not already an if_else.
+        regex_match = stringi::stri_detect_regex(calculated_value_expr_raw, "\\bTRUE\\b|\\bFALSE\\b|==|!=|<=|>=|<|>|&|\\|")
+        fixed_match = stringi::stri_detect_fixed(calculated_value_expr_raw, "dplyr::if_else")
+        # Ensure the result of logical operations is always TRUE/FALSE, never NA.
+        is_logical_r_expr = dplyr::coalesce(regex_match, FALSE) && !dplyr::coalesce(fixed_match, FALSE)
       }
       if (is_logical_r_expr) {
           calculated_value_expr = paste0("as.numeric(", calculated_value_expr_raw, ")")
