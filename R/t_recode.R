@@ -92,8 +92,8 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       new_part_raw = stringi::stri_trim_both(parts_eq[2])
 
       # 1. Check if new value is a plain string literal (e.g., "new_string_value")
-      if ( (stringi::stri_startswith_fixed(new_part_raw, '"') && stringi::stri_endswith_fixed(new_part_raw, '"')) ||
-           (stringi::stri_startswith_fixed(new_part_raw, "'") && stringi::stri_endswith_fixed(new_part_raw, "'")) ) {
+      if ( (dplyr::coalesce(stringi::stri_startswith_fixed(new_part_raw, '"') && stringi::stri_endswith_fixed(new_part_raw, '"'), FALSE)) ||
+           (dplyr::coalesce(stringi::stri_startswith_fixed(new_part_raw, "'") && stringi::stri_endswith_fixed(new_part_raw, "'"), FALSE)) ) {
           any_rule_implies_string_output = TRUE
       }
 
@@ -170,7 +170,7 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       r_condition = ""
       if (old_part_raw == "else") {
           r_condition = "TRUE" # This rule is the fallback
-      } else if (old_part_raw == "missing" || stringi::stri_detect_regex(old_part_raw, "^\\.\\w?$")) { # Added regex for .a, .b, etc.
+      } else if (old_part_raw == "missing" || dplyr::coalesce(stringi::stri_detect_regex(old_part_raw, "^\\.\\w?$"), FALSE)) { # Added regex for .a, .b, etc.
            r_condition = paste0("sfun_missing(", source_var_r, ")") # Missing value rule (all Stata missing types to R's NA)
       } else if (old_part_raw == "nonmissing") {
            r_condition = paste0("!sfun_missing(", source_var_r, ")") # Non-missing value rule
@@ -192,12 +192,15 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       else {
           # List of values or single value
           old_values = stringi::stri_split_regex(old_part_raw, "\\s+")[[1]]
-          old_values = old_values[old_values != ""]
+          old_values = old_values[!is.na(old_values) & old_values != ""] # Filter out NA or empty strings
           r_values = sapply(old_values, function(val) {
                # Use translate_stata_expression_to_r for each value in the list
                # Stata missing values like '.' or '.a' should be handled as NA in R
+               # The `if (val == ".")` and `if (stringi::stri_detect_regex(val, "^\\.[a-zA-Z]$"))`
+               # need to be robust to `val` being NA.
+               if (is.na(val)) return("NA_real_") # Added robustness for NA input to internal function
                if (val == ".") return("NA_real_")
-               if (stringi::stri_detect_regex(val, "^\\.[a-zA-Z]$")) return("NA_real_")
+               if (dplyr::coalesce(stringi::stri_detect_regex(val, "^\\.[a-zA-Z]$"), FALSE)) return("NA_real_") # Added coalesce
                translated_val = translate_stata_expression_to_r(val, context=list(is_by_group=FALSE))
                translated_val
           })
@@ -232,7 +235,7 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
               if (final_r_var_type_is_string) {
                   if (r_new_value == "NA_real_") {
                       r_new_value = '""' # Stata recode for missing numeric to empty string for string variables
-                  } else if (!stringi::stri_startswith_fixed(r_new_value, '"') && !stringi::stri_startswith_fixed(r_new_value, "'")) {
+                  } else if (!dplyr::coalesce(stringi::stri_startswith_fixed(r_new_value, '"'), FALSE) && !dplyr::coalesce(stringi::stri_startswith_fixed(r_new_value, "'"), FALSE)) {
                       r_new_value = paste0("as.character(", r_new_value, ")")
                   }
               }
@@ -278,7 +281,9 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   r_code_lines = c(r_code_lines, paste0("data = dplyr::mutate(data, ", mutate_exprs_str, ")"))
 
   if (final_r_var_type_is_labelled_numeric && length(final_labels_map) > 0) {
-      labels_vector_r_code = paste0("c(", paste0('"', names(final_labels_map), '" = ', unname(final_labels_map), collapse=", "), ")")
+      # Ensure labels are sorted by value for consistent haven::labelled behavior
+      sorted_labels = final_labels_map[order(unname(final_labels_map))]
+      labels_vector_r_code = paste0("stats::setNames(c(", paste0(unname(sorted_labels), collapse=", "), "), c(", paste0('"', names(sorted_labels), '"', collapse=", "), "))")
 
       for (new_var in new_vars) {
           r_code_lines = c(r_code_lines, paste0("data[['", new_var, "']] = haven::labelled(data[['", new_var, "']], labels = ", labels_vector_r_code, ")"))

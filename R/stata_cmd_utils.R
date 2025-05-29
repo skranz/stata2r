@@ -171,7 +171,7 @@ parse_stata_command_line = function(line_text) {
       }
 
       for (token in by_tokens) {
-        if (stringi::stri_startswith_fixed(token, "(") && stringi::stri_endswith_fixed(token, ")")) {
+        if (dplyr::coalesce(stringi::stri_startswith_fixed(token, "(") && stringi::stri_endswith_fixed(token, ")"), FALSE)) {
           sort_vars_in_paren = stringi::stri_sub(token, 2, -2)
           by_sort_vars = c(by_sort_vars, stringi::stri_split_regex(stringi::stri_trim_both(sort_vars_in_paren), "\\s+")[[1]])
         } else {
@@ -236,11 +236,11 @@ unquote_stata_string_literal = function(s) {
   restore.point("unquote_stata_string_literal")
   if (is.na(s) || s == "") return(s)
   # Remove outer double quotes
-  if (stringi::stri_startswith_fixed(s, '"') && stringi::stri_endswith_fixed(s, '"')) {
+  if (dplyr::coalesce(stringi::stri_startswith_fixed(s, '"') && stringi::stri_endswith_fixed(s, '"'), FALSE)) {
     return(stringi::stri_sub(s, 2, -2))
   }
   # Remove outer single quotes
-  if (stringi::stri_startswith_fixed(s, "'") && stringi::stri_endswith_fixed(s, "'")) {
+  if (dplyr::coalesce(stringi::stri_startswith_fixed(s, "'") && stringi::stri_endswith_fixed(s, "'"), FALSE)) {
     return(stringi::stri_sub(s, 2, -2))
   }
   # If not quoted, return as is
@@ -254,8 +254,8 @@ quote_for_r_literal = function(s) {
   if (is.na(s)) return("NA_character_")
   if (s == "") return('""')
   # Check if already quoted with " or '
-  if (stringi::stri_startswith_fixed(s, '"') && stringi::stri_endswith_fixed(s, '"')) return(s)
-  if (stringi::stri_startswith_fixed(s, "'") && stringi::stri_endswith_fixed(s, "'")) return(s)
+  if (dplyr::coalesce(stringi::stri_startswith_fixed(s, '"') && stringi::stri_endswith_fixed(s, '"'), FALSE)) return(s)
+  if (dplyr::coalesce(stringi::stri_startswith_fixed(s, "'") && stringi::stri_endswith_fixed(s, "'"), FALSE)) return(s)
   # Add double quotes
   paste0('"', s, '"')
 }
@@ -267,7 +267,7 @@ resolve_stata_filename = function(raw_filename_token, cmd_df, line_num, default_
   unquoted_content = unquote_stata_string_literal(raw_filename_token)
 
   # Check if it's a Stata local macro reference `macroname'`
-  if (stringi::stri_startswith_fixed(unquoted_content, "`") && stringi::stri_endswith_fixed(unquoted_content, "'")) {
+  if (dplyr::coalesce(stringi::stri_startswith_fixed(unquoted_content, "`") && stringi::stri_endswith_fixed(unquoted_content, "'"), FALSE)) {
     macro_name = stringi::stri_sub(unquoted_content, 2, -2)
     
     found_def_line = NA_integer_
