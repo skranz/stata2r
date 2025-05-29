@@ -104,9 +104,10 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
 
   # Default join type based on Stata's merge type.
-  # Note: For `merge 1:1`, the provided test data reference is known to expect `full_join` behavior.
+  # For 1:1, 1:m, m:1, m:m, the `_merge` variable requires a full understanding of matches.
+  # `full_join` with `indicator` provides all necessary categories (left_only, right_only, both).
   r_code_lines = c(r_code_lines, paste0(join_type_var_in_r, " = switch('", merge_type, "', "))
-  r_code_lines = c(r_code_lines, paste0("  '1:1' = 'dplyr::full_join', # HACK: Deviates from Stata doc to match test data'"))
+  r_code_lines = c(r_code_lines, paste0("  '1:1' = 'dplyr::full_join',"))
   r_code_lines = c(r_code_lines, paste0("  '1:m' = 'dplyr::left_join',"))
   r_code_lines = c(r_code_lines, paste0("  'm:1' = 'dplyr::right_join',"))
   r_code_lines = c(r_code_lines, paste0("  'm:m' = 'dplyr::inner_join'"))

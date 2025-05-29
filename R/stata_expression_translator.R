@@ -13,7 +13,16 @@
 #                   to R variable names (e.g. "stata_r_val_L5_mean")
 translate_stata_expression_to_r = function(stata_expr, context = list(is_by_group = FALSE), r_value_mappings = NULL) {
   restore.point("translate_stata_expression_to_r")
-  if (is.na(stata_expr) || stata_expr == "") return(NA_character_)
+  if (is.na(stata_expr) || stata_expr == "") {
+    # If the expression is empty or NA, it generally means missing.
+    # For Stata, missing numeric is '.', missing string is "".
+    # In R context for translation, if an expression is missing, it should resolve to NA.
+    # The type of NA (numeric, logical, character) depends on the context.
+    # Since this function is general, assume numeric NA_real_ as default for missing expressions.
+    # If this is used as a logical condition (e.g., in an 'if' clause),
+    # `dplyr::coalesce(NA_real_, FALSE)` will correctly yield FALSE.
+    return(NA_real_) 
+  }
 
   r_expr = stata_expr
 
@@ -127,7 +136,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   # Defensive check: if r_expr became empty or NA for some reason (should not happen for valid input)
   if (is.na(r_expr) || r_expr == "") {
       warning(paste0("R expression became NA or empty during translation. Original Stata expression: '", stata_expr, "'"))
-      return(NA_character_)
+      return(NA_real_) # Ensure it's NA_real_ here too
   }
 
   return(r_expr)
