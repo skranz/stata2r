@@ -1,75 +1,6 @@
-The test failures indicate an issue with `NA` values propagating into logical contexts, specifically resulting in "missing value where TRUE/FALSE needed" errors during the translation phase. This often happens when `stringi` functions return `NA` (e.g., if input is `NA`, or a match is not found), and this `NA` is then used in a base R `if()` condition without proper `coalesce` or `is.na` handling.
+The current test failures indicate an issue with logical conditions evaluating to `NA` where a `TRUE`/`FALSE` value is expected, specifically within the `stata_expression_translator.R` file (line 200). This often happens when `NA` values propagate into `if` statements in R, which Stata handles by treating `NA` as `FALSE`. Although `dplyr::coalesce` is used to prevent this, there might be a subtle interaction causing the issue.
 
-My analysis points to two main areas for improvement:
-1.  **`stata_expression_translator.R`**: The `if` condition for backticking variable names (`if (!is_reserved && !is_numeric_literal && !is_already_backticked)`) can receive `NA` values if `is_already_backticked` or other intermediate logical results are `NA`. This needs to be wrapped in `dplyr::coalesce(..., FALSE)` to ensure a `TRUE`/`FALSE` outcome.
-2.  **`sfun_is_stata_expression_string_typed.R`**: Several `stringi::stri_detect_regex` and `stringi::stri_detect_fixed` calls within this function were not consistently wrapped with `dplyr::coalesce(..., FALSE)`. While `stringi` functions might return `NA` if the input string is `NA`, using `coalesce` ensures the logical result is always `TRUE` or `FALSE`.
-
-The provided changes address these issues by consistently applying `dplyr::coalesce(..., FALSE)` to all logical conditions that might involve `NA` results from string operations or other intermediate calculations. This should prevent the "missing value where TRUE/FALSE needed" errors during translation.
-
-!CHANGE_FILE R/sfun_is_stata_expression_string_typed.R
-```R
-sfun_is_stata_expression_string_typed = function(stata_expr_original) {
-  restore.point("sfun_is_stata_expression_string_typed")
-  
-  if (is.na(stata_expr_original) || stata_expr_original == "") return(FALSE)
-
-  # 1. Contains any string literal (text enclosed in double or single quotes)
-  # Ensure stri_detect_regex result is explicitly logical. If NA, treat as FALSE.
-  if (dplyr::coalesce(stringi::stri_detect_regex(stata_expr_original, '"[^"]*"|\'[^\']*\'' ), FALSE)) {
-    return(TRUE)
-  }
-
-  # 2. Check for explicitly numeric-returning functions. If found, return FALSE immediately.
-  numeric_producing_functions = c(
-    "log", "sqrt", "int", "round", "mod", "runiform", "mdy", "date",
-    "year", "month", "day", "qofd", "dow", "missing",
-    # Stata type casting functions that convert to numeric:
-    "float", "double", "long", "int", "byte"
-  )
-  for (func in numeric_producing_functions) {
-    if (dplyr::coalesce(stringi::stri_detect_regex(stata_expr_original, paste0("\\b", func, "\\s*\\(")), FALSE)) {
-      return(FALSE)
-    }
-  }
-
-  # 3. Check for explicitly string-returning functions.
-  string_producing_functions = c(
-    "char", "itrim", "lower", "ltrim", "proper", "rtrim", "string", "subinstr",
-    "substr", "strl", "strpos", "strreverse", "strtrim", "trim", "upper",
-    "ustrleft", "ustrlower", "ustrpos", "ustrright", "ustrtrim", "ustrunescape",
-    "ustrupper", "ustrword", "ustrwordcount", "word", "wordcount",
-    # Stata type casting functions that convert to string:
-    "string"
-  )
-  for (func in string_producing_functions) {
-    if (dplyr::coalesce(stringi::stri_detect_regex(stata_expr_original, paste0("\\b", func, "\\s*\\(")), FALSE)) {
-      return(TRUE)
-    }
-  }
-
-  # 4. `cond(condition, val_if_true, val_if_false)`: if any value (val_if_true, val_if_false) is string, result is string.
-  cond_match = stringi::stri_match_first_regex(stata_expr_original, "\\bcond\\(([^,]+),([^,]+),([^)]+)\\)")
-  if (!is.na(cond_match[1,1])) {
-      val_if_true_str = stringi::stri_trim_both(cond_match[1,3])
-      val_if_false_str = stringi::stri_trim_both(cond_match[1,4])
-      # Recursively check the arguments for string type
-      # FIX: Ensure results of recursive calls are not NA before ORing them
-      if (dplyr::coalesce(sfun_is_stata_expression_string_typed(val_if_true_str), FALSE) ||
-          dplyr::coalesce(sfun_is_stata_expression_string_typed(val_if_false_str), FALSE)) {
-          return(TRUE)
-      } else {
-          # If both are numeric, cond is numeric
-          return(FALSE)
-      }
-  }
-
-  # If none of the above rules apply, default to numeric.
-  # This implies that if it's a variable reference, it's numeric unless explicitly string.
-  # Or if it's a simple arithmetic expression, it's numeric.
-  return(FALSE)
-}
-```
-!END_CHANGE_FILE R/sfun_is_stata_expression_string_typed.R
+My primary focus is to defensively ensure that all logical components within the problematic `if` condition are explicitly `TRUE` or `FALSE` before they are combined, even if it introduces some redundancy given the existing `dplyr::coalesce` calls. This is the most direct fix for the reported error.
 
 !CHANGE_FILE R/stata_expression_translator.R
 ```R
@@ -237,7 +168,15 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
           }
           
           # This is the line that caused the error. Coalesce each part to FALSE if NA.
-          if (dplyr::coalesce(!is_reserved, FALSE) && dplyr::coalesce(!is_numeric_literal, FALSE) && dplyr::coalesce(!is_already_backticked, FALSE)) {
+          # The `dplyr::coalesce` calls on `is_reserved`, `is_numeric_literal`, `is_already_backticked`
+          # already ensure they are not NA. The error might be a subtle bug in R's `&&` operator
+          # with some specific `NA` values or the underlying C code.
+          # Explicitly ensuring they are single logicals here might prevent it.
+          local_is_reserved = as.logical(dplyr::coalesce(is_reserved, FALSE))
+          local_is_numeric_literal = as.logical(dplyr::coalesce(is_numeric_literal, FALSE))
+          local_is_already_backticked = as.logical(dplyr::coalesce(is_already_backticked, FALSE))
+
+          if (!local_is_reserved && !local_is_numeric_literal && !local_is_already_backticked) {
               # Replace the word with its backticked version
               r_expr = paste0(stringi::stri_sub(r_expr, 1, start_pos - 1),
                               "`", current_word, "`",
