@@ -2144,9 +2144,8 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
 
   # Temporary variable names
-  decoded_values_tmp_var = paste0("stata_tmp_decoded_values_L", cmd_obj$line)
-  satisfies_cond_tmp_var = paste0("stata_tmp_satisfies_cond_L", cmd_obj$line)
-  original_values_tmp_var = paste0("stata_tmp_original_values_L", cmd_obj$line) # Added for robustness
+  temp_decoded_values_L = paste0("stata_tmp_decoded_values_L", cmd_obj$line)
+  temp_source_vector_L = paste0("stata_tmp_source_vector_L", cmd_obj$line)
 
    r_code_lines = c(
       paste0("data = dplyr::mutate(data, `", gen_var, "` = NA_character_)")
@@ -2154,32 +2153,29 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
    r_code_lines = c(r_code_lines,
       paste0("## Decode values using haven::as_factor"),
-      paste0(original_values_tmp_var, " = with(data, data$`", varname_str, "`)"), # Store original values
+      paste0(temp_source_vector_L, " = data[['", varname_str, "']]"), # Store original values
       # Calculate decoded values. haven::as_factor converts unlabelled values to NA.
       # Corrected: removed `levels = 'labels'`
-      paste0(decoded_values_tmp_var, " = as.character(haven::as_factor(", original_values_tmp_var, "))"),
+      paste0(temp_decoded_values_L, " = as.character(haven::as_factor(", temp_source_vector_L, "))"),
       # Stata's decode for unlabelled numeric values converts them to their string representation.
       # And missing values (NA) are converted to empty string "".
-      paste0(decoded_values_tmp_var, " = dplyr::if_else(is.na(", decoded_values_tmp_var, "), ",
-                                    "dplyr::if_else(is.na(", original_values_tmp_var, "), \"\", as.character(", original_values_tmp_var, ")), ",
-                                    decoded_values_tmp_var, ")")
+      paste0(temp_decoded_values_L, " = dplyr::if_else(is.na(", temp_decoded_values_L, "), ",
+                                    "dplyr::if_else(is.na(", temp_source_vector_L, "), \"\", as.character(", temp_source_vector_L, ")), ",
+                                    temp_decoded_values_L, ")")
    )
 
   # Apply the if/in condition for replacement
   if (!is.na(r_if_in_cond) && r_if_in_cond != "") {
        r_code_lines = c(r_code_lines,
-           paste0("## Calculate condition flag using with(data, ...)"),
-           paste0(satisfies_cond_tmp_var, " = as.logical(dplyr::coalesce(with(data, ", r_if_in_cond, "), FALSE))"),
-           paste0("data = dplyr::mutate(data, `", gen_var, "` = dplyr::if_else(", satisfies_cond_tmp_var, ", ", decoded_values_tmp_var, ", `", gen_var, "`))"),
-           paste0("rm(", satisfies_cond_tmp_var, ")")
+           paste0("data = dplyr::mutate(data, `", gen_var, "` = dplyr::if_else(as.logical(dplyr::coalesce(", r_if_in_cond, ", FALSE)), ", temp_decoded_values_L, ", `", gen_var, "`))")
        )
   } else {
       r_code_lines = c(r_code_lines,
-           paste0("data = dplyr::mutate(data, `", gen_var, "` = ", decoded_values_tmp_var, ")")
+           paste0("data = dplyr::mutate(data, `", gen_var, "` = ", temp_decoded_values_L, ")")
       )
   }
 
-  r_code_lines = c(r_code_lines, paste0("rm(", decoded_values_tmp_var, ", ", original_values_tmp_var, ")"))
+  r_code_lines = c(r_code_lines, paste0("rm(", temp_decoded_values_L, ", ", temp_source_vector_L, ")"))
 
   r_code_str = paste(r_code_lines, collapse="\n")
 
@@ -2196,7 +2192,6 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
-
 
 ```
 ### END OF FILE: t_decode.R
@@ -2476,14 +2471,17 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   r_code_lines = c()
   # Temporary variable names
   is_duplicate_tmp_var = paste0("stata_tmp_is_duplicate_L", cmd_obj$line)
-  satisfies_cond_tmp_var = paste0("stata_tmp_satisfies_cond_L", cmd_obj$line)
   is_first_tmp_var = paste0("stata_tmp_is_first_L", cmd_obj$line)
   data_duplicates_tmp_var = paste0("stata_tmp_data_duplicates_L", cmd_obj$line)
 
 
   if (subcommand == "drop") {
       # For filter, NA in condition is treated as FALSE, which matches Stata's behavior.
-      cond_vector_expr_with_data = if (!is.na(r_subset_cond) && r_subset_cond != "") paste0("with(data, ", r_subset_cond, ")") else "TRUE"
+      filter_cond_expr = if (!is.na(r_subset_cond) && r_subset_cond != "") {
+                           paste0("as.logical(dplyr::coalesce(", r_subset_cond, ", FALSE))")
+                         } else {
+                           "TRUE"
+                         }
 
       comment_vars_part = if(is.na(vars_for_duplicates)) "all variables" else paste0("variables: ", varlist_str)
       if (is.na(vars_for_duplicates)) {
@@ -2496,10 +2494,8 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
           r_code_lines,
           paste0("## Calculate duplicate flag based on ", comment_vars_part),
           paste0(is_duplicate_tmp_var, " = ", is_duplicate_expr),
-          paste0("## Calculate condition flag"),
-          paste0(satisfies_cond_tmp_var, " = as.logical(dplyr::coalesce(", cond_vector_expr_with_data, ", FALSE))"),
-          paste0("data = dplyr::filter(data, !(stata_tmp_is_duplicate_L", cmd_obj$line, " & stata_tmp_satisfies_cond_L", cmd_obj$line, "))"),
-          paste0("rm(", is_duplicate_tmp_var, ", ", satisfies_cond_tmp_var, ")")
+          paste0("data = dplyr::filter(data, !(", is_duplicate_tmp_var, " & ", filter_cond_expr, "))"),
+          paste0("rm(", is_duplicate_tmp_var, ")")
       )
 
   } else if (subcommand == "tag") {
@@ -2517,8 +2513,12 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
           return(paste0("# duplicates tag requires gen() option: ", rest_of_cmd))
       }
 
-      # Stata `if` condition treats missing as false.
-      cond_vector_expr_with_data = if (!is.na(r_subset_cond) && r_subset_cond != "") paste0("with(data, ", r_subset_cond, ")") else "TRUE"
+      mutate_cond_expr = if (!is.na(r_subset_cond) && r_subset_cond != "") {
+                           paste0("as.logical(dplyr::coalesce(", r_subset_cond, ", FALSE))")
+                         } else {
+                           "TRUE"
+                         }
+      
       comment_vars_part = if(is.na(vars_for_duplicates)) "all variables" else paste0("variables: ", varlist_str)
 
        if (is.na(vars_for_duplicates)) {
@@ -2531,16 +2531,16 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
           r_code_lines,
           paste0("## Calculate first occurrence flag based on ", comment_vars_part),
           paste0(is_first_tmp_var, " = ", is_first_occurrence_expr),
-          paste0("## Calculate condition flag, treating NA as FALSE"),
-          paste0(satisfies_cond_tmp_var, " = as.logical(dplyr::coalesce(", cond_vector_expr_with_data, ", FALSE))"),
-          # The if_else condition itself must treat any NA as FALSE for Stata compatibility.
-          paste0("data = dplyr::mutate(data, `", gen_var, "` = dplyr::if_else(as.logical(dplyr::coalesce(", is_first_tmp_var, ", FALSE)) & ", satisfies_cond_tmp_var, ", 1, 0))"),
-          paste0("rm(", is_first_tmp_var, ", ", satisfies_cond_tmp_var, ")")
+          paste0("data = dplyr::mutate(data, `", gen_var, "` = dplyr::if_else(", is_first_tmp_var, " & ", mutate_cond_expr, ", 1, 0))"),
+          paste0("rm(", is_first_tmp_var, ")")
        )
 
   } else if (subcommand == "list") {
-       # For filter, NA in condition is treated as FALSE, which matches Stata's behavior.
-       cond_vector_expr_with_data = if (!is.na(r_subset_cond) && r_subset_cond != "") paste0("with(data, ", r_subset_cond, ")") else "TRUE"
+       filter_cond_expr = if (!is.na(r_subset_cond) && r_subset_cond != "") {
+                           paste0("as.logical(dplyr::coalesce(", r_subset_cond, ", FALSE))")
+                         } else {
+                           "TRUE"
+                         }
        comment_vars_part = if(is.na(vars_for_duplicates)) "all variables" else paste0("variables: ", varlist_str)
 
         if (is.na(vars_for_duplicates)) {
@@ -2553,11 +2553,9 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
           r_code_lines,
           paste0("## Calculate duplicate flag based on ", comment_vars_part),
           paste0(is_duplicate_tmp_var, " = ", is_duplicate_expr),
-          paste0("## Calculate condition flag"),
-          paste0(satisfies_cond_tmp_var, " = as.logical(dplyr::coalesce(", cond_vector_expr_with_data, ", FALSE))"),
-          paste0(data_duplicates_tmp_var, " = dplyr::filter(data, ", is_duplicate_tmp_var, " & ", satisfies_cond_tmp_var, ")"),
+          paste0(data_duplicates_tmp_var, " = dplyr::filter(data, ", is_duplicate_tmp_var, " & ", filter_cond_expr, ")"),
           paste0("print(", data_duplicates_tmp_var, ")"),
-          paste0("rm(", is_duplicate_tmp_var, ", ", satisfies_cond_tmp_var, ", ", data_duplicates_tmp_var, ")")
+          paste0("rm(", is_duplicate_tmp_var, ", ", data_duplicates_tmp_var, ")")
        )
 
   } else {
@@ -2579,7 +2577,6 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   return(r_code_str)
 }
-
 
 ```
 ### END OF FILE: t_duplicates.R
@@ -2973,8 +2970,7 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Temporary variable names for the fully calculated encoded vector and condition
   encoded_values_full_tmp_var = paste0("stata_tmp_encoded_full_L", cmd_obj$line)
-  satisfies_cond_tmp_var = paste0("stata_tmp_encode_cond_L", cmd_obj$line)
-
+  
   r_code_lines = c()
 
   # Initialize the new column as an integer vector. Labels will be applied by label values.
@@ -3001,12 +2997,7 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Apply the if/in condition for assignment to the target column in 'data'
   if (!is.na(r_if_in_cond) && r_if_in_cond != "") {
        r_code_lines = c(r_code_lines,
-           paste0("## Calculate condition flag for encode"),
-           # Stata 'if' treats missing as false. Ensure logical vector for subsetting.
-           paste0(satisfies_cond_tmp_var, " = as.logical(dplyr::coalesce(with(data, ", r_if_in_cond, "), FALSE))"),
-           # Assign only for rows meeting the condition
-           paste0("data[['", gen_var, "']][", satisfies_cond_tmp_var, "] = ", encoded_values_full_tmp_var, "[", satisfies_cond_tmp_var, "]"),
-           paste0("rm(", satisfies_cond_tmp_var, ")")
+           paste0("data = dplyr::mutate(data, `", gen_var, "` = dplyr::if_else(as.logical(dplyr::coalesce(", r_if_in_cond, ", FALSE)), ", encoded_values_full_tmp_var, ", `", gen_var, "`))")
        )
   } else {
       # No condition, assign the full encoded vector
@@ -3034,7 +3025,6 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
-
 
 ```
 ### END OF FILE: t_encode.R
@@ -3305,21 +3295,8 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
 
   # Apply condition only if it exists
-  # Introduce temporary variable for condition evaluation to avoid translation-time logical error
-  temp_if_cond_var = paste0("stata_tmp_if_cond_L", line_num)
-  
-  r_code_lines = c()
-  
-  # Generate the condition variable first using with(data, ...) to evaluate at runtime
   if (!is.na(r_if_cond) && r_if_cond != "") {
-      r_code_lines = c(r_code_lines, paste0(temp_if_cond_var, " = as.logical(dplyr::coalesce(with(data, ", r_if_cond, "), FALSE))"))
-  } else {
-      r_code_lines = c(r_code_lines, paste0(temp_if_cond_var, " = TRUE")) # Always apply if no condition
-  }
-
-
-  if (!is.na(r_if_cond) && r_if_cond != "") {
-    calc_expr = paste0("dplyr::if_else(", temp_if_cond_var, ", ", calculated_value_expr, ", ", na_or_empty_str_for_false_cond, ")")
+    calc_expr = paste0("dplyr::if_else(as.logical(dplyr::coalesce(", r_if_cond, ", FALSE)), ", calculated_value_expr, ", ", na_or_empty_str_for_false_cond, ")")
   } else {
     calc_expr = calculated_value_expr
   }
@@ -3339,12 +3316,8 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # This is the final assignment line for the current command
   # It takes 'data' (potentially already arranged) and pipes it through the rest
-  r_code_lines = c(r_code_lines, paste0("data = ", paste(pipe_elements, collapse = " %>% \n  ")))
+  r_code_lines = c(paste0("data = ", paste(pipe_elements, collapse = " %>% \n  ")))
   
-  # Clean up temporary condition variable
-  r_code_lines = c(r_code_lines, paste0("rm(", temp_if_cond_var, ")"))
-
-
   return(paste(r_code_lines, collapse="\n"))
 }
 
@@ -4375,21 +4348,8 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # For 'replace' command, if condition is FALSE or NA, the value should be left unchanged.
   # Use dplyr::coalesce(condition, FALSE) to treat NA condition as FALSE.
   # Apply condition only if it exists
-  # Introduce temporary variable for condition evaluation to avoid translation-time logical error
-  temp_if_cond_var = paste0("stata_tmp_if_cond_L", line_num)
-
-  r_code_lines = c()
-  
-  # Generate the condition variable first using with(data, ...) to evaluate at runtime
   if (!is.na(r_if_cond) && r_if_cond != "") {
-      r_code_lines = c(r_code_lines, paste0(temp_if_cond_var, " = as.logical(dplyr::coalesce(with(data, ", r_if_cond, "), FALSE))"))
-  } else {
-      r_code_lines = c(r_code_lines, paste0(temp_if_cond_var, " = TRUE")) # Always apply if no condition
-  }
-
-
-  if (!is.na(r_if_cond) && r_if_cond != "") {
-    calc_expr = paste0("dplyr::if_else(", temp_if_cond_var, ", ", calculated_value_expr, ", data$`", var_to_replace, "`)")
+    calc_expr = paste0("dplyr::if_else(as.logical(dplyr::coalesce(", r_if_cond, ", FALSE)), ", calculated_value_expr, ", data$`", var_to_replace, "`)")
   } else {
     calc_expr = calculated_value_expr
   }
@@ -4406,8 +4366,7 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       pipe_elements = c(pipe_elements, paste0("dplyr::mutate(`", var_to_replace, "` = ", calc_expr, ")"))
   }
 
-  r_code_lines = c(r_code_lines, paste0("data = ", paste(pipe_elements, collapse = " %>% \n  ")))
-  r_code_lines = c(r_code_lines, paste0("rm(", temp_if_cond_var, ")"))
+  r_code_lines = c(paste0("data = ", paste(pipe_elements, collapse = " %>% \n  ")))
 
   return(paste(r_code_lines, collapse="\n"))
 }
