@@ -14,36 +14,28 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   r_expr = stata_expr
 
-  # --- New: Handle string literals by replacing them with unique placeholders ---
+  # --- Handle string literals by replacing them with unique placeholders ---
   # This prevents them from being backticked or otherwise mangled by other regexes.
   string_literal_map = list()
+  placeholder_counter = 0
+
   # Find all string literals (double or single quoted)
-  literal_matches_list = stringi::stri_match_all_regex(r_expr, '"[^"]*"|\'[^\']*\'')
+  literal_matches_list = stringi::stri_match_all_regex(r_expr, '"[^"]*"|\'[^\']*\'' )
   
-  # Corrected logic to handle cases where no string literals are found (returns a matrix of NAs)
-  if (length(literal_matches_list) > 0 && !is.null(literal_matches_list[[1]]) && !is.na(literal_matches_list[[1]][1,1])) {
-      literal_matches = literal_matches_list[[1]]
-      # Iterate and replace. Sorting by end position descending is safer for overlapping regexes
-      # but here we are replacing fixed strings, so order doesn't strictly matter.
-      # However, to avoid issues if a placeholder becomes part of a later literal,
-      # it's good to replace in a way that doesn't affect other parts of the string being processed.
-      # For this simple replacement, a simple loop over matches is fine.
+  if (length(literal_matches_list) > 0 && !is.null(literal_matches_list[[1]]) && NROW(literal_matches_list[[1]]) > 0 && !is.na(literal_matches_list[[1]][1,1])) {
+      # Get unique literals
+      unique_literals = unique(literal_matches_list[[1]][,1])
       
-      # Use a unique counter for placeholders
-      placeholder_counter = 0
-      for (k in seq_len(NROW(literal_matches))) {
-          literal_text = literal_matches[k, 1]
-          # Check if this literal_text is already a placeholder from a previous iteration (unlikely but safe)
-          if (dplyr::coalesce(stringi::stri_startswith_fixed(literal_text, "STATA2R_STR_LITERAL_PLACEHOLDER_") && stringi::stri_endswith_fixed(literal_text, "_"), FALSE)) {
-            next # Already a placeholder, skip
-          }
+      for (literal_text in unique_literals) {
           placeholder_counter = placeholder_counter + 1
-          placeholder = paste0("STATA2R_STR_LITERAL_PLACEHOLDER_", placeholder_counter, "_")
-          r_expr = stringi::stri_replace_first_fixed(r_expr, literal_text, placeholder)
-          string_literal_map[[placeholder]] = literal_text # Store after replacement to avoid issues with already replaced text
+          # Make placeholder start with a number or other non-letter/non-underscore char
+          # to ensure it's not matched by `\\b([a-zA-Z_][a-zA-Z0-9_.]*)\\b`
+          placeholder = paste0("_", placeholder_counter, "STATA2R_SLIT_") 
+          r_expr = stringi::stri_replace_all_fixed(r_expr, literal_text, placeholder)
+          string_literal_map[[placeholder]] = literal_text # Store with original quotes
       }
   }
-  # --- End new string literal handling ---
+  # --- End string literal handling ---
 
 
   # Step 1: Handle Stata missing value literals '.', '.a', ..., '.z'
@@ -51,9 +43,12 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   # Step 2: Handle r() values using the mapping.
   if (!is.null(r_value_mappings) && length(r_value_mappings) > 0) {
-    for (stata_r_name in names(r_value_mappings)) {
-      stata_r_regex = gsub("(", "\\(", gsub(")", "\\)", stata_r_name, fixed=TRUE), fixed=TRUE)
-      r_expr = stringi::stri_replace_all_regex(r_expr, stata_r_regex, r_value_mappings[[stata_r_name]])
+    # Sort r_value_mappings by name length descending to avoid partial matches (e.g., r(N) before r(mean))
+    sorted_r_names = names(r_value_mappings)[order(stringi::stri_length(names(r_value_mappings)), decreasing = TRUE)]
+    for (stata_r_name in sorted_r_names) {
+      # Escape parentheses in the regex pattern
+      stata_r_regex = gsub("([()])", "\\\\\\1", stata_r_name, fixed=TRUE) # Use fixed=TRUE for simplicity with gsub
+      r_expr = stringi::stri_replace_all_fixed(r_expr, stata_r_name, r_value_mappings[[stata_r_name]])
     }
   }
 
@@ -134,11 +129,13 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     "sfun_stata_cond"
   )
   
+  # Find all words that could be variable names
   locations_list = stringi::stri_locate_all_regex(r_expr, "\\b([a-zA-Z_][a-zA-Z0-9_.]*)\\b")
   locations = locations_list[[1]]
 
-  # Corrected logic to handle cases where no words match (returns a matrix of NAs)
+  # Check if locations is valid (not NULL, not all NAs)
   if (!is.null(locations) && NROW(locations) > 0 && !is.na(locations[1,1])) {
+      # Iterate from end to beginning to avoid issues with changed string length
       locations = locations[order(locations[,2], decreasing = TRUE), , drop = FALSE]
       
       for (k in seq_len(NROW(locations))) {
@@ -146,6 +143,14 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
           end_pos = locations[k,2]
           current_word = stringi::stri_sub(r_expr, start_pos, end_pos)
           
+          # Check if the word is a placeholder for a string literal
+          # This check is now robust because placeholders start with _number_ and won't match the regex.
+          # So `if (current_word %in% names(string_literal_map))` is technically not needed for *this* placeholder type,
+          # but keeping it for robustness/future changes.
+          if (current_word %in% names(string_literal_map)) {
+              next 
+          }
+
           is_reserved = dplyr::coalesce(current_word %in% r_reserved_words, FALSE)
           is_numeric_literal = dplyr::coalesce(suppressWarnings(!is.na(as.numeric(current_word))), FALSE)
           
@@ -171,7 +176,8 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   # Define a more robust pattern for operands that can be on either side of '+'
   # This pattern tries to capture common R-translated elements like quoted strings, numbers, NA/NULL,
   # backticked variable names, and function calls.
-  operand_pattern = "(?:\"[^\"]*\"|'[^']*'|\\d+(?:\\.\\d+)?(?:e[+-]?\\d+)?|\\b(?:NA_real_|NULL)\\b|\\b(?:TRUE|FALSE)\\b|`[^`]+`|\\b[a-zA-Z_][a-zA-Z0-9_.]*\\s*\\(.*?\\)\\s*)"
+  # It should now also correctly handle placeholders.
+  operand_pattern = "(?:\"[^\"]*\"|'[^']*'|\\d+(?:\\.\\d+)?(?:e[+-]?\\d+)?|\\b(?:NA_real_|NULL)\\b|\\b(?:TRUE|FALSE)\\b|`[^`]+`|\\b[a-zA-Z_][a-zA-Z0-9_.]*\\s*\\(.*?\\)\\s*|_[0-9]+STATA2R_SLIT_)"
   
   old_r_expr_add = ""
   # Loop to apply replacements until no more '+' can be replaced, handling nested sfun_stata_add
@@ -186,23 +192,21 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   }
 
 
-  # --- New: Restore string literals from placeholders ---
+  # --- Restore string literals from placeholders ---
   # Iterate in reverse order of placeholder creation to handle potential nested replacements
   # though for string literals, simple fixed replacement is usually fine.
   # Sorting by the length of the placeholder name (descending) ensures longer placeholders are replaced first,
   # preventing partial matches if placeholders were substrings of each other.
   # Here, placeholder names are unique and fixed length prefix, so simple iteration is fine.
   if (length(string_literal_map) > 0) {
-      # Use a loop over sorted names to ensure deterministic order if needed, but for fixed string replacement, it's not critical.
-      # For robustness, we could sort by length then alphabetically.
+      # Sort placeholders by length descending, then by name descending (for deterministic order)
       sorted_placeholders = names(string_literal_map)[order(stringi::stri_length(names(string_literal_map)), names(string_literal_map), decreasing = TRUE)]
       for (placeholder in sorted_placeholders) {
           r_expr = stringi::stri_replace_all_fixed(r_expr, placeholder, string_literal_map[[placeholder]])
       }
   }
-  # --- End new string literal restoration ---
+  # --- End string literal restoration ---
 
   return(r_expr)
 }
-
 
