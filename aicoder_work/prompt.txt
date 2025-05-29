@@ -718,28 +718,55 @@ sfun_is_stata_expression_string_typed = function(stata_expr_original) {
   if (stringi::stri_detect_regex(stata_expr_original, '"[^"]*"|\'[^\']\'')) {
     return(TRUE)
   }
-  
-  # 2. Contains Stata functions that produce a string type
-  # This list focuses on functions whose output type is always string.
+
+  # 2. Check for explicitly numeric-returning functions. If found, return FALSE immediately.
+  numeric_producing_functions = c(
+    "log", "sqrt", "int", "round", "mod", "runiform", "mdy", "date",
+    "year", "month", "day", "qofd", "dow", "missing",
+    # Stata type casting functions that convert to numeric:
+    "float", "double", "long", "int", "byte"
+  )
+  for (func in numeric_producing_functions) {
+    # Match function calls like func(...) but not variable names that contain func.
+    # Use word boundary `\b` to avoid partial matches.
+    if (stringi::stri_detect_regex(stata_expr_original, paste0("\\b", func, "\\s*\\("))) {
+      return(FALSE)
+    }
+  }
+
+  # 3. Check for explicitly string-returning functions.
   string_producing_functions = c(
     "char", "itrim", "lower", "ltrim", "proper", "rtrim", "string", "subinstr",
     "substr", "strl", "strpos", "strreverse", "strtrim", "trim", "upper",
     "ustrleft", "ustrlower", "ustrpos", "ustrright", "ustrtrim", "ustrunescape",
-    "ustrupper", "ustrword", "ustrwordcount", "word", "wordcount"
+    "ustrupper", "ustrword", "ustrwordcount", "word", "wordcount",
+    # Stata type casting functions that convert to string:
+    "string"
   )
   for (func in string_producing_functions) {
-    # Match function calls like func(...) but not variable names that contain func.
-    # Use word boundary `\b` to avoid partial matches.
-    # Also handle possible spaces after function name: `func (arg)`
     if (stringi::stri_detect_regex(stata_expr_original, paste0("\\b", func, "\\s*\\("))) {
       return(TRUE)
     }
   }
-  
-  # 3. `cond(condition, val_if_true, val_if_false)`: if any value (val_if_true, val_if_false) is string, result is string.
-  # This is complex to parse perfectly with simple regex, but a basic check can be added if needed.
-  # For now, relying on explicit string literals or string functions within cond's arguments is assumed.
-  
+
+  # 4. `cond(condition, val_if_true, val_if_false)`: if any value (val_if_true, val_if_false) is string, result is string.
+  # This requires parsing the arguments of cond.
+  cond_match = stringi::stri_match_first_regex(stata_expr_original, "\\bcond\\(([^,]+),([^,]+),([^)]+)\\)")
+  if (!is.na(cond_match[1,1])) {
+      val_if_true_str = stringi::stri_trim_both(cond_match[1,3])
+      val_if_false_str = stringi::stri_trim_both(cond_match[1,4])
+      # Recursively check the arguments for string type
+      if (sfun_is_stata_expression_string_typed(val_if_true_str) || sfun_is_stata_expression_string_typed(val_if_false_str)) {
+          return(TRUE)
+      } else {
+          # If both are numeric, cond is numeric
+          return(FALSE)
+      }
+  }
+
+  # If none of the above rules apply, default to numeric.
+  # This implies that if it's a variable reference, it's numeric unless explicitly string.
+  # Or if it's a simple arithmetic expression, it's numeric.
   return(FALSE)
 }
 
@@ -3120,49 +3147,57 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     }
   }
 
-  # Determine if the target variable will be a string type based on the R expression.
-  target_var_will_be_string = FALSE
-  if (!is.na(declared_type_str) && stringi::stri_startswith_fixed(declared_type_str, "str")) {
-      target_var_will_be_string = TRUE
-  } else {
-      # Infer type from Stata expression if not explicitly declared
-      target_var_will_be_string = sfun_is_stata_expression_string_typed(stata_expr)
+  # Determine if the target variable will be a string type based on EXPLICIT Stata declaration.
+  # If no explicit type, let R infer from the translated expression.
+  force_r_output_type = NA_character_ # "character" or "numeric"
+
+  if (!is.na(declared_type_str)) {
+      if (stringi::stri_startswith_fixed(declared_type_str, "str")) {
+          force_r_output_type = "character"
+      } else { # byte, int, long, float, double
+          force_r_output_type = "numeric"
+      }
   }
 
   # Step 1: Calculate the value for the new variable, potentially conditionally
   calculated_value_expr_raw = r_expr # This is the R translation of stata_expr
 
-  # Determine if `calculated_value_expr_raw` (the R expression) is a logical one (TRUE/FALSE result).
-  # This is a heuristic. Exclude `dplyr::if_else` because its output type is managed internally
-  # and it already handles type consistency for its arguments.
-  is_logical_r_expr = stringi::stri_detect_regex(calculated_value_expr_raw, "\\bTRUE\\b|\\bFALSE\\b|==|!=|<=|>=|<|>|&|\\|") &&
-                      !stringi::stri_detect_fixed(calculated_value_expr_raw, "dplyr::if_else")
-
-
-  if (target_var_will_be_string) {
+  # Apply explicit type casting if declared in Stata command
+  if (force_r_output_type == "character") {
       # If Stata expression is numeric NA (.), it translates to NA_real_.
       # When assigned to a string variable, Stata treats '.' as "".
       if (calculated_value_expr_raw == "NA_real_") {
           calculated_value_expr = '""'
-      } else if (stringi::stri_startswith_fixed(calculated_value_expr_raw, '"') || stringi::stri_startswith_fixed(calculated_value_expr_raw, "'")) {
-          # Already a string literal, no casting needed (assuming it's correctly translated)
-          calculated_value_expr = calculated_value_expr_raw
       } else {
-          # Cast to character for other expressions (e.g., numeric variables, logicals)
+          # Cast to character for other expressions
           calculated_value_expr = paste0("as.character(", calculated_value_expr_raw, ")")
       }
-  } else { # Target variable will be numeric/logical
+  } else if (force_r_output_type == "numeric") {
+      # Ensure logicals become 0/1. Other numeric types should already be fine.
+      # This handles `gen newvar = x==y` resulting in numeric 0/1.
+      is_logical_r_expr = stringi::stri_detect_regex(calculated_value_expr_raw, "\\bTRUE\\b|\\bFALSE\\b|==|!=|<=|>=|<|>|&|\\|") &&
+                          !stringi::stri_detect_fixed(calculated_value_expr_raw, "dplyr::if_else")
       if (is_logical_r_expr) {
-          # Logical expressions should result in numeric 0/1 (Stata's behavior)
           calculated_value_expr = paste0("as.numeric(", calculated_value_expr_raw, ")")
       } else {
-          # Default to the raw translated expression (should be numeric)
           calculated_value_expr = calculated_value_expr_raw
       }
+  } else { # No explicit type declared in Stata, let R infer
+      calculated_value_expr = calculated_value_expr_raw
   }
 
   # The value to assign if the condition is false/missing.
-  na_or_empty_str_for_false_cond = if (target_var_will_be_string) '""' else "NA_real_"
+  na_or_empty_str_for_false_cond = if (force_r_output_type == "character") '""' else "NA_real_"
+  if (is.na(force_r_output_type)) { # If R infers, it should infer NA for missing.
+    # Check if the original stata_expr is numeric. If so, default to NA_real_. Else "".
+    # This is a heuristic. Let's simplify and assume NA_real_ unless it's explicitly a string expression.
+    if (sfun_is_stata_expression_string_typed(stata_expr)) { # If the expression itself is string, its "missing" should be "".
+      na_or_empty_str_for_false_cond = '""'
+    } else {
+      na_or_empty_str_for_false_cond = "NA_real_"
+    }
+  }
+
 
   if (!is.na(r_if_cond) && r_if_cond != "") {
     # Stata's 'if' condition treats NA as FALSE.
@@ -4154,45 +4189,43 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     }
   }
 
-  # Determine if the target variable will be a string type based on the R expression.
-  target_var_will_be_string = FALSE
-  if (!is.na(declared_type_str) && stringi::stri_startswith_fixed(declared_type_str, "str")) {
-      target_var_will_be_string = TRUE
-  } else {
-      # Infer type from Stata expression if not explicitly declared
-      target_var_will_be_string = sfun_is_stata_expression_string_typed(stata_expr)
+  # Determine if the target variable will be a string type based on EXPLICIT Stata declaration.
+  # If no explicit type, let R infer from the translated expression.
+  force_r_output_type = NA_character_ # "character" or "numeric"
+
+  if (!is.na(declared_type_str)) {
+      if (stringi::stri_startswith_fixed(declared_type_str, "str")) {
+          force_r_output_type = "character"
+      } else { # byte, int, long, float, double
+          force_r_output_type = "numeric"
+      }
   }
-  # If not explicitly declared and not string expression, assume numeric.
 
   # Step 1: Calculate the value for the new variable, potentially conditionally
   calculated_value_expr_raw = r_expr # This is the R translation of stata_expr
 
-  # Determine if `calculated_value_expr_raw` (the R expression) is a logical one (TRUE/FALSE result).
-  # This is a heuristic. Exclude `dplyr::if_else` because its output type is managed internally
-  # and it already handles type consistency for its arguments.
-  is_logical_r_expr = stringi::stri_detect_regex(calculated_value_expr_raw, "\\bTRUE\\b|\\bFALSE\\b|==|!=|<=|>=|<|>|&|\\|") &&
-                      !stringi::stri_detect_fixed(calculated_value_expr_raw, "dplyr::if_else")
-
-  if (target_var_will_be_string) {
+  # Apply explicit type casting if declared in Stata command
+  if (force_r_output_type == "character") {
       # If Stata expression is numeric NA (.), it translates to NA_real_.
       # When assigned to a string variable, Stata treats '.' as "".
       if (calculated_value_expr_raw == "NA_real_") {
           calculated_value_expr = '""'
-      } else if (stringi::stri_startswith_fixed(calculated_value_expr_raw, '"') || stringi::stri_startswith_fixed(calculated_value_expr_raw, "'")) {
-          # Already a string literal, no casting needed (assuming it's correctly translated)
-          calculated_value_expr = calculated_value_expr_raw
       } else {
-          # Cast to character for other expressions (e.g., numeric variables, logicals)
+          # Cast to character for other expressions
           calculated_value_expr = paste0("as.character(", calculated_value_expr_raw, ")")
       }
-  } else { # Target variable will be numeric/logical
+  } else if (force_r_output_type == "numeric") {
+      # Ensure logicals become 0/1. Other numeric types should already be fine.
+      # This handles `gen newvar = x==y` resulting in numeric 0/1.
+      is_logical_r_expr = stringi::stri_detect_regex(calculated_value_expr_raw, "\\bTRUE\\b|\\bFALSE\\b|==|!=|<=|>=|<|>|&|\\|") &&
+                          !stringi::stri_detect_fixed(calculated_value_expr_raw, "dplyr::if_else")
       if (is_logical_r_expr) {
-          # Logical expressions should result in numeric 0/1 (Stata's behavior)
           calculated_value_expr = paste0("as.numeric(", calculated_value_expr_raw, ")")
       } else {
-          # Default to the raw translated expression (should be numeric)
           calculated_value_expr = calculated_value_expr_raw
       }
+  } else { # No explicit type declared in Stata, let R infer
+      calculated_value_expr = calculated_value_expr_raw
   }
 
 
@@ -4775,110 +4808,12 @@ str(cmd_df)
 NULL
 
 ---
-#Translate Stata to R commands... ... translation done.
----
-# Run translated R commands and compare results
+#Translate Stata to R commands... 
+Error when creating translated code in for line 6
 
-
- 1 do:  use "data.dta", clear
- 1 r:  data = haven::read_dta(file.path(stata2r_env$working_dir, "data.dta")) %>% 
-  sfun_normalize_string_nas() %>%
-  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used 
-data = haven::read_dta(file.path(stata2r_env$working_dir, "data.dta")) %>% 
-  sfun_normalize_string_nas() %>%
-  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used
-
- 2 do:  sort group i
- 2 r:  data = dplyr::arrange(data, !!!dplyr::syms(c("group", "i"))) 
-data = dplyr::arrange(data, !!!dplyr::syms(c("group", "i")))
-
- 3 do:  keep in 1/39
- 3 r:  data = dplyr::slice(data, 1:39) 
-data = dplyr::slice(data, 1:39)
-
- 4 do:  list in 1/5 
-
- 4 r:  not translated since not flagged as data manipulation
-
- 5 do:  display _n 
-
- 5 r:  not translated since not flagged as data manipulation
-
- 6 do:  by group: gen seq = _n
- 6 r:  data = data %>% 
-  dplyr::group_by(!!!dplyr::syms(c("group"))) %>% 
-  dplyr::mutate(`seq` = as.numeric(dplyr::row_number())) %>% 
-  dplyr::ungroup() 
-data = data %>% 
-  dplyr::group_by(!!!dplyr::syms(c("group"))) %>% 
-  dplyr::mutate(`seq` = as.numeric(dplyr::row_number())) %>% 
-  dplyr::ungroup()
-
- 7 do:  gen logi = log(i)
- 7 r:  data = data %>% 
-  dplyr::mutate(`logi` = log(i)) 
-data = data %>% 
-  dplyr::mutate(`logi` = log(i))
-
- 8 do:  gen sqrt_i = sqrt(i)
- 8 r:  data = data %>% 
-  dplyr::mutate(`sqrt_i` = sqrt(i)) 
-data = data %>% 
-  dplyr::mutate(`sqrt_i` = sqrt(i))
-
- 9 do:  gen group_num = cond(group=="A",1,cond(group=="B",2,3))
- 9 r:  data = data %>% 
-  dplyr::mutate(`group_num` = as.character(dplyr::if_else(group=="A", 1, dplyr::if_else(group=="B", 2, 3)))) 
-data = data %>% 
-  dplyr::mutate(`group_num` = as.character(dplyr::if_else(group=="A", 1, dplyr::if_else(group=="B", 2, 3))))
-
-Error: After Stata line  9 , R data set differs from Stata reference.
-
-Data set from Stata (do_df):
-tibble [39 × 6] (S3: tbl_df/tbl/data.frame)
- $ i        : num [1:39] 10 13 16 19 20 21 22 27 31 34 ...
-  ..- attr(*, "label")= chr "i"
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ group    : chr [1:39] "A" "A" "A" "A" ...
-  ..- attr(*, "label")= chr "group"
-  ..- attr(*, "format.stata")= chr "%1s"
- $ seq      : num [1:39] 1 2 3 4 5 6 7 8 9 10 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ logi     : num [1:39] 2.3 2.56 2.77 2.94 3 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ sqrt_i   : num [1:39] 3.16 3.61 4 4.36 4.47 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ group_num: num [1:39] 1 1 1 1 1 1 1 1 1 1 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- - attr(*, "label")= chr "Written by R."
-NULL
-
-Data set from R (r_df):
-tibble [39 × 7] (S3: tbl_df/tbl/data.frame)
- $ i                         : num [1:39] 10 13 16 19 20 21 22 27 31 34 ...
-  ..- attr(*, "label")= chr "i"
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ group                     : chr [1:39] "A" "A" "A" "A" ...
-  ..- attr(*, "label")= chr "group"
-  ..- attr(*, "format.stata")= chr "%1s"
- $ stata2r_original_order_idx: int [1:39] 10 13 16 19 20 21 22 27 31 34 ...
- $ seq                       : num [1:39] 1 2 3 4 5 6 7 8 9 10 ...
- $ logi                      : num [1:39] 2.3 2.56 2.77 2.94 3 ...
-  ..- attr(*, "label")= chr "i"
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ sqrt_i                    : num [1:39] 3.16 3.61 4 4.36 4.47 ...
-  ..- attr(*, "label")= chr "i"
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ group_num                 : chr [1:39] "1" "1" "1" "1" ...
-NULL
-
-Differences:List of 2
- $ identical    : logi FALSE
- $ type_mismatch:'data.frame':	1 obs. of  3 variables:
-  ..$ col        : chr "group_num"
-  ..$ class_do_df: chr "numeric"
-  ..$ class_r_df : chr "character"
-NULL
+do:  by group: gen seq = _n 
+R:  <translation error>
+Translation error message:  missing value where TRUE/FALSE needed 
 
 
 ---
@@ -4905,353 +4840,12 @@ str(cmd_df)
 NULL
 
 ---
-#Translate Stata to R commands... ... translation done.
----
-# Run translated R commands and compare results
+#Translate Stata to R commands... 
+Error when creating translated code in for line 2
 
-
- 1 do:  use "test_data.dta", clear
- 1 r:  data = haven::read_dta(file.path(stata2r_env$working_dir, "test_data.dta")) %>% 
-  sfun_normalize_string_nas() %>%
-  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used 
-data = haven::read_dta(file.path(stata2r_env$working_dir, "test_data.dta")) %>% 
-  sfun_normalize_string_nas() %>%
-  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used
-
- 2 do:  generate value1_log = log(value1)
- 2 r:  data = data %>% 
-  dplyr::mutate(`value1_log` = log(value1)) 
-data = data %>% 
-  dplyr::mutate(`value1_log` = log(value1))
-
- 3 do:  generate value2_squared = value2^2
- 3 r:  data = data %>% 
-  dplyr::mutate(`value2_squared` = value2^2) 
-data = data %>% 
-  dplyr::mutate(`value2_squared` = value2^2)
-
- 4 do:  generate int_value1 = int(value1) if !missing(value1)
- 4 r:  data = data %>% 
-  dplyr::mutate(`int_value1` = dplyr::if_else(dplyr::coalesce(!sfun_missing(value1), FALSE), trunc(value1), NA_real_)) 
-data = data %>% 
-  dplyr::mutate(`int_value1` = dplyr::if_else(dplyr::coalesce(!sfun_missing(value1), FALSE), trunc(value1), NA_real_))
-
- 5 do:  generate rounded_value1 = round(value1, 0.1) if !missing(value1)
- 5 r:  data = data %>% 
-  dplyr::mutate(`rounded_value1` = dplyr::if_else(dplyr::coalesce(!sfun_missing(value1), FALSE), sfun_stata_round(value1,  0.1), NA_real_)) 
-data = data %>% 
-  dplyr::mutate(`rounded_value1` = dplyr::if_else(dplyr::coalesce(!sfun_missing(value1), FALSE), sfun_stata_round(value1,  0.1), NA_real_))
-
- 6 do:  generate random_uniform_draw = runiform()
- 6 r:  data = data %>% 
-  dplyr::mutate(`random_uniform_draw` = stats::runif(as.numeric(dplyr::n()))) 
-data = data %>% 
-  dplyr::mutate(`random_uniform_draw` = stats::runif(as.numeric(dplyr::n())))
-
- 7 do:  generate id_plus_value2 = id + value2 if value2 < 7 & !missing(value2)
- 7 r:  data = data %>% 
-  dplyr::mutate(`id_plus_value2` = dplyr::if_else(dplyr::coalesce(value2 < 7 & !sfun_missing(value2), FALSE), sfun_stata_add(id, value2), NA_real_)) 
-data = data %>% 
-  dplyr::mutate(`id_plus_value2` = dplyr::if_else(dplyr::coalesce(value2 < 7 & !sfun_missing(value2), FALSE), sfun_stata_add(id, value2), NA_real_))
-
- 8 do:  replace value1_log = 0 if missing(value1_log) & !missing(value1)
- 8 r:  data = data %>% 
-  dplyr::mutate(`value1_log` = dplyr::if_else(dplyr::coalesce(sfun_missing(value1_log) & !sfun_missing(value1), FALSE), 0, data$`value1_log`)) 
-data = data %>% 
-  dplyr::mutate(`value1_log` = dplyr::if_else(dplyr::coalesce(sfun_missing(value1_log) & !sfun_missing(value1), FALSE), 0, data$`value1_log`))
-
- 9 do:  replace value1 = value1 * 1.5 if group_orig == "Alpha" & !missing(value1) & !missing(group_orig)
- 9 r:  data = data %>% 
-  dplyr::mutate(`value1` = dplyr::if_else(dplyr::coalesce(group_orig == "Alpha" & !sfun_missing(value1) & !sfun_missing(group_orig), FALSE), value1 * 1.5, data$`value1`)) 
-data = data %>% 
-  dplyr::mutate(`value1` = dplyr::if_else(dplyr::coalesce(group_orig == "Alpha" & !sfun_missing(value1) & !sfun_missing(group_orig), FALSE), value1 * 1.5, data$`value1`))
-
- 10 do:  gen group_clean = strtrim(stritrim(lower(group_orig)))
- 10 r:  data = data %>% 
-  dplyr::mutate(`group_clean` = as.character(stringi::stri_trim_right(sfun_stritrim(stringi::stri_trans_tolower(group_orig))))) 
-data = data %>% 
-  dplyr::mutate(`group_clean` = as.character(stringi::stri_trim_right(sfun_stritrim(stringi::stri_trans_tolower(group_orig)))))
-
- 11 do:  replace group_clean = "unknown" if missing(group_clean)
- 11 r:  data = data %>% 
-  dplyr::mutate(`group_clean` = dplyr::if_else(dplyr::coalesce(sfun_missing(group_clean), FALSE), "unknown", data$`group_clean`)) 
-data = data %>% 
-  dplyr::mutate(`group_clean` = dplyr::if_else(dplyr::coalesce(sfun_missing(group_clean), FALSE), "unknown", data$`group_clean`))
-
- 12 do:  gen group_abbr = substr(group_clean, 1, 3) if group_clean != "unknown"
- 12 r:  data = data %>% 
-  dplyr::mutate(`group_abbr` = dplyr::if_else(dplyr::coalesce(group_clean != "unknown", FALSE), as.character(stringi::stri_sub(group_clean, from =  1, length =  3)), "")) 
-data = data %>% 
-  dplyr::mutate(`group_abbr` = dplyr::if_else(dplyr::coalesce(group_clean != "unknown", FALSE), as.character(stringi::stri_sub(group_clean, from =  1, length =  3)), ""))
-
- 13 do:  gen contact_info = group_clean + ":" + num_str
- 13 r:  data = data %>% 
-  dplyr::mutate(`contact_info` = as.character(sfun_stata_add(sfun_stata_add(group_clean, ":"), num_str))) 
-data = data %>% 
-  dplyr::mutate(`contact_info` = as.character(sfun_stata_add(sfun_stata_add(group_clean, ":"), num_str)))
-
- 14 do:  gen str_len_group = strlen(group_clean)
- 14 r:  data = data %>% 
-  dplyr::mutate(`str_len_group` = stringi::stri_length(group_clean)) 
-data = data %>% 
-  dplyr::mutate(`str_len_group` = stringi::stri_length(group_clean))
-
- 15 do:  replace contact_info = subinstr(contact_info, "beta", "delta", 1) if strpos(contact_info, "beta") > 0
- 15 r:  data = data %>% 
-  dplyr::mutate(`contact_info` = dplyr::if_else(dplyr::coalesce(sfun_strpos(contact_info,  "beta") > 0, FALSE), as.character(sfun_subinstr(contact_info,  "beta",  "delta",  1)), data$`contact_info`)) 
-data = data %>% 
-  dplyr::mutate(`contact_info` = dplyr::if_else(dplyr::coalesce(sfun_strpos(contact_info,  "beta") > 0, FALSE), as.character(sfun_subinstr(contact_info,  "beta",  "delta",  1)), data$`contact_info`))
-
- 16 do:  egen mean_overall_value1 = mean(value1)
- 16 r:  data = data %>% 
-  dplyr::mutate(`mean_overall_value1` = mean(value1, na.rm = TRUE)) 
-data = data %>% 
-  dplyr::mutate(`mean_overall_value1` = mean(value1, na.rm = TRUE))
-
- 17 do:  egen sd_overall_value1 = sd(value1)
- 17 r:  data = data %>% 
-  dplyr::mutate(`sd_overall_value1` = stats::sd(value1, na.rm = TRUE)) 
-data = data %>% 
-  dplyr::mutate(`sd_overall_value1` = stats::sd(value1, na.rm = TRUE))
-
- 18 do:  egen total_value2_by_group = total(value2), by(group_clean)
- 18 r:  data = data %>% 
-  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
-  dplyr::mutate(`total_value2_by_group` = sum(value2, na.rm = TRUE)) %>% 
-  dplyr::ungroup() 
-data = data %>% 
-  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
-  dplyr::mutate(`total_value2_by_group` = sum(value2, na.rm = TRUE)) %>% 
-  dplyr::ungroup()
-
- 19 do:  egen median_value1_by_group = median(value1), by(group_clean)
- 19 r:  data = data %>% 
-  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
-  dplyr::mutate(`median_value1_by_group` = stats::median(value1, na.rm = TRUE)) %>% 
-  dplyr::ungroup() 
-data = data %>% 
-  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
-  dplyr::mutate(`median_value1_by_group` = stats::median(value1, na.rm = TRUE)) %>% 
-  dplyr::ungroup()
-
- 20 do:  egen group_numeric_id = group(group_clean)
- 20 r:  data = data %>% 
-  dplyr::arrange(!!!dplyr::syms(c("group_clean"))) %>% 
-  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
-  dplyr::mutate(`group_numeric_id` = dplyr::cur_group_id()) %>% 
-  dplyr::ungroup() %>% 
-  dplyr::arrange(stata2r_original_order_idx) 
-data = data %>% 
-  dplyr::arrange(!!!dplyr::syms(c("group_clean"))) %>% 
-  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
-  dplyr::mutate(`group_numeric_id` = dplyr::cur_group_id()) %>% 
-  dplyr::ungroup() %>% 
-  dplyr::arrange(stata2r_original_order_idx)
-
- 21 do:  egen tag_first_in_group = tag(group_clean)
- 21 r:  data = data %>% 
-  dplyr::arrange(!!!dplyr::syms(c("group_clean"))) %>% 
-  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
-  dplyr::mutate(`tag_first_in_group` = as.numeric(dplyr::row_number() == 1)) %>% 
-  dplyr::ungroup() %>% 
-  dplyr::arrange(stata2r_original_order_idx) 
-data = data %>% 
-  dplyr::arrange(!!!dplyr::syms(c("group_clean"))) %>% 
-  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
-  dplyr::mutate(`tag_first_in_group` = as.numeric(dplyr::row_number() == 1)) %>% 
-  dplyr::ungroup() %>% 
-  dplyr::arrange(stata2r_original_order_idx)
-
- 22 do:  egen count_obs_in_group = count(id), by(group_clean)
- 22 r:  data = data %>% 
-  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
-  dplyr::mutate(`count_obs_in_group` = sum(!is.na(id))) %>% 
-  dplyr::ungroup() 
-data = data %>% 
-  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
-  dplyr::mutate(`count_obs_in_group` = sum(!is.na(id))) %>% 
-  dplyr::ungroup()
-
- 23 do:  egen rank_value1_in_group = rank(value1), by(group_clean) fieldstrustmissings
- 23 r:  data = data %>% 
-  dplyr::arrange(!!!dplyr::syms(c("group_clean", "value1"))) %>% 
-  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
-  dplyr::mutate(`rank_value1_in_group` = as.numeric(base::rank(as.numeric(dplyr::if_else(is.na(value1), Inf, value1)), ties.method = 'average', na.last = 'keep'))) %>% 
-  dplyr::ungroup() %>% 
-  dplyr::arrange(stata2r_original_order_idx) 
-data = data %>% 
-  dplyr::arrange(!!!dplyr::syms(c("group_clean", "value1"))) %>% 
-  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
-  dplyr::mutate(`rank_value1_in_group` = as.numeric(base::rank(as.numeric(dplyr::if_else(is.na(value1), Inf, value1)), ties.method = 'average', na.last = 'keep'))) %>% 
-  dplyr::ungroup() %>% 
-  dplyr::arrange(stata2r_original_order_idx)
-
- 24 do:  egen row_total_v1_v2 = rowtotal(value1 value2)
- 24 r:  data = data %>% 
-  dplyr::mutate(`row_total_v1_v2` = base::rowSums(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(c('value1','value2'))) %>% replace(is.na(.), 0), na.rm = FALSE)) 
-data = data %>% 
-  dplyr::mutate(`row_total_v1_v2` = base::rowSums(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(c('value1','value2'))) %>% replace(is.na(.), 0), na.rm = FALSE))
-
- 25 do:  egen row_mean_v1_v2 = rowmean(value1 value2)
- 25 r:  data = data %>% 
-  dplyr::mutate(`row_mean_v1_v2` = base::rowMeans(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(c('value1','value2'))), na.rm = TRUE)) 
-data = data %>% 
-  dplyr::mutate(`row_mean_v1_v2` = base::rowMeans(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(c('value1','value2'))), na.rm = TRUE))
-
- 26 do:  egen concat_group_num = concat(group_clean num_str)
- 26 r:  data = data %>% 
-  dplyr::mutate(`concat_group_num` = dplyr::if_else((is.na(data[['group_clean']]) & is.na(data[['num_str']])), NA_character_, stringi::stri_paste(dplyr::if_else(is.na(as.character(data[['group_clean']])), "", as.character(data[['group_clean']])), dplyr::if_else(is.na(as.character(data[['num_str']])), "", as.character(data[['num_str']])), sep = ''))) 
-data = data %>% 
-  dplyr::mutate(`concat_group_num` = dplyr::if_else((is.na(data[['group_clean']]) & is.na(data[['num_str']])), NA_character_, stringi::stri_paste(dplyr::if_else(is.na(as.character(data[['group_clean']])), "", as.character(data[['group_clean']])), dplyr::if_else(is.na(as.character(data[['num_str']])), "", as.character(data[['num_str']])), sep = '')))
-
- 27 do:  summarize value2, meanonly
- 27 r:  stata_r_val_L27_N = NROW(data)
-stata_r_val_L27_mean = mean(data[['value2']], na.rm = TRUE) 
-stata_r_val_L27_N = NROW(data)
-
-stata_r_val_L27_mean = mean(data[['value2']], na.rm = TRUE)
-
- 28 do:  gen value2_dev_from_mean = value2 - r(mean) if !missing(value2) & r(mean) != .
- 28 r:  data = data %>% 
-  dplyr::mutate(`value2_dev_from_mean` = dplyr::if_else(dplyr::coalesce(!sfun_missing(value2) & !sfun_missing(stata_r_val_L27_mean), FALSE), value2 - stata_r_val_L27_mean, NA_real_)) 
-data = data %>% 
-  dplyr::mutate(`value2_dev_from_mean` = dplyr::if_else(dplyr::coalesce(!sfun_missing(value2) & !sfun_missing(stata_r_val_L27_mean), FALSE), value2 - stata_r_val_L27_mean, NA_real_))
-
- 29 do:  gen obs_date = date(date_str, "YMD", 2050)
- 29 r:  data = data %>% 
-  dplyr::mutate(`obs_date` = as.character(sfun_stata_date(date_str,  "YMD",  2050))) 
-data = data %>% 
-  dplyr::mutate(`obs_date` = as.character(sfun_stata_date(date_str,  "YMD",  2050)))
-
-Error: After Stata line  29 , R data set differs from Stata reference.
-
-Data set from Stata (do_df):
-tibble [50 × 29] (S3: tbl_df/tbl/data.frame)
- $ id                    : num [1:50] 1 2 3 4 5 6 7 8 9 10 ...
-  ..- attr(*, "label")= chr "id"
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ group_orig            : chr [1:50] " Gamma" " Gamma" "Beta" "Beta" ...
-  ..- attr(*, "label")= chr "group_orig"
-  ..- attr(*, "format.stata")= chr "%6s"
- $ value1                : num [1:50] 73.9 NA 52.8 29.8 44.2 ...
-  ..- attr(*, "label")= chr "value1"
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ value2                : num [1:50] 4 3 NA 10 3 2 3 6 6 8 ...
-  ..- attr(*, "label")= chr "value2"
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ date_str              : chr [1:50] "2020-09-21" "2022-08-26" "2022-02-09" "2021-05-20" ...
-  ..- attr(*, "label")= chr "date_str"
-  ..- attr(*, "format.stata")= chr "%10s"
- $ num_str               : chr [1:50] "166" "181" "101" "136" ...
-  ..- attr(*, "label")= chr "num_str"
-  ..- attr(*, "format.stata")= chr "%3s"
- $ mixed_var             : chr [1:50] "apple" "42" "10" "20" ...
-  ..- attr(*, "label")= chr "mixed_var"
-  ..- attr(*, "format.stata")= chr "%6s"
- $ value1_log            : num [1:50] 4.3 NA 3.97 3.39 3.79 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ value2_squared        : num [1:50] 16 9 NA 100 9 4 9 36 36 64 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ int_value1            : num [1:50] 73 NA 52 29 44 NA 41 20 31 70 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ rounded_value1        : num [1:50] 73.9 NA 52.8 29.8 44.2 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ random_uniform_draw   : num [1:50] 0.3489 0.2669 0.1366 0.0286 0.8689 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ id_plus_value2        : num [1:50] 5 5 NA NA 8 8 10 14 15 NA ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ group_clean           : chr [1:50] "gamma" "gamma" "beta" "beta" ...
-  ..- attr(*, "format.stata")= chr "%9s"
- $ group_abbr            : chr [1:50] "gam" "gam" "bet" "bet" ...
-  ..- attr(*, "format.stata")= chr "%9s"
- $ contact_info          : chr [1:50] "gamma:166" "gamma:181" "delta:101" "delta:136" ...
-  ..- attr(*, "format.stata")= chr "%9s"
- $ str_len_group         : num [1:50] 5 5 4 4 5 4 5 5 4 5 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ mean_overall_value1   : num [1:50] 66.8 66.8 66.8 66.8 66.8 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ sd_overall_value1     : num [1:50] 38 38 38 38 38 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ total_value2_by_group : num [1:50] 49 49 86 86 49 86 71 71 86 49 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ median_value1_by_group: num [1:50] 44.2 44.2 47.3 47.3 44.2 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ group_numeric_id      : num [1:50] 3 3 2 2 3 2 1 1 2 3 ...
-  ..- attr(*, "label")= chr "group(group_clean)"
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ tag_first_in_group    : num [1:50] 1 0 1 0 0 0 1 0 0 0 ...
-  ..- attr(*, "label")= chr "tag(group_clean)"
-  ..- attr(*, "format.stata")= chr "%8.0g"
- $ count_obs_in_group    : num [1:50] 11 11 20 20 11 20 16 16 20 11 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ row_total_v1_v2       : num [1:50] 77.9 3 52.8 39.8 47.2 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ row_mean_v1_v2        : num [1:50] 39 3 52.8 19.9 23.6 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ concat_group_num      : chr [1:50] "gamma166" "gamma181" "beta101" "beta136" ...
-  ..- attr(*, "format.stata")= chr "%9s"
- $ value2_dev_from_mean  : num [1:50] -0.667 -1.667 NA 5.333 -1.667 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ obs_date              : num [1:50] 22179 22883 22685 22420 22164 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- - attr(*, "label")= chr "Written by R."
-NULL
-
-Data set from R (r_df):
-tibble [50 × 30] (S3: tbl_df/tbl/data.frame)
- $ id                        : num [1:50] 1 2 3 4 5 6 7 8 9 10 ...
-  ..- attr(*, "label")= chr "id"
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ group_orig                : chr [1:50] " Gamma" " Gamma" "Beta" "Beta" ...
-  ..- attr(*, "label")= chr "group_orig"
-  ..- attr(*, "format.stata")= chr "%6s"
- $ value1                    : num [1:50] 73.9 NA 52.8 29.8 44.2 ...
- $ value2                    : num [1:50] 4 3 NA 10 3 2 3 6 6 8 ...
-  ..- attr(*, "label")= chr "value2"
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ date_str                  : chr [1:50] "2020-09-21" "2022-08-26" "2022-02-09" "2021-05-20" ...
-  ..- attr(*, "label")= chr "date_str"
-  ..- attr(*, "format.stata")= chr "%10s"
- $ num_str                   : chr [1:50] "166" "181" "101" "136" ...
-  ..- attr(*, "label")= chr "num_str"
-  ..- attr(*, "format.stata")= chr "%3s"
- $ mixed_var                 : chr [1:50] "apple" "42" "10" "20" ...
-  ..- attr(*, "label")= chr "mixed_var"
-  ..- attr(*, "format.stata")= chr "%6s"
- $ stata2r_original_order_idx: int [1:50] 1 2 3 4 5 6 7 8 9 10 ...
- $ value1_log                : num [1:50] 4.3 NA 3.97 3.39 3.79 ...
- $ value2_squared            : num [1:50] 16 9 NA 100 9 4 9 36 36 64 ...
-  ..- attr(*, "label")= chr "value2"
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ int_value1                : num [1:50] 73 NA 52 29 44 NA 41 20 31 70 ...
- $ rounded_value1            : num [1:50] 73.9 NA 52.8 29.8 44.2 NA 41.7 20 31.9 70.1 ...
- $ random_uniform_draw       : num [1:50] 0.893 0.962 0.615 0.56 0.168 ...
- $ id_plus_value2            : num [1:50] 5 5 NA NA 8 8 10 14 15 NA ...
- $ group_clean               : chr [1:50] "gamma" "gamma" "beta" "beta" ...
- $ group_abbr                : chr [1:50] "gam" "gam" "bet" "bet" ...
- $ contact_info              : chr [1:50] "gamma:166" "gamma:181" "delta:101" "delta:136" ...
- $ str_len_group             : int [1:50] 5 5 4 4 5 4 5 5 4 5 ...
- $ mean_overall_value1       : num [1:50] 66.8 66.8 66.8 66.8 66.8 ...
- $ sd_overall_value1         : num [1:50] 38 38 38 38 38 ...
- $ total_value2_by_group     : num [1:50] 49 49 86 86 49 86 71 71 86 49 ...
- $ median_value1_by_group    : num [1:50] 44.2 44.2 47.3 47.3 44.2 ...
- $ group_numeric_id          : int [1:50] 3 3 2 2 3 2 1 1 2 3 ...
- $ tag_first_in_group        : num [1:50] 1 0 1 0 0 0 1 0 0 0 ...
- $ count_obs_in_group        : int [1:50] 11 11 20 20 11 20 16 16 20 11 ...
- $ row_total_v1_v2           : num [1:50] 77.9 3 52.8 39.8 47.2 ...
- $ row_mean_v1_v2            : num [1:50] 39 3 52.8 19.9 23.6 ...
- $ concat_group_num          : chr [1:50] "gamma166" "gamma181" "beta101" "beta136" ...
- $ value2_dev_from_mean      : num [1:50] -0.667 -1.667 NA 5.333 -1.667 ...
- $ obs_date                  : chr [1:50] "22179" "22883" "22685" "22420" ...
-NULL
-
-Differences:List of 2
- $ identical    : logi FALSE
- $ type_mismatch:'data.frame':	1 obs. of  3 variables:
-  ..$ col        : chr "obs_date"
-  ..$ class_do_df: chr "numeric"
-  ..$ class_r_df : chr "character"
-NULL
+do:  generate value1_log = log(value1) 
+R:  <translation error>
+Translation error message:  missing value where TRUE/FALSE needed 
 
 ##############################
 # YOUR TASK
