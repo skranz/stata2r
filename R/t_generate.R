@@ -91,10 +91,13 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       # Ensure logicals become 0/1. Stata converts TRUE/FALSE to 1/0 for numeric types.
       # This handles `gen newvar = x==y` resulting in numeric 0/1.
       # If it's a logical expression (contains logical operators/TRUE/FALSE), cast to numeric.
-      is_a_logical_expression = isTRUE(
-          stringi::stri_detect_regex(calculated_value_expr_raw, "\\bTRUE\\b|\\bFALSE\\b|==|!=|<=|>=|<|>|&|\\||\\bsfun_missing\\b") &&
-          !stringi::stri_detect_fixed(calculated_value_expr_raw, "dplyr::if_else")
-      )
+      # Ensure explicit handling of potential NA from stringi functions in the logical check.
+      is_regex_match = stringi::stri_detect_regex(calculated_value_expr_raw, "\\bTRUE\\b|\\bFALSE\\b|==|!=|<=|>=|<|>|&|\\||\\bsfun_missing\\b")
+      is_fixed_match = stringi::stri_detect_fixed(calculated_value_expr_raw, "dplyr::if_else")
+      
+      # Use coalesce to explicitly convert NA to FALSE for logical combination
+      combined_logical = dplyr::coalesce(is_regex_match, FALSE) && dplyr::coalesce(!is_fixed_match, FALSE)
+      is_a_logical_expression = isTRUE(combined_logical)
 
       if (is_a_logical_expression) {
           calculated_value_expr = paste0("as.numeric(", calculated_value_expr_raw, ")")
