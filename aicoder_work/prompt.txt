@@ -1651,6 +1651,13 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bdow\\(([^)]+)\\)", "sfun_dow($1)") # NEW: Use sfun_dow
   }
 
+  # Defensive check: if r_expr became empty or NA for some reason after function translations.
+  # This check is moved here to ensure subsequent string manipulations (backticking, + operator) don't fail.
+  if (is.na(r_expr) || r_expr == "") {
+      warning(paste0("R expression became NA or empty after function translation. Original Stata expression: '", stata_expr, "'"))
+      return("NA_real_") 
+  }
+
   # Step 6: Quote bare variable names with backticks
   # Define R keywords and literals that should not be backticked.
   r_reserved_words = c(
@@ -1739,14 +1746,9 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     r_expr = stringi::stri_replace_all_regex(r_expr, add_regex_full, "sfun_stata_add($1, $2)")
   }
 
-  # Defensive check: if r_expr became empty or NA for some reason (should not happen for valid input)
-  if (is.na(r_expr) || r_expr == "") {
-      warning(paste0("R expression became NA or empty during translation. Original Stata expression: '", stata_expr, "'"))
-      return("NA_real_") # Ensure it's NA_real_ here too
-  }
-
   return(r_expr)
 }
+
 
 ```
 ### END OF FILE: stata_expression_translator.R
