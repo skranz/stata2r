@@ -55,6 +55,8 @@ t_reshape = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   }
   i_vars_list = stringi::stri_split_regex(i_vars, "\\s+")[[1]]
   i_vars_list = i_vars_list[i_vars_list != ""]
+  # i_vars_r_vec_str is not strictly needed for pivot_wider if id_cols is NULL,
+  # but keeping it for potential future uses or if pivot_wider changes behavior.
   i_vars_r_vec_str = paste0('c("', paste(i_vars_list, collapse = '", "'), '")')
 
   if (is.na(j_var) || j_var == "") {
@@ -77,9 +79,10 @@ t_reshape = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
       stubnames_r_vec_str = paste0('c("', paste(stubnames_or_varlist, collapse = '", "'), '")')
 
-      # Changed id_cols and values_from to directly use string vectors (no dplyr::all_of)
-      # Added names_sep = "" to match Stata's default concatenation behavior.
-      r_code_str = paste0("data = tidyr::pivot_wider(data, id_cols = ", i_vars_r_vec_str, ", names_from = ", j_var, ", values_from = ", stubnames_r_vec_str, ", names_sep = \"\")")
+      # FIX: Removed `id_cols` argument. When `id_cols` is omitted, `pivot_wider`
+      # uses all columns not specified in `names_from` or `values_from` as `id_cols`,
+      # which correctly preserves Stata's "fixed" variables.
+      r_code_str = paste0("data = tidyr::pivot_wider(data, names_from = ", j_var, ", values_from = ", stubnames_r_vec_str, ", names_sep = \"\")")
 
   } else if (reshape_type == "long") {
       # Stata `reshape long stubnames, i(i) j(jname)`
