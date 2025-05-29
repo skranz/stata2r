@@ -66,8 +66,7 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Temporary variable names for the fully calculated encoded vector and condition
   encoded_values_full_tmp_var = paste0("stata_tmp_encoded_full_L", cmd_obj$line)
-  satisfies_cond_tmp_var = paste0("stata_tmp_encode_cond_L", cmd_obj$line)
-
+  
   r_code_lines = c()
 
   # Initialize the new column as an integer vector. Labels will be applied by label values.
@@ -94,12 +93,7 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Apply the if/in condition for assignment to the target column in 'data'
   if (!is.na(r_if_in_cond) && r_if_in_cond != "") {
        r_code_lines = c(r_code_lines,
-           paste0("## Calculate condition flag for encode"),
-           # Stata 'if' treats missing as false. Ensure logical vector for subsetting.
-           paste0(satisfies_cond_tmp_var, " = as.logical(dplyr::coalesce(with(data, ", r_if_in_cond, "), FALSE))"),
-           # Assign only for rows meeting the condition
-           paste0("data[['", gen_var, "']][", satisfies_cond_tmp_var, "] = ", encoded_values_full_tmp_var, "[", satisfies_cond_tmp_var, "]"),
-           paste0("rm(", satisfies_cond_tmp_var, ")")
+           paste0("data = dplyr::mutate(data, `", gen_var, "` = dplyr::if_else(as.logical(dplyr::coalesce(", r_if_in_cond, ", FALSE)), ", encoded_values_full_tmp_var, ", `", gen_var, "`))")
        )
   } else {
       # No condition, assign the full encoded vector
@@ -127,5 +121,4 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
-
 

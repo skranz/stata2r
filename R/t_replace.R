@@ -101,21 +101,8 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # For 'replace' command, if condition is FALSE or NA, the value should be left unchanged.
   # Use dplyr::coalesce(condition, FALSE) to treat NA condition as FALSE.
   # Apply condition only if it exists
-  # Introduce temporary variable for condition evaluation to avoid translation-time logical error
-  temp_if_cond_var = paste0("stata_tmp_if_cond_L", line_num)
-
-  r_code_lines = c()
-  
-  # Generate the condition variable first using with(data, ...) to evaluate at runtime
   if (!is.na(r_if_cond) && r_if_cond != "") {
-      r_code_lines = c(r_code_lines, paste0(temp_if_cond_var, " = as.logical(dplyr::coalesce(with(data, ", r_if_cond, "), FALSE))"))
-  } else {
-      r_code_lines = c(r_code_lines, paste0(temp_if_cond_var, " = TRUE")) # Always apply if no condition
-  }
-
-
-  if (!is.na(r_if_cond) && r_if_cond != "") {
-    calc_expr = paste0("dplyr::if_else(", temp_if_cond_var, ", ", calculated_value_expr, ", data$`", var_to_replace, "`)")
+    calc_expr = paste0("dplyr::if_else(as.logical(dplyr::coalesce(", r_if_cond, ", FALSE)), ", calculated_value_expr, ", data$`", var_to_replace, "`)")
   } else {
     calc_expr = calculated_value_expr
   }
@@ -132,8 +119,7 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       pipe_elements = c(pipe_elements, paste0("dplyr::mutate(`", var_to_replace, "` = ", calc_expr, ")"))
   }
 
-  r_code_lines = c(r_code_lines, paste0("data = ", paste(pipe_elements, collapse = " %>% \n  ")))
-  r_code_lines = c(r_code_lines, paste0("rm(", temp_if_cond_var, ")"))
+  r_code_lines = c(paste0("data = ", paste(pipe_elements, collapse = " %>% \n  ")))
 
   return(paste(r_code_lines, collapse="\n"))
 }

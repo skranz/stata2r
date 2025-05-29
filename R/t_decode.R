@@ -68,9 +68,8 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
 
   # Temporary variable names
-  decoded_values_tmp_var = paste0("stata_tmp_decoded_values_L", cmd_obj$line)
-  satisfies_cond_tmp_var = paste0("stata_tmp_satisfies_cond_L", cmd_obj$line)
-  original_values_tmp_var = paste0("stata_tmp_original_values_L", cmd_obj$line) # Added for robustness
+  temp_decoded_values_L = paste0("stata_tmp_decoded_values_L", cmd_obj$line)
+  temp_source_vector_L = paste0("stata_tmp_source_vector_L", cmd_obj$line)
 
    r_code_lines = c(
       paste0("data = dplyr::mutate(data, `", gen_var, "` = NA_character_)")
@@ -78,32 +77,29 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
    r_code_lines = c(r_code_lines,
       paste0("## Decode values using haven::as_factor"),
-      paste0(original_values_tmp_var, " = with(data, data$`", varname_str, "`)"), # Store original values
+      paste0(temp_source_vector_L, " = data[['", varname_str, "']]"), # Store original values
       # Calculate decoded values. haven::as_factor converts unlabelled values to NA.
       # Corrected: removed `levels = 'labels'`
-      paste0(decoded_values_tmp_var, " = as.character(haven::as_factor(", original_values_tmp_var, "))"),
+      paste0(temp_decoded_values_L, " = as.character(haven::as_factor(", temp_source_vector_L, "))"),
       # Stata's decode for unlabelled numeric values converts them to their string representation.
       # And missing values (NA) are converted to empty string "".
-      paste0(decoded_values_tmp_var, " = dplyr::if_else(is.na(", decoded_values_tmp_var, "), ",
-                                    "dplyr::if_else(is.na(", original_values_tmp_var, "), \"\", as.character(", original_values_tmp_var, ")), ",
-                                    decoded_values_tmp_var, ")")
+      paste0(temp_decoded_values_L, " = dplyr::if_else(is.na(", temp_decoded_values_L, "), ",
+                                    "dplyr::if_else(is.na(", temp_source_vector_L, "), \"\", as.character(", temp_source_vector_L, ")), ",
+                                    temp_decoded_values_L, ")")
    )
 
   # Apply the if/in condition for replacement
   if (!is.na(r_if_in_cond) && r_if_in_cond != "") {
        r_code_lines = c(r_code_lines,
-           paste0("## Calculate condition flag using with(data, ...)"),
-           paste0(satisfies_cond_tmp_var, " = as.logical(dplyr::coalesce(with(data, ", r_if_in_cond, "), FALSE))"),
-           paste0("data = dplyr::mutate(data, `", gen_var, "` = dplyr::if_else(", satisfies_cond_tmp_var, ", ", decoded_values_tmp_var, ", `", gen_var, "`))"),
-           paste0("rm(", satisfies_cond_tmp_var, ")")
+           paste0("data = dplyr::mutate(data, `", gen_var, "` = dplyr::if_else(as.logical(dplyr::coalesce(", r_if_in_cond, ", FALSE)), ", temp_decoded_values_L, ", `", gen_var, "`))")
        )
   } else {
       r_code_lines = c(r_code_lines,
-           paste0("data = dplyr::mutate(data, `", gen_var, "` = ", decoded_values_tmp_var, ")")
+           paste0("data = dplyr::mutate(data, `", gen_var, "` = ", temp_decoded_values_L, ")")
       )
   }
 
-  r_code_lines = c(r_code_lines, paste0("rm(", decoded_values_tmp_var, ", ", original_values_tmp_var, ")"))
+  r_code_lines = c(r_code_lines, paste0("rm(", temp_decoded_values_L, ", ", temp_source_vector_L, ")"))
 
   r_code_str = paste(r_code_lines, collapse="\n")
 
@@ -120,5 +116,4 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
-
 
