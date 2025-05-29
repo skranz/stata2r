@@ -96,16 +96,8 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
 
   # The value to assign if the condition is false/missing.
-  na_or_empty_str_for_false_cond = if (force_r_output_type == "character") '""' else "NA_real_"
-  if (is.na(force_r_output_type)) { # If R infers, it should infer NA for missing.
-    # Check if the original stata_expr is numeric. If so, default to NA_real_. Else "".
-    # This is a heuristic. Let's simplify and assume NA_real_ unless it's explicitly a string expression.
-    if (sfun_is_stata_expression_string_typed(stata_expr)) { # If the expression itself is string, its "missing" should be "".
-      na_or_empty_str_for_false_cond = '""'
-    } else {
-      na_or_empty_str_for_false_cond = "NA_real_"
-    }
-  }
+  # If R infers, it should infer NA for missing.
+  na_or_empty_str_for_false_cond = if (sfun_is_stata_expression_string_typed(stata_expr)) '""' else "NA_real_"
 
 
   # Apply condition only if it exists
