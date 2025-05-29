@@ -12,8 +12,9 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   match = stringi::stri_match_first_regex(rest_of_cmd_no_type, "^\\s*([^=\\s]+)\\s*=\\s*(.*?)(?:\\s+if\\s+(.*))?$")
 
-  if (is.na(match[1,1])) {
-    return(paste0("# Failed to parse replace command: ", rest_of_cmd))
+  # NEW: Defensive check for successful parsing of core components
+  if (is.na(match[1,1]) || is.na(match[1,2]) || is.na(match[1,3])) {
+    return(paste0("# Failed to parse replace command structure: ", rest_of_cmd))
   }
 
   var_to_replace = stringi::stri_trim_both(match[1,2])

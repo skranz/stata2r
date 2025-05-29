@@ -87,8 +87,12 @@ stata_cmd_abbreviations = list(
 # Function to get the full Stata command name from a token (could be an abbreviation)
 get_stata_full_cmd_name = function(cmd_token) {
   restore.point("get_stata_full_cmd_name")
+  if (is.na(cmd_token) || cmd_token == "") { # Defensive check
+    return(NA_character_)
+  }
   cmd_token_lower = tolower(cmd_token)
-  if (cmd_token_lower %in% names(stata_cmd_abbreviations)) {
+  # Use isTRUE to handle potential NA from %in% (though unlikely for this context)
+  if (isTRUE(cmd_token_lower %in% names(stata_cmd_abbreviations))) {
     return(stata_cmd_abbreviations[[cmd_token_lower]])
   }
   # If not in abbreviations, assume it's already a full (or unrecognized) command

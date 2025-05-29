@@ -15,8 +15,9 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   match = stringi::stri_match_first_regex(rest_of_cmd_no_type, "^\\s*([^=\\s]+)\\s*=\\s*(.*?)(?:\\s+if\\s+(.*))?$")
 
-  if (is.na(match[1,1])) {
-    return(paste0("# Failed to parse generate command: ", rest_of_cmd))
+  # NEW: Defensive check for successful parsing of core components
+  if (is.na(match[1,1]) || is.na(match[1,2]) || is.na(match[1,3])) {
+    return(paste0("# Failed to parse generate command structure: ", rest_of_cmd))
   }
 
   new_var = stringi::stri_trim_both(match[1,2])
@@ -87,7 +88,7 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
         is_logical_r_expr = dplyr::coalesce(regex_match, FALSE) && !dplyr::coalesce(fixed_match, FALSE)
       }
       if (is_logical_r_expr) {
-          calculated_value_expr = paste0("as.numeric(", calculated_value_raw, ")")
+          calculated_value_expr = paste0("as.numeric(", calculated_value_expr_raw, ")")
       } else {
           calculated_value_expr = calculated_value_expr_raw
       }
