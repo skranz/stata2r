@@ -2252,7 +2252,7 @@ t_destring = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
 
   # Parse options, specifically `generate()` or `replace`
-  is_replace = stringi::stri_detect_fixed(options_str, "replace")
+  is_replace = dplyr::coalesce(stringi::stri_detect_fixed(options_str, "replace"), FALSE)
   gen_vars = NA_character_
   if (!is_replace) {
       gen_opt_match = stringi::stri_match_first_regex(options_str, "\\bgenerate\\s*\\(([^)]+)\\)")
@@ -2349,7 +2349,6 @@ t_destring = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
-
 
 ```
 ### END OF FILE: t_destring.R
@@ -3608,7 +3607,7 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   using_source_r_expr = resolve_stata_filename(raw_filename_token, cmd_df, line_num, default_base_dir_var = "working_dir")
 
   # Determine if nogenerate option is present (for comments later)
-  has_nogenerate = !is.na(options_str) && stringi::stri_detect_regex(options_str, "\\bno(?:generate|gen)\\b")
+  has_nogenerate = dplyr::coalesce(stringi::stri_detect_regex(options_str, "\\bno(?:generate|gen)\\b"), FALSE)
   
   # Determine keep_spec_for_comment based on parsing `options_str` in `t_merge` scope
   # This variable should be initialized to a default that reflects Stata's behavior for the given merge type.
@@ -4647,8 +4646,8 @@ t_summarize = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
 
 
-  is_meanonly = !is.na(options_str) && stringi::stri_detect_fixed(options_str, "meanonly")
-  is_detail = !is.na(options_str) && stringi::stri_detect_fixed(options_str, "detail")
+  is_meanonly = dplyr::coalesce(stringi::stri_detect_fixed(options_str, "meanonly"), FALSE)
+  is_detail = dplyr::coalesce(stringi::stri_detect_fixed(options_str, "detail"), FALSE)
 
   r_code_lines = c()
   line_prefix = paste0("stata_r_val_L", cmd_obj$line, "_") # Use cmd_obj$line
@@ -4701,7 +4700,6 @@ t_summarize = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
-
 
 ```
 ### END OF FILE: t_summarize.R
