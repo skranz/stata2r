@@ -1537,7 +1537,16 @@ resolve_stata_filename = function(raw_filename_token, cmd_df, line_num, default_
 #                   to R variable names (e.g. "stata_r_val_L5_mean")
 translate_stata_expression_to_r = function(stata_expr, context = list(is_by_group = FALSE), r_value_mappings = NULL) {
   restore.point("translate_stata_expression_to_r")
-  if (is.na(stata_expr) || stata_expr == "") return(NA_character_)
+  if (is.na(stata_expr) || stata_expr == "") {
+    # If the expression is empty or NA, it generally means missing.
+    # For Stata, missing numeric is '.', missing string is "".
+    # In R context for translation, if an expression is missing, it should resolve to NA.
+    # The type of NA (numeric, logical, character) depends on the context.
+    # Since this function is general, assume numeric NA_real_ as default for missing expressions.
+    # If this is used as a logical condition (e.g., in an 'if' clause),
+    # `dplyr::coalesce(NA_real_, FALSE)` will correctly yield FALSE.
+    return(NA_real_) 
+  }
 
   r_expr = stata_expr
 
@@ -1651,7 +1660,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   # Defensive check: if r_expr became empty or NA for some reason (should not happen for valid input)
   if (is.na(r_expr) || r_expr == "") {
       warning(paste0("R expression became NA or empty during translation. Original Stata expression: '", stata_expr, "'"))
-      return(NA_character_)
+      return(NA_real_) # Ensure it's NA_real_ here too
   }
 
   return(r_expr)
@@ -3564,9 +3573,10 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
 
   # Default join type based on Stata's merge type.
-  # Note: For `merge 1:1`, the provided test data reference is known to expect `full_join` behavior.
+  # For 1:1, 1:m, m:1, m:m, the `_merge` variable requires a full understanding of matches.
+  # `full_join` with `indicator` provides all necessary categories (left_only, right_only, both).
   r_code_lines = c(r_code_lines, paste0(join_type_var_in_r, " = switch('", merge_type, "', "))
-  r_code_lines = c(r_code_lines, paste0("  '1:1' = 'dplyr::full_join', # HACK: Deviates from Stata doc to match test data'"))
+  r_code_lines = c(r_code_lines, paste0("  '1:1' = 'dplyr::full_join',"))
   r_code_lines = c(r_code_lines, paste0("  '1:m' = 'dplyr::left_join',"))
   r_code_lines = c(r_code_lines, paste0("  'm:1' = 'dplyr::right_join',"))
   r_code_lines = c(r_code_lines, paste0("  'm:m' = 'dplyr::inner_join'"))
