@@ -54,7 +54,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Check for `in`
   in_match_in_args = stringi::stri_match_first_regex(egen_args_str, "\\s+in\\s+(.*)$")
    if(!is.na(in_match_in_args[1,1])) {
-      stata_in_range_in_args = if_match_in_args[1,2]
+      stata_in_range_in_args = in_match_in_args[1,2] # Corrected from if_match_in_args[1,2]
       egen_args_str = stringi::stri_replace_last_regex(egen_args_str, "\\s+in\\s+(.*)$", "")
       egen_args_str = stringi::stri_trim_both(egen_args_str)
    }
@@ -128,7 +128,8 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
 
   # Determine if 'fieldstrustmissings' option is present
-  is_fieldstrustmissings = !is.na(options_str) && stringi::stri_detect_fixed(options_str, "fieldstrustmissings")
+  # FIX: Use dplyr::coalesce for robustness against NA in options_str
+  is_fieldstrustmissings = dplyr::coalesce(stringi::stri_detect_fixed(options_str, "fieldstrustmissings"), FALSE)
 
 
   # Translate egen function into an R expression for calculation
@@ -299,6 +300,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
         options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "^,+", "") # Remove leading comma
    }
 
+
    if (!is.na(options_str_cleaned) && options_str_cleaned != "") {
         r_code_lines = c(r_code_lines, paste0(" # Other options ignored: ", options_str_cleaned))
    }
@@ -306,5 +308,4 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
-
 

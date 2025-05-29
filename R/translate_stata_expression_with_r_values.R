@@ -38,8 +38,9 @@ translate_stata_expression_with_r_values = function(stata_expr, line_num, cmd_df
         var_for_r_vals = vars_to_summarize[length(vars_to_summarize)]
     }
 
-    is_meanonly = !is.na(options_str) && stringi::stri_detect_fixed(options_str, "meanonly")
-    is_detail = !is.na(options_str) && stringi::stri_detect_fixed(options_str, "detail")
+    # FIX: Use dplyr::coalesce for robustness against NA in options_str
+    is_meanonly = dplyr::coalesce(stringi::stri_detect_fixed(options_str, "meanonly"), FALSE)
+    is_detail = dplyr::coalesce(stringi::stri_detect_fixed(options_str, "detail"), FALSE)
 
     line_prefix = paste0("stata_r_val_L", prev_cmd_obj$line, "_")
 
@@ -68,5 +69,4 @@ translate_stata_expression_with_r_values = function(stata_expr, line_num, cmd_df
   translated_expr = translate_stata_expression_to_r(stata_expr, context = context, r_value_mappings = r_value_mappings)
   return(translated_expr)
 }
-
 

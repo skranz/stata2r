@@ -50,7 +50,8 @@ t_label_define = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   # Convert Stata values (like ".", ".a", numbers) to R numeric or NA_real_
   numeric_values_for_labels = sapply(values_from_regex, function(v) {
       if (v == ".") return(NA_real_) # Stata system missing
-      if (stringi::stri_detect_regex(v, "^\\.[a-zA-Z]$")) return(NA_real_) # Stata extended missing
+      # FIX: Use dplyr::coalesce for robustness against NA in stringi::stri_detect_regex
+      if (dplyr::coalesce(stringi::stri_detect_regex(v, "^\\.[a-zA-Z]$"), FALSE)) return(NA_real_) # Stata extended missing
       as.numeric(v) # Convert numeric strings to numeric
   })
 
@@ -165,5 +166,4 @@ t_label_variable = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   )
   return(paste(r_code_lines, collapse="\n"))
 }
-
 
