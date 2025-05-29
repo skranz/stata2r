@@ -151,8 +151,10 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
           is_already_backticked = FALSE
           # Ensure indices are valid before accessing substrings
           if (start_pos > 1 && end_pos < stringi::stri_length(r_expr)) {
-            if (stringi::stri_sub(r_expr, start_pos - 1, start_pos - 1) == "`" &&
-                stringi::stri_sub(r_expr, end_pos + 1, end_pos + 1) == "`") {
+            char_before = stringi::stri_sub(r_expr, start_pos - 1, start_pos - 1)
+            char_after = stringi::stri_sub(r_expr, end_pos + 1, end_pos + 1)
+            # Ensure char_before and char_after are not NA before comparison
+            if (!is.na(char_before) && !is.na(char_after) && char_before == "`" && char_after == "`") {
                 is_already_backticked = TRUE
             }
           }
