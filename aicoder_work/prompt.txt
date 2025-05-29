@@ -1591,9 +1591,11 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   # This prevents them from being backticked or otherwise mangled by other regexes.
   string_literal_map = list()
   # Find all string literals (double or single quoted)
-  literal_matches = stringi::stri_match_all_regex(r_expr, '"[^"]*"|\'[^\']*\'')[[1]]
+  literal_matches_list = stringi::stri_match_all_regex(r_expr, '"[^"]*"|\'[^\']*\'')
   
-  if (!is.null(literal_matches) && NROW(literal_matches) > 0) {
+  # Corrected logic to handle cases where no string literals are found (returns a matrix of NAs)
+  if (length(literal_matches_list) > 0 && !is.null(literal_matches_list[[1]]) && !is.na(literal_matches_list[[1]][1,1])) {
+      literal_matches = literal_matches_list[[1]]
       # Iterate and replace. Sorting by end position descending is safer for overlapping regexes
       # but here we are replacing fixed strings, so order doesn't strictly matter.
       # However, to avoid issues if a placeholder becomes part of a later literal,
@@ -1605,7 +1607,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
       for (k in seq_len(NROW(literal_matches))) {
           literal_text = literal_matches[k, 1]
           # Check if this literal_text is already a placeholder from a previous iteration (unlikely but safe)
-          if (stringi::stri_startswith_fixed(literal_text, "STATA2R_STR_LITERAL_PLACEHOLDER_") && stringi::stri_endswith_fixed(literal_text, "_")) {
+          if (dplyr::coalesce(stringi::stri_startswith_fixed(literal_text, "STATA2R_STR_LITERAL_PLACEHOLDER_") && stringi::stri_endswith_fixed(literal_text, "_"), FALSE)) {
             next # Already a placeholder, skip
           }
           placeholder_counter = placeholder_counter + 1
@@ -1705,9 +1707,11 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     "sfun_stata_cond"
   )
   
-  locations = stringi::stri_locate_all_regex(r_expr, "\\b([a-zA-Z_][a-zA-Z0-9_.]*)\\b")[[1]]
-  
-  if (!is.null(locations) && NROW(locations) > 0) {
+  locations_list = stringi::stri_locate_all_regex(r_expr, "\\b([a-zA-Z_][a-zA-Z0-9_.]*)\\b")
+  locations = locations_list[[1]]
+
+  # Corrected logic to handle cases where no words match (returns a matrix of NAs)
+  if (!is.null(locations) && NROW(locations) > 0 && !is.na(locations[1,1])) {
       locations = locations[order(locations[,2], decreasing = TRUE), , drop = FALSE]
       
       for (k in seq_len(NROW(locations))) {
@@ -1720,7 +1724,8 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
           
           is_already_backticked = FALSE
           # Check if the word is already backticked by looking at characters before and after
-          if (dplyr::coalesce(start_pos > 1 && end_pos < stringi::stri_length(r_expr), FALSE)) { # end_pos < length to ensure there's a char after
+          # Ensure position checks are robust against NA
+          if (dplyr::coalesce(start_pos > 1 && end_pos < stringi::stri_length(r_expr), FALSE)) { 
             char_before = dplyr::coalesce(stringi::stri_sub(r_expr, start_pos - 1, start_pos - 1), "")
             char_after = dplyr::coalesce(stringi::stri_sub(r_expr, end_pos + 1, end_pos + 1), "")
             is_already_backticked = (char_before == "`" && char_after == "`")
@@ -4803,7 +4808,7 @@ t_use = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 ### FILE: translate_stata_expression_with_r_values.R
 ```
 translate_stata_expression_with_r_values = function(stata_expr, line_num, cmd_df, context) {
-  restore.point("translate_stata_expression_with_r_values")
+  restore.point("translate_stata_expression_with_r_values") # Added restore.point
   
   r_value_mappings = list()
 
@@ -4874,6 +4879,7 @@ translate_stata_expression_with_r_values = function(stata_expr, line_num, cmd_df
   return(translated_expr)
 }
 
+
 ```
 ### END OF FILE: translate_stata_expression_with_r_values.R
 
@@ -4924,12 +4930,76 @@ str(cmd_df)
 NULL
 
 ---
-#Translate Stata to R commands... 
-Error when creating translated code in for line 6
+#Translate Stata to R commands... ... translation done.
+---
+# Run translated R commands and compare results
 
-do:  by group: gen seq = _n 
-R:  <translation error>
-Translation error message:  missing value where TRUE/FALSE needed 
+
+ 1 do:  use "data.dta", clear
+ 1 r:  data = haven::read_dta(file.path(stata2r_env$working_dir, "data.dta")) %>% 
+  sfun_normalize_string_nas() %>%
+  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used 
+data = haven::read_dta(file.path(stata2r_env$working_dir, "data.dta")) %>% 
+  sfun_normalize_string_nas() %>%
+  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used
+
+ 2 do:  sort group i
+ 2 r:  data = dplyr::arrange(data, !!!dplyr::syms(c("group", "i"))) 
+data = dplyr::arrange(data, !!!dplyr::syms(c("group", "i")))
+
+ 3 do:  keep in 1/39
+ 3 r:  data = dplyr::slice(data, 1:39) 
+data = dplyr::slice(data, 1:39)
+
+ 4 do:  list in 1/5 
+
+ 4 r:  not translated since not flagged as data manipulation
+
+ 5 do:  display _n 
+
+ 5 r:  not translated since not flagged as data manipulation
+
+ 6 do:  by group: gen seq = _n
+ 6 r:  data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group"))) %>% 
+  dplyr::mutate(`seq` = dplyr::row_number()) %>% 
+  dplyr::ungroup() 
+data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group"))) %>% 
+  dplyr::mutate(`seq` = dplyr::row_number()) %>% 
+  dplyr::ungroup()
+
+ 7 do:  gen logi = log(i)
+ 7 r:  data = data %>% 
+  dplyr::mutate(`logi` = log(`i`)) 
+data = data %>% 
+  dplyr::mutate(`logi` = log(`i`))
+
+ 8 do:  gen sqrt_i = sqrt(i)
+ 8 r:  data = data %>% 
+  dplyr::mutate(`sqrt_i` = sqrt(`i`)) 
+data = data %>% 
+  dplyr::mutate(`sqrt_i` = sqrt(`i`))
+
+ 9 do:  gen group_num = cond(group=="A",1,cond(group=="B",2,3))
+ 9 r:  data = data %>% 
+  dplyr::mutate(`group_num` = as.character(sfun_stata_cond(`group`==`"A"`, 1, sfun_stata_cond(`group`==`"B"`, 2, 3)))) 
+data = data %>% 
+  dplyr::mutate(`group_num` = as.character(sfun_stata_cond(`group`==`"A"`, 1, sfun_stata_cond(`group`==`"B"`, 2, 3))))
+
+Error: Problem with `mutate()` column `group_num`.
+ℹ `group_num = as.character(...)`.
+✖ object '"A"' not found
+Caused by error in `as.list.environment()`:
+! object '"A"' not found
+Error executing R code for Stata line  9 :  data = data %>% 
+  dplyr::mutate(`group_num` = as.character(sfun_stata_cond(`group`==`"A"`, 1, sfun_stata_cond(`group`==`"B"`, 2, 3))))
+
+Error: Problem with `mutate()` column `group_num`.
+ℹ `group_num = as.character(...)`.
+✖ object '"A"' not found
+Caused by error in `as.list.environment()`:
+! object '"A"' not found 
 
 
 ---
@@ -4956,12 +5026,80 @@ str(cmd_df)
 NULL
 
 ---
-#Translate Stata to R commands... 
-Error when creating translated code in for line 2
+#Translate Stata to R commands... ... translation done.
+---
+# Run translated R commands and compare results
 
-do:  generate value1_log = log(value1) 
-R:  <translation error>
-Translation error message:  missing value where TRUE/FALSE needed 
+
+ 1 do:  use "test_data.dta", clear
+ 1 r:  data = haven::read_dta(file.path(stata2r_env$working_dir, "test_data.dta")) %>% 
+  sfun_normalize_string_nas() %>%
+  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used 
+data = haven::read_dta(file.path(stata2r_env$working_dir, "test_data.dta")) %>% 
+  sfun_normalize_string_nas() %>%
+  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used
+
+ 2 do:  generate value1_log = log(value1)
+ 2 r:  data = data %>% 
+  dplyr::mutate(`value1_log` = log(`value1`)) 
+data = data %>% 
+  dplyr::mutate(`value1_log` = log(`value1`))
+
+ 3 do:  generate value2_squared = value2^2
+ 3 r:  data = data %>% 
+  dplyr::mutate(`value2_squared` = `value2`^2) 
+data = data %>% 
+  dplyr::mutate(`value2_squared` = `value2`^2)
+
+ 4 do:  generate int_value1 = int(value1) if !missing(value1)
+ 4 r:  data = data %>% 
+  dplyr::mutate(`int_value1` = dplyr::if_else((dplyr::coalesce(as.numeric(!sfun_missing(`value1`)), 0) != 0), trunc(`value1`), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`int_value1` = dplyr::if_else((dplyr::coalesce(as.numeric(!sfun_missing(`value1`)), 0) != 0), trunc(`value1`), NA_real_))
+
+ 5 do:  generate rounded_value1 = round(value1, 0.1) if !missing(value1)
+ 5 r:  data = data %>% 
+  dplyr::mutate(`rounded_value1` = dplyr::if_else((dplyr::coalesce(as.numeric(!sfun_missing(`value1`)), 0) != 0), sfun_stata_round(`value1`,  0.1), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`rounded_value1` = dplyr::if_else((dplyr::coalesce(as.numeric(!sfun_missing(`value1`)), 0) != 0), sfun_stata_round(`value1`,  0.1), NA_real_))
+
+ 6 do:  generate random_uniform_draw = runiform()
+ 6 r:  data = data %>% 
+  dplyr::mutate(`random_uniform_draw` = stats::`runif`(dplyr::n())) 
+data = data %>% 
+  dplyr::mutate(`random_uniform_draw` = stats::`runif`(dplyr::n()))
+
+ 7 do:  generate id_plus_value2 = id + value2 if value2 < 7 & !missing(value2)
+ 7 r:  data = data %>% 
+  dplyr::mutate(`id_plus_value2` = dplyr::if_else((dplyr::coalesce(as.numeric(`value2` < 7 & !sfun_missing(`value2`)), 0) != 0), sfun_stata_add(`id`, `value2`), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`id_plus_value2` = dplyr::if_else((dplyr::coalesce(as.numeric(`value2` < 7 & !sfun_missing(`value2`)), 0) != 0), sfun_stata_add(`id`, `value2`), NA_real_))
+
+ 8 do:  replace value1_log = 0 if missing(value1_log) & !missing(value1)
+ 8 r:  data = data %>% 
+  dplyr::mutate(`value1_log` = dplyr::if_else((dplyr::coalesce(as.numeric(sfun_missing(`value1_log`) & !sfun_missing(`value1`)), 0) != 0), 0, data$`value1_log`)) 
+data = data %>% 
+  dplyr::mutate(`value1_log` = dplyr::if_else((dplyr::coalesce(as.numeric(sfun_missing(`value1_log`) & !sfun_missing(`value1`)), 0) != 0), 0, data$`value1_log`))
+
+ 9 do:  replace value1 = value1 * 1.5 if group_orig == "Alpha" & !missing(value1) & !missing(group_orig)
+ 9 r:  data = data %>% 
+  dplyr::mutate(`value1` = dplyr::if_else((dplyr::coalesce(as.numeric(`group_orig` == `"Alpha"` & !sfun_missing(`value1`) & !sfun_missing(`group_orig`)), 0) != 0), `value1` * 1.5, data$`value1`)) 
+data = data %>% 
+  dplyr::mutate(`value1` = dplyr::if_else((dplyr::coalesce(as.numeric(`group_orig` == `"Alpha"` & !sfun_missing(`value1`) & !sfun_missing(`group_orig`)), 0) != 0), `value1` * 1.5, data$`value1`))
+
+Error: Problem with `mutate()` column `value1`.
+ℹ `value1 = dplyr::if_else(...)`.
+✖ object '"Alpha"' not found
+Caused by error in `list2()`:
+! object '"Alpha"' not found
+Error executing R code for Stata line  9 :  data = data %>% 
+  dplyr::mutate(`value1` = dplyr::if_else((dplyr::coalesce(as.numeric(`group_orig` == `"Alpha"` & !sfun_missing(`value1`) & !sfun_missing(`group_orig`)), 0) != 0), `value1` * 1.5, data$`value1`))
+
+Error: Problem with `mutate()` column `value1`.
+ℹ `value1 = dplyr::if_else(...)`.
+✖ object '"Alpha"' not found
+Caused by error in `list2()`:
+! object '"Alpha"' not found 
 
 ##############################
 # YOUR TASK

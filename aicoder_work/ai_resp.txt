@@ -1,8 +1,84 @@
-The main issue causing the "missing value where TRUE/FALSE needed" error was identified in `stata_expression_translator.R`. The `stringi::stri_match_all_regex` function returns a list, and accessing `[[1]]` yields a matrix. If no matches are found, this matrix will have one row of `NA`s (e.g., `matrix(NA_character_, nrow=1, ncol=X)`). The original code then iterated over this 1-row `NA` matrix, causing `NA` values to be passed to subsequent operations that expected non-`NA` logicals, leading to the error.
+The primary issue causing the "object '"A"' not found" errors stems from an incorrect type inference for `cond()` expressions and the way string literals were handled during the expression translation.
 
-The fix involves explicitly checking if the first element of the match matrix (`[1,1]`) is `NA` before processing the matches, ensuring that only actual matches are iterated over. This has been applied to both the string literal and general word backticking logic.
+The main changes are:
+1.  **`sfun_is_stata_expression_string_typed.R`**: Reordered the logic to prioritize the `cond()` function's type determination. This ensures that if `cond()` returns numeric values, the expression is correctly identified as numeric, even if the condition itself involves string literals. Previously, a generic check for string literals in the entire expression would incorrectly classify such `cond()` calls as returning strings.
+2.  **`stata_expression_translator.R`**:
+    *   Modified the placeholder generation strategy for string literals. The new placeholders (e.g., `_1STATA2R_SLIT_`) are designed to *not* be matched by the regex used for backticking variable names. This prevents the backticking step from accidentally modifying string literals, which was leading to malformed R code.
+    *   Updated the `operand_pattern` for `sfun_stata_add` to correctly recognize these new placeholder formats.
 
-Additionally, a `restore.point` was added to `translate_stata_expression_with_r_values` for consistency with other translation functions.
+These changes collectively ensure that string literals are properly preserved and that the R code generated for conditional and other expressions correctly reflects Stata's type handling, resolving the observed errors.
+
+!CHANGE_FILE R/sfun_is_stata_expression_string_typed.R
+```R
+sfun_is_stata_expression_string_typed = function(stata_expr_original) {
+  restore.point("sfun_is_stata_expression_string_typed")
+  
+  # Ensure stata_expr_original is a single character string or NA
+  if (is.null(stata_expr_original) || length(stata_expr_original) == 0 || !is.character(stata_expr_original)) {
+      stata_expr_original = NA_character_
+  } else {
+      stata_expr_original = as.character(stata_expr_original[1])
+  }
+
+  if (is.na(stata_expr_original) || stata_expr_original == "") return(FALSE)
+
+  # 1. `cond(condition, val_if_true, val_if_false)`: if any value (val_if_true, val_if_false) is string, result is string.
+  #    This check must come BEFORE generic string literal check.
+  cond_match = stringi::stri_match_first_regex(stata_expr_original, "\\bcond\\(([^,]+),([^,]+),([^)]+)\\)")
+  if (!is.na(cond_match[1,1])) {
+      val_if_true_str = stringi::stri_trim_both(cond_match[1,3])
+      val_if_false_str = stringi::stri_trim_both(cond_match[1,4])
+      # Recursively check the arguments for string type
+      if (dplyr::coalesce(sfun_is_stata_expression_string_typed(val_if_true_str), FALSE) ||
+          dplyr::coalesce(sfun_is_stata_expression_string_typed(val_if_false_str), FALSE)) {
+          return(TRUE)
+      } else {
+          # If both are numeric, cond is numeric
+          return(FALSE)
+      }
+  }
+
+  # 2. Check for explicitly numeric-returning functions. If found, return FALSE immediately.
+  numeric_producing_functions = c(
+    "log", "sqrt", "int", "round", "mod", "runiform", "mdy", "date",
+    "year", "month", "day", "qofd", "dow", "missing",
+    # Stata type casting functions that convert to numeric:
+    "float", "double", "long", "int", "byte"
+  )
+  for (func in numeric_producing_functions) {
+    if (dplyr::coalesce(stringi::stri_detect_regex(stata_expr_original, paste0("\\b", func, "\\s*\\(")), FALSE)) {
+      return(FALSE)
+    }
+  }
+
+  # 3. Check for explicitly string-returning functions.
+  string_producing_functions = c(
+    "char", "itrim", "lower", "ltrim", "proper", "rtrim", "string", "subinstr",
+    "substr", "strl", "strpos", "strreverse", "strtrim", "trim", "upper",
+    "ustrleft", "ustrlower", "ustrpos", "ustrright", "ustrtrim", "ustrunescape",
+    "ustrupper", "ustrword", "ustrwordcount", "word", "wordcount",
+    # Stata type casting functions that convert to string:
+    "string"
+  )
+  for (func in string_producing_functions) {
+    if (dplyr::coalesce(stringi::stri_detect_regex(stata_expr_original, paste0("\\b", func, "\\s*\\(")), FALSE)) {
+      return(TRUE)
+    }
+  }
+  
+  # 4. Contains any string literal (text enclosed in double or single quotes)
+  # This must come after function checks, but before default.
+  if (dplyr::coalesce(stringi::stri_detect_regex(stata_expr_original, '"[^"]*"|\'[^\']*\'' ), FALSE)) {
+    return(TRUE)
+  }
+
+  # If none of the above rules apply, default to numeric.
+  # This implies that if it's a variable reference, it's numeric unless explicitly string.
+  # Or if it's a simple arithmetic expression, it's numeric.
+  return(FALSE)
+}
+```
+!END_CHANGE_FILE R/sfun_is_stata_expression_string_typed.R
 
 !CHANGE_FILE R/stata_expression_translator.R
 ```R
@@ -22,36 +98,28 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   r_expr = stata_expr
 
-  # --- New: Handle string literals by replacing them with unique placeholders ---
+  # --- Handle string literals by replacing them with unique placeholders ---
   # This prevents them from being backticked or otherwise mangled by other regexes.
   string_literal_map = list()
+  placeholder_counter = 0
+
   # Find all string literals (double or single quoted)
-  literal_matches_list = stringi::stri_match_all_regex(r_expr, '"[^"]*"|\'[^\']*\'')
+  literal_matches_list = stringi::stri_match_all_regex(r_expr, '"[^"]*"|\'[^\']*\'' )
   
-  # Corrected logic to handle cases where no string literals are found (returns a matrix of NAs)
-  if (length(literal_matches_list) > 0 && !is.null(literal_matches_list[[1]]) && !is.na(literal_matches_list[[1]][1,1])) {
-      literal_matches = literal_matches_list[[1]]
-      # Iterate and replace. Sorting by end position descending is safer for overlapping regexes
-      # but here we are replacing fixed strings, so order doesn't strictly matter.
-      # However, to avoid issues if a placeholder becomes part of a later literal,
-      # it's good to replace in a way that doesn't affect other parts of the string being processed.
-      # For this simple replacement, a simple loop over matches is fine.
+  if (length(literal_matches_list) > 0 && !is.null(literal_matches_list[[1]]) && NROW(literal_matches_list[[1]]) > 0 && !is.na(literal_matches_list[[1]][1,1])) {
+      # Get unique literals
+      unique_literals = unique(literal_matches_list[[1]][,1])
       
-      # Use a unique counter for placeholders
-      placeholder_counter = 0
-      for (k in seq_len(NROW(literal_matches))) {
-          literal_text = literal_matches[k, 1]
-          # Check if this literal_text is already a placeholder from a previous iteration (unlikely but safe)
-          if (dplyr::coalesce(stringi::stri_startswith_fixed(literal_text, "STATA2R_STR_LITERAL_PLACEHOLDER_") && stringi::stri_endswith_fixed(literal_text, "_"), FALSE)) {
-            next # Already a placeholder, skip
-          }
+      for (literal_text in unique_literals) {
           placeholder_counter = placeholder_counter + 1
-          placeholder = paste0("STATA2R_STR_LITERAL_PLACEHOLDER_", placeholder_counter, "_")
-          r_expr = stringi::stri_replace_first_fixed(r_expr, literal_text, placeholder)
-          string_literal_map[[placeholder]] = literal_text # Store after replacement to avoid issues with already replaced text
+          # Make placeholder start with a number or other non-letter/non-underscore char
+          # to ensure it's not matched by `\\b([a-zA-Z_][a-zA-Z0-9_.]*)\\b`
+          placeholder = paste0("_", placeholder_counter, "STATA2R_SLIT_") 
+          r_expr = stringi::stri_replace_all_fixed(r_expr, literal_text, placeholder)
+          string_literal_map[[placeholder]] = literal_text # Store with original quotes
       }
   }
-  # --- End new string literal handling ---
+  # --- End string literal handling ---
 
 
   # Step 1: Handle Stata missing value literals '.', '.a', ..., '.z'
@@ -59,9 +127,12 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   # Step 2: Handle r() values using the mapping.
   if (!is.null(r_value_mappings) && length(r_value_mappings) > 0) {
-    for (stata_r_name in names(r_value_mappings)) {
-      stata_r_regex = gsub("(", "\\(", gsub(")", "\\)", stata_r_name, fixed=TRUE), fixed=TRUE)
-      r_expr = stringi::stri_replace_all_regex(r_expr, stata_r_regex, r_value_mappings[[stata_r_name]])
+    # Sort r_value_mappings by name length descending to avoid partial matches (e.g., r(N) before r(mean))
+    sorted_r_names = names(r_value_mappings)[order(stringi::stri_length(names(r_value_mappings)), decreasing = TRUE)]
+    for (stata_r_name in sorted_r_names) {
+      # Escape parentheses in the regex pattern
+      stata_r_regex = gsub("([()])", "\\\\\\1", stata_r_name, fixed=TRUE) # Use fixed=TRUE for simplicity with gsub
+      r_expr = stringi::stri_replace_all_fixed(r_expr, stata_r_name, r_value_mappings[[stata_r_name]])
     }
   }
 
@@ -142,11 +213,13 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     "sfun_stata_cond"
   )
   
+  # Find all words that could be variable names
   locations_list = stringi::stri_locate_all_regex(r_expr, "\\b([a-zA-Z_][a-zA-Z0-9_.]*)\\b")
   locations = locations_list[[1]]
 
-  # Corrected logic to handle cases where no words match (returns a matrix of NAs)
+  # Check if locations is valid (not NULL, not all NAs)
   if (!is.null(locations) && NROW(locations) > 0 && !is.na(locations[1,1])) {
+      # Iterate from end to beginning to avoid issues with changed string length
       locations = locations[order(locations[,2], decreasing = TRUE), , drop = FALSE]
       
       for (k in seq_len(NROW(locations))) {
@@ -154,6 +227,14 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
           end_pos = locations[k,2]
           current_word = stringi::stri_sub(r_expr, start_pos, end_pos)
           
+          # Check if the word is a placeholder for a string literal
+          # This check is now robust because placeholders start with _number_ and won't match the regex.
+          # So `if (current_word %in% names(string_literal_map))` is technically not needed for *this* placeholder type,
+          # but keeping it for robustness/future changes.
+          if (current_word %in% names(string_literal_map)) {
+              next 
+          }
+
           is_reserved = dplyr::coalesce(current_word %in% r_reserved_words, FALSE)
           is_numeric_literal = dplyr::coalesce(suppressWarnings(!is.na(as.numeric(current_word))), FALSE)
           
@@ -179,7 +260,8 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   # Define a more robust pattern for operands that can be on either side of '+'
   # This pattern tries to capture common R-translated elements like quoted strings, numbers, NA/NULL,
   # backticked variable names, and function calls.
-  operand_pattern = "(?:\"[^\"]*\"|'[^']*'|\\d+(?:\\.\\d+)?(?:e[+-]?\\d+)?|\\b(?:NA_real_|NULL)\\b|\\b(?:TRUE|FALSE)\\b|`[^`]+`|\\b[a-zA-Z_][a-zA-Z0-9_.]*\\s*\\(.*?\\)\\s*)"
+  # It should now also correctly handle placeholders.
+  operand_pattern = "(?:\"[^\"]*\"|'[^']*'|\\d+(?:\\.\\d+)?(?:e[+-]?\\d+)?|\\b(?:NA_real_|NULL)\\b|\\b(?:TRUE|FALSE)\\b|`[^`]+`|\\b[a-zA-Z_][a-zA-Z0-9_.]*\\s*\\(.*?\\)\\s*|_[0-9]+STATA2R_SLIT_)"
   
   old_r_expr_add = ""
   # Loop to apply replacements until no more '+' can be replaced, handling nested sfun_stata_add
@@ -194,101 +276,22 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   }
 
 
-  # --- New: Restore string literals from placeholders ---
+  # --- Restore string literals from placeholders ---
   # Iterate in reverse order of placeholder creation to handle potential nested replacements
   # though for string literals, simple fixed replacement is usually fine.
   # Sorting by the length of the placeholder name (descending) ensures longer placeholders are replaced first,
   # preventing partial matches if placeholders were substrings of each other.
   # Here, placeholder names are unique and fixed length prefix, so simple iteration is fine.
   if (length(string_literal_map) > 0) {
-      # Use a loop over sorted names to ensure deterministic order if needed, but for fixed string replacement, it's not critical.
-      # For robustness, we could sort by length then alphabetically.
+      # Sort placeholders by length descending, then by name descending (for deterministic order)
       sorted_placeholders = names(string_literal_map)[order(stringi::stri_length(names(string_literal_map)), names(string_literal_map), decreasing = TRUE)]
       for (placeholder in sorted_placeholders) {
           r_expr = stringi::stri_replace_all_fixed(r_expr, placeholder, string_literal_map[[placeholder]])
       }
   }
-  # --- End new string literal restoration ---
+  # --- End string literal restoration ---
 
   return(r_expr)
 }
-
 ```
 !END_CHANGE_FILE R/stata_expression_translator.R
-
-!CHANGE_FILE R/translate_stata_expression_with_r_values.R
-```R
-translate_stata_expression_with_r_values = function(stata_expr, line_num, cmd_df, context) {
-  restore.point("translate_stata_expression_with_r_values") # Added restore.point
-  
-  r_value_mappings = list()
-
-  # Find the most recent summarize command before the current line
-  most_recent_summarize_line_idx = NA_integer_
-  for (i in (line_num - 1):1) {
-    if (cmd_df$stata_cmd[i] %in% c("summarize", "su")) {
-      most_recent_summarize_line_idx = i
-      break
-    }
-  }
-
-  if (!is.na(most_recent_summarize_line_idx)) {
-    prev_cmd_obj = cmd_df[most_recent_summarize_line_idx,]
-    
-    # Re-parse the summarize command's rest_of_cmd to determine its options
-    parts = stringi::stri_match_first_regex(prev_cmd_obj$rest_of_cmd, "^\\s*([^,]*?)(?:,\\s*(.*))?$")
-    # G1: varlist_and_cond_str, G2: options_str
-    varlist_and_cond_str = stringi::stri_trim_both(parts[1,2])
-    options_str = stringi::stri_trim_both(parts[1,3])
-
-    # Separate varlist from if condition (copied from t_summarize for consistency)
-    varlist_str = varlist_and_cond_str # Initialize
-    if_cond_match = stringi::stri_match_first_regex(varlist_and_cond_str, "\\s+if\\s+(.*)$")
-    if(!is.na(if_cond_match[1,1])) {
-        # stata_if_cond_expr = if_cond_match[1,2] # Not needed for r_value_mappings
-        varlist_str = stringi::stri_replace_all_fixed(varlist_and_cond_str, if_cond_match[1,1], "")
-        varlist_str = stringi::stri_trim_both(varlist_str)
-    }
-
-    vars_to_summarize = stringi::stri_split_regex(varlist_str, "\\s+")[[1]]
-    vars_to_summarize = vars_to_summarize[vars_to_summarize != ""]
-
-    var_for_r_vals = NA_character_
-    if (length(vars_to_summarize) > 0) {
-        var_for_r_vals = vars_to_summarize[length(vars_to_summarize)]
-    }
-
-    # FIX: Use dplyr::coalesce for robustness against NA in options_str
-    is_meanonly = dplyr::coalesce(stringi::stri_detect_fixed(options_str, "meanonly"), FALSE)
-    is_detail = dplyr::coalesce(stringi::stri_detect_fixed(options_str, "detail"), FALSE)
-
-    line_prefix = paste0("stata_r_val_L", prev_cmd_obj$line, "_")
-
-    # Populate r_value_mappings based on the options and variables
-    r_value_mappings[["r(N)"]] = paste0(line_prefix, "N")
-
-    if (!is.na(var_for_r_vals)) {
-        if (is_meanonly) {
-            r_value_mappings[["r(mean)"]] = paste0(line_prefix, "mean")
-        } else {
-            r_value_mappings[["r(mean)"]] = paste0(line_prefix, "mean")
-            r_value_mappings[["r(sd)"]] = paste0(line_prefix, "sd")
-            r_value_mappings[["r(min)"]] = paste0(line_prefix, "min")
-            r_value_mappings[["r(max)"]] = paste0(line_prefix, "max")
-            r_value_mappings[["r(sum)"]] = paste0(line_prefix, "sum")
-            if (is_detail) {
-                r_value_mappings[["r(p50)"]] = paste0(line_prefix, "p50")
-                # Add other detail r() values if implemented in t_summarize
-                # (e.g., r(p1), r(p5), r(p10), r(p25), r(p75), r(p90), r(p95), r(p99))
-                # (e.g., r(sum_w), r(Var), r(skewness), r(kurtosis))
-            }
-        }
-    }
-  }
-
-  translated_expr = translate_stata_expression_to_r(stata_expr, context = context, r_value_mappings = r_value_mappings)
-  return(translated_expr)
-}
-
-```
-!END_CHANGE_FILE R/translate_stata_expression_with_r_values.R

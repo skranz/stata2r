@@ -31,12 +31,76 @@ str(cmd_df)
 NULL
 
 ---
-#Translate Stata to R commands... 
-Error when creating translated code in for line 6
+#Translate Stata to R commands... ... translation done.
+---
+# Run translated R commands and compare results
 
-do:  by group: gen seq = _n 
-R:  <translation error>
-Translation error message:  missing value where TRUE/FALSE needed 
+
+ 1 do:  use "data.dta", clear
+ 1 r:  data = haven::read_dta(file.path(stata2r_env$working_dir, "data.dta")) %>% 
+  sfun_normalize_string_nas() %>%
+  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used 
+data = haven::read_dta(file.path(stata2r_env$working_dir, "data.dta")) %>% 
+  sfun_normalize_string_nas() %>%
+  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used
+
+ 2 do:  sort group i
+ 2 r:  data = dplyr::arrange(data, !!!dplyr::syms(c("group", "i"))) 
+data = dplyr::arrange(data, !!!dplyr::syms(c("group", "i")))
+
+ 3 do:  keep in 1/39
+ 3 r:  data = dplyr::slice(data, 1:39) 
+data = dplyr::slice(data, 1:39)
+
+ 4 do:  list in 1/5 
+
+ 4 r:  not translated since not flagged as data manipulation
+
+ 5 do:  display _n 
+
+ 5 r:  not translated since not flagged as data manipulation
+
+ 6 do:  by group: gen seq = _n
+ 6 r:  data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group"))) %>% 
+  dplyr::mutate(`seq` = dplyr::row_number()) %>% 
+  dplyr::ungroup() 
+data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group"))) %>% 
+  dplyr::mutate(`seq` = dplyr::row_number()) %>% 
+  dplyr::ungroup()
+
+ 7 do:  gen logi = log(i)
+ 7 r:  data = data %>% 
+  dplyr::mutate(`logi` = log(`i`)) 
+data = data %>% 
+  dplyr::mutate(`logi` = log(`i`))
+
+ 8 do:  gen sqrt_i = sqrt(i)
+ 8 r:  data = data %>% 
+  dplyr::mutate(`sqrt_i` = sqrt(`i`)) 
+data = data %>% 
+  dplyr::mutate(`sqrt_i` = sqrt(`i`))
+
+ 9 do:  gen group_num = cond(group=="A",1,cond(group=="B",2,3))
+ 9 r:  data = data %>% 
+  dplyr::mutate(`group_num` = as.character(sfun_stata_cond(`group`==`"A"`, 1, sfun_stata_cond(`group`==`"B"`, 2, 3)))) 
+data = data %>% 
+  dplyr::mutate(`group_num` = as.character(sfun_stata_cond(`group`==`"A"`, 1, sfun_stata_cond(`group`==`"B"`, 2, 3))))
+
+Error: Problem with `mutate()` column `group_num`.
+ℹ `group_num = as.character(...)`.
+✖ object '"A"' not found
+Caused by error in `as.list.environment()`:
+! object '"A"' not found
+Error executing R code for Stata line  9 :  data = data %>% 
+  dplyr::mutate(`group_num` = as.character(sfun_stata_cond(`group`==`"A"`, 1, sfun_stata_cond(`group`==`"B"`, 2, 3))))
+
+Error: Problem with `mutate()` column `group_num`.
+ℹ `group_num = as.character(...)`.
+✖ object '"A"' not found
+Caused by error in `as.list.environment()`:
+! object '"A"' not found 
 
 
 ---
@@ -63,9 +127,77 @@ str(cmd_df)
 NULL
 
 ---
-#Translate Stata to R commands... 
-Error when creating translated code in for line 2
+#Translate Stata to R commands... ... translation done.
+---
+# Run translated R commands and compare results
 
-do:  generate value1_log = log(value1) 
-R:  <translation error>
-Translation error message:  missing value where TRUE/FALSE needed 
+
+ 1 do:  use "test_data.dta", clear
+ 1 r:  data = haven::read_dta(file.path(stata2r_env$working_dir, "test_data.dta")) %>% 
+  sfun_normalize_string_nas() %>%
+  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used 
+data = haven::read_dta(file.path(stata2r_env$working_dir, "test_data.dta")) %>% 
+  sfun_normalize_string_nas() %>%
+  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used
+
+ 2 do:  generate value1_log = log(value1)
+ 2 r:  data = data %>% 
+  dplyr::mutate(`value1_log` = log(`value1`)) 
+data = data %>% 
+  dplyr::mutate(`value1_log` = log(`value1`))
+
+ 3 do:  generate value2_squared = value2^2
+ 3 r:  data = data %>% 
+  dplyr::mutate(`value2_squared` = `value2`^2) 
+data = data %>% 
+  dplyr::mutate(`value2_squared` = `value2`^2)
+
+ 4 do:  generate int_value1 = int(value1) if !missing(value1)
+ 4 r:  data = data %>% 
+  dplyr::mutate(`int_value1` = dplyr::if_else((dplyr::coalesce(as.numeric(!sfun_missing(`value1`)), 0) != 0), trunc(`value1`), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`int_value1` = dplyr::if_else((dplyr::coalesce(as.numeric(!sfun_missing(`value1`)), 0) != 0), trunc(`value1`), NA_real_))
+
+ 5 do:  generate rounded_value1 = round(value1, 0.1) if !missing(value1)
+ 5 r:  data = data %>% 
+  dplyr::mutate(`rounded_value1` = dplyr::if_else((dplyr::coalesce(as.numeric(!sfun_missing(`value1`)), 0) != 0), sfun_stata_round(`value1`,  0.1), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`rounded_value1` = dplyr::if_else((dplyr::coalesce(as.numeric(!sfun_missing(`value1`)), 0) != 0), sfun_stata_round(`value1`,  0.1), NA_real_))
+
+ 6 do:  generate random_uniform_draw = runiform()
+ 6 r:  data = data %>% 
+  dplyr::mutate(`random_uniform_draw` = stats::`runif`(dplyr::n())) 
+data = data %>% 
+  dplyr::mutate(`random_uniform_draw` = stats::`runif`(dplyr::n()))
+
+ 7 do:  generate id_plus_value2 = id + value2 if value2 < 7 & !missing(value2)
+ 7 r:  data = data %>% 
+  dplyr::mutate(`id_plus_value2` = dplyr::if_else((dplyr::coalesce(as.numeric(`value2` < 7 & !sfun_missing(`value2`)), 0) != 0), sfun_stata_add(`id`, `value2`), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`id_plus_value2` = dplyr::if_else((dplyr::coalesce(as.numeric(`value2` < 7 & !sfun_missing(`value2`)), 0) != 0), sfun_stata_add(`id`, `value2`), NA_real_))
+
+ 8 do:  replace value1_log = 0 if missing(value1_log) & !missing(value1)
+ 8 r:  data = data %>% 
+  dplyr::mutate(`value1_log` = dplyr::if_else((dplyr::coalesce(as.numeric(sfun_missing(`value1_log`) & !sfun_missing(`value1`)), 0) != 0), 0, data$`value1_log`)) 
+data = data %>% 
+  dplyr::mutate(`value1_log` = dplyr::if_else((dplyr::coalesce(as.numeric(sfun_missing(`value1_log`) & !sfun_missing(`value1`)), 0) != 0), 0, data$`value1_log`))
+
+ 9 do:  replace value1 = value1 * 1.5 if group_orig == "Alpha" & !missing(value1) & !missing(group_orig)
+ 9 r:  data = data %>% 
+  dplyr::mutate(`value1` = dplyr::if_else((dplyr::coalesce(as.numeric(`group_orig` == `"Alpha"` & !sfun_missing(`value1`) & !sfun_missing(`group_orig`)), 0) != 0), `value1` * 1.5, data$`value1`)) 
+data = data %>% 
+  dplyr::mutate(`value1` = dplyr::if_else((dplyr::coalesce(as.numeric(`group_orig` == `"Alpha"` & !sfun_missing(`value1`) & !sfun_missing(`group_orig`)), 0) != 0), `value1` * 1.5, data$`value1`))
+
+Error: Problem with `mutate()` column `value1`.
+ℹ `value1 = dplyr::if_else(...)`.
+✖ object '"Alpha"' not found
+Caused by error in `list2()`:
+! object '"Alpha"' not found
+Error executing R code for Stata line  9 :  data = data %>% 
+  dplyr::mutate(`value1` = dplyr::if_else((dplyr::coalesce(as.numeric(`group_orig` == `"Alpha"` & !sfun_missing(`value1`) & !sfun_missing(`group_orig`)), 0) != 0), `value1` * 1.5, data$`value1`))
+
+Error: Problem with `mutate()` column `value1`.
+ℹ `value1 = dplyr::if_else(...)`.
+✖ object '"Alpha"' not found
+Caused by error in `list2()`:
+! object '"Alpha"' not found 
