@@ -78,13 +78,11 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       # Ensure logicals become 0/1. Stata converts TRUE/FALSE to 1/0 for numeric types.
       # This handles `gen newvar = x==y` resulting in numeric 0/1.
       # The check for logical operators needs to be robust.
-      # If the expression is a simple number or variable, no change.
       # If it's a logical expression, cast to numeric.
-      # Ensure is_a_logical_expression is always TRUE/FALSE, never NA.
-      is_a_logical_expression = dplyr::coalesce(
+      # Fix: Use isTRUE() to handle potential NA from `&&` operation
+      is_a_logical_expression = isTRUE(
           stringi::stri_detect_regex(calculated_value_expr_raw, "\\bTRUE\\b|\\bFALSE\\b|==|!=|<=|>=|<|>|&|\\||\\bsfun_missing\\b") &&
-          !stringi::stri_detect_fixed(calculated_value_expr_raw, "dplyr::if_else"),
-          FALSE
+          !stringi::stri_detect_fixed(calculated_value_expr_raw, "dplyr::if_else")
       )
 
       if (is_a_logical_expression) {
@@ -120,4 +118,5 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 

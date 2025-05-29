@@ -76,7 +76,8 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   while (dplyr::coalesce(r_expr != old_r_expr, FALSE)) {
     old_r_expr = r_expr
 
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bcond\\(([^,]+),([^,]+),([^)]+)\\)", "dplyr::if_else(as.logical(dplyr::coalesce(as.numeric($1), 0)), $2, $3)")
+    # Fix: Use the new sfun_stata_cond helper for robust cond() translation
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bcond\\(([^,]+),([^,]+),([^)]+)\\)", "sfun_stata_cond($1, $2, $3)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^,]+),([^)]+)\\)", "sfun_stata_round($1, $2)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^)]+)\\)", "sfun_stata_round($1, 1)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmod\\(([^,]+),([^)]+)\\)", "($1 %% $2)")
@@ -128,7 +129,8 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     "sfun_missing", "sfun_stata_add", "sfun_stata_round", "sfun_string", "sfun_stritrim",
     "sfun_strpos", "sfun_subinstr", "sfun_stata_mdy", "sfun_stata_date", "sfun_day",
     "sfun_month", "sfun_qofd", "sfun_dow", "sfun_normalize_string_nas", "sfun_strip_stata_attributes",
-    "sfun_compress_col_type", "sfun_is_stata_expression_string_typed", "as.logical"
+    "sfun_compress_col_type", "sfun_is_stata_expression_string_typed", "as.logical",
+    "sfun_stata_cond" # Added new helper function
   )
   
   locations = stringi::stri_locate_all_regex(r_expr, "\\b([a-zA-Z_][a-zA-Z0-9_.]*)\\b")[[1]]
@@ -193,4 +195,5 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   return(r_expr)
 }
+
 
