@@ -52,49 +52,46 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Determine if the target variable will be a string type based on EXPLICIT Stata declaration.
   # If no explicit type, let R infer from the translated expression.
-  force_r_output_type = NA_character_ # "character" or "numeric"
+  is_stata_expr_string_typed = sfun_is_stata_expression_string_typed(stata_expr)
 
-  # FIX: Added !is.na(declared_type_str) to prevent error if declared_type_str is NA
+  # Apply explicit type casting if declared in Stata command, overriding inferred type
   if (!is.na(declared_type_str)) {
       if (stringi::stri_startswith_fixed(declared_type_str, "str")) {
-          force_r_output_type = "character"
+          is_stata_expr_string_typed = TRUE
       } else { # byte, int, long, float, double
-          force_r_output_type = "numeric"
+          is_stata_expr_string_typed = FALSE
       }
   }
 
   # Step 1: Calculate the value for the new variable, potentially conditionally
   calculated_value_expr_raw = r_expr # This is the R translation of stata_expr
 
-  # Apply explicit type casting if declared in Stata command
-  if (force_r_output_type == "character") {
+  if (is_stata_expr_string_typed) {
       # If Stata expression is numeric NA (.), it translates to NA_real_.
       # When assigned to a string variable, Stata treats '.' as "".
-      if (isTRUE(calculated_value_expr_raw == "NA_real_")) {
+      if (calculated_value_expr_raw == "NA_real_") { # Check against the literal string "NA_real_"
           calculated_value_expr = '""'
       } else {
-          # Cast to character for other expressions
           calculated_value_expr = paste0("as.character(", calculated_value_expr_raw, ")")
       }
-  } else if (force_r_output_type == "numeric") {
-      # Ensure logicals become 0/1. Other numeric types should already be fine.
+  } else { # Numeric output
+      # Ensure logicals become 0/1. Stata converts TRUE/FALSE to 1/0 for numeric types.
       # This handles `gen newvar = x==y` resulting in numeric 0/1.
-      # Added robustness check for NA or empty `calculated_value_expr_raw`
-      is_logical_r_expr = FALSE # Default to FALSE
-      if (!is.na(calculated_value_expr_raw) && calculated_value_expr_raw != "") {
-        # Check if the expression contains logical operators or literals, and is not already an if_else.
-        regex_match = stringi::stri_detect_regex(calculated_value_expr_raw, "\\bTRUE\\b|\\bFALSE\\b|==|!=|<=|>=|<|>|&|\\||\\bsfun_missing\\b")
-        fixed_match = stringi::stri_detect_fixed(calculated_value_expr_raw, "dplyr::if_else")
-        # Ensure the result of logical operations is always TRUE/FALSE, never NA.
-        is_logical_r_expr = dplyr::coalesce(regex_match, FALSE) && !dplyr::coalesce(fixed_match, FALSE)
-      }
-      if (is_logical_r_expr) {
+      # The check for logical operators needs to be robust.
+      # If the expression is a simple number or variable, no change.
+      # If it's a logical expression, cast to numeric.
+      # Ensure is_a_logical_expression is always TRUE/FALSE, never NA.
+      is_a_logical_expression = dplyr::coalesce(
+          stringi::stri_detect_regex(calculated_value_expr_raw, "\\bTRUE\\b|\\bFALSE\\b|==|!=|<=|>=|<|>|&|\\||\\bsfun_missing\\b") &&
+          !stringi::stri_detect_fixed(calculated_value_expr_raw, "dplyr::if_else"),
+          FALSE
+      )
+
+      if (is_a_logical_expression) {
           calculated_value_expr = paste0("as.numeric(", calculated_value_expr_raw, ")")
       } else {
           calculated_value_expr = calculated_value_expr_raw
       }
-  } else { # No explicit type declared in Stata, let R infer
-      calculated_value_expr = calculated_value_expr_raw
   }
 
 
