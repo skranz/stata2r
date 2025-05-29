@@ -18,7 +18,7 @@ t_reshape = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   reshape_type = reshape_match[1,2]
   stubnames_or_varlist_str = stringi::stri_trim_both(reshape_match[1,3])
-  options_str = stringi::stri_trim_both(reshape_match[1,4]) # NA if no options
+  options_str = stringi::stri_trim_both(reshape_match[1,1]) # NA if no options
 
   stubnames_or_varlist = stringi::stri_split_regex(stubnames_or_varlist_str, "\\s+")[[1]]
   stubnames_or_varlist = stubnames_or_varlist[stubnames_or_varlist != ""]
@@ -115,7 +115,8 @@ t_reshape = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
       # `id_cols` should be explicitly passed to `pivot_longer` to specify non-pivoted columns.
       # This ensures that only the columns matching the `cols_to_gather_expr` regex are pivoted,
       # and other non-i variables are retained.
-      r_code_str = paste0("data = tidyr::pivot_longer(data, cols = ", cols_to_gather_expr, ", names_to = ", names_to_r, ", names_pattern = \"", names_pattern, "\", id_cols = ", i_vars_r_vec_str, ")")
+      # FIX: Removed `id_cols` argument. `pivot_longer` can infer `id_cols` from columns not specified in `cols` or `names_to`.
+      r_code_str = paste0("data = tidyr::pivot_longer(data, cols = ", cols_to_gather_expr, ", names_to = ", names_to_r, ", names_pattern = \"", names_pattern, "\")")
 
 
       # If j() string option was NOT used, need to convert the resulting j_var to numeric.
@@ -138,5 +139,4 @@ t_reshape = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   return(r_code_str)
 }
-
 
