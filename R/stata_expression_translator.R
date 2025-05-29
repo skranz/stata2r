@@ -112,7 +112,6 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   # Step 6: Quote bare variable names with backticks
   # Define R keywords and literals that should not be backticked.
-  # These must be handled after _n, _N, and r() values are replaced.
   r_reserved_words = c(
     "TRUE", "FALSE", "NA_real_", "NA_character_", "NA_integer_", "NA", "NULL",
     "if_else", "coalesce", "row_number", "n", "lag", "lead", "select", "filter",
@@ -132,128 +131,39 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     "sfun_compress_col_type", "sfun_is_stata_expression_string_typed"
   )
   
-  # Regex to match a word that is not a number, a string literal, or a reserved R word/function call
-  # This pattern should be applied carefully to avoid double-quoting or corrupting valid R syntax.
-  # First, replace already backticked variables (e.g. from _n-1) to avoid re-matching parts of them.
-  # Then, match bare words.
+  # Find all occurrences of words matching Stata variable names and their locations
+  locations = stringi::stri_locate_all_regex(r_expr, "\\b([a-zA-Z_][a-zA-Z0-9_.]*)\\b")[[1]]
   
-  # This regex matches a "word" that:
-  # 1. Starts with a letter or underscore, followed by letters, numbers, or underscores.
-  # 2. Is not followed by an opening parenthesis (to exclude function calls).
-  # 3. Is not one of the R reserved words.
-  
-  # The strategy: Find all bare words. Filter out those that are R reserved words. Wrap the rest in backticks.
-  # This process is sensitive to order and potential overlaps.
-  
-  # To avoid issues with nested backticks (e.g., `var` in `log(`var` + 1)`),
-  # we must ensure that the `log` function itself is not matched as a bare word.
-  # The `while` loop for functions already handles `log(...)` etc. so they should not appear as bare words.
-  
-  # Find all word tokens (potential variable names)
-  word_tokens = stringi::stri_extract_all_regex(r_expr, "\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b")[[1]]
-  
-  if (!is.null(word_tokens) && length(word_tokens) > 0) {
-      # Filter out tokens that are R reserved words or appear to be numbers (e.g., .5 is numeric but treated as word by regex)
-      # Also filter out words that are part of a function call that was already translated (e.g. `log` in `log(x)`)
+  if (NROW(locations) > 0) {
+      # Sort locations by end position descending to avoid issues with replacement as `r_expr` changes length
+      locations = locations[order(locations[,2], decreasing = TRUE), , drop = FALSE]
       
-      # For each matched word, check if it's a function call or a reserved word.
-      # Create a unique list of words to process
-      unique_words = unique(word_tokens)
-      
-      for (word in unique_words) {
-          # Skip if it's an R reserved word/literal
-          if (word %in% r_reserved_words) next
+      for (k in seq_len(NROW(locations))) {
+          start_pos = locations[k,1]
+          end_pos = locations[k,2]
+          current_word = stringi::stri_sub(r_expr, start_pos, end_pos)
           
-          # Skip if it's a number (e.g., "1.23" is matched by `\b[a-zA-Z_0-9.]+\b` but not by `\b[a-zA-Z_][a-zA-Z0-9_.]*\b`)
-          # Ensure this is numeric, not just a label.
-          if (suppressWarnings(!is.na(as.numeric(word)))) next
+          # Only backtick if it's not an R reserved word, not a numeric literal, and not already backticked
+          is_reserved = current_word %in% r_reserved_words
+          is_numeric_literal = suppressWarnings(!is.na(as.numeric(current_word)))
           
-          # Check if the word is part of a function call pattern (e.g., "log(").
-          # This should be implicitly handled by the previous function translation step.
-          # If a word is NOT followed by '(', it is a bare variable.
-          # We need to replace `word` with `` `word` ``.
-          
-          # Use a regex that matches the word ONLY if it's not followed by '('.
-          # This is tricky because the replacement happens in the full string.
-          # The safest way is to target only words that are NOT followed by '('.
-          # And not already backticked.
-          
-          # Regex for a bare word: \b(word)\b followed by NOT '(' and NOT already backticked.
-          # Look for `word` not preceded by ` and not followed by ` or (
-          # This is simpler: just replace ALL instances of `word` with `` `word` ``
-          # after all functions are translated. If a function name was already translated
-          # to `log(...)`, the `log` part won't be a bare word.
-          
-          # Ensure we don't backtick things that are already backticked.
-          # Use negative lookbehind `(?<!``)` and negative lookahead `(?!``)`.
-          
-          # Updated regex for bare variable names that are not already backticked
-          # `(?!`)([a-zA-Z_][a-zA-Z0-9_.]*)(?<!`)`
-          # This is still complex. A simpler approach: replace if not already backticked and not a function.
-          
-          # The current approach for `log(var)` is `log(var)`. `var` needs to be backticked.
-          # The current approach `_n` -> `as.numeric(dplyr::row_number())`. `dplyr` needs to be backticked if it were a variable.
-          
-          # Safest approach: replace ALL matching words, but ensure the word is not
-          # a string literal or part of a number.
-          # The regex `\\b([a-zA-Z_][a-zA-Z0-9_.]*)\\b` is for Stata variable names.
-          # Use a more sophisticated regex to identify bare words that should be backticked.
-          
-          # Pattern to match a word that:
-          # 1. Starts with a letter or underscore.
-          # 2. Is not a number (e.g. `123`, `1.23`).
-          # 3. Is not an R reserved word.
-          # 4. Is not already surrounded by backticks.
-          
-          # Regex for words to potentially backtick: `\b([a-zA-Z_][a-zA-Z0-9_.]*)\b`
-          # Use `gsub` with a custom function to check `word %in% r_reserved_words`
-          
-          # This is hard with simple regex. Let's try the `stringi::stri_replace_all_regex` with a more constrained pattern.
-          # Match a word that is NOT an R keyword, NOT a number, NOT a string literal, and NOT part of a function call.
-          # (?!`)([a-zA-Z_][a-zA-Z0-9_.]*)(?!`)
-          # This requires excluding function names that just appear as bare words, but are meant as functions.
-          # E.g. `gen x = count(y)` -> `count` is a function. `y` is a variable.
-          
-          # This is simpler: use a regex that captures "word" and then check if it's a variable or not.
-          # Iterate over the matches and replace.
-          
-          # Find all occurences of words matching Stata variable names
-          matches = stringi::stri_extract_all_regex(r_expr, "\\b([a-zA-Z_][a-zA-Z0-9_.]*)\\b", simplify = TRUE)
-          
-          if (!is.null(matches) && NCOL(matches) > 0) {
-              # Iterate through matches in reverse order to avoid index issues with replacement
-              # stringi::stri_locate_all_regex gives positions
-              locations = stringi::stri_locate_all_regex(r_expr, "\\b([a-zA-Z_][a-zA-Z0-9_.]*)\\b")[[1]]
-              
-              if (NROW(locations) > 0) {
-                  # Sort locations by end position descending to avoid issues with replacement
-                  locations = locations[order(locations[,2], decreasing = TRUE), , drop = FALSE]
-                  
-                  for (k in seq_len(NROW(locations))) {
-                      start_pos = locations[k,1]
-                      end_pos = locations[k,2]
-                      current_word = stringi::stri_sub(r_expr, start_pos, end_pos)
-                      
-                      # Only backtick if it's not an R reserved word and not already backticked
-                      is_reserved = current_word %in% r_reserved_words
-                      is_numeric_literal = suppressWarnings(!is.na(as.numeric(current_word)))
-                      
-                      # Check if already backticked (by checking characters around it)
-                      is_already_backticked = FALSE
-                      if (start_pos > 1 && stringi::stri_sub(r_expr, start_pos - 1, start_pos - 1) == "`" &&
-                          end_pos < stringi::stri_length(r_expr) && stringi::stri_sub(r_expr, end_pos + 1, end_pos + 1) == "`") {
-                          is_already_backticked = TRUE
-                      }
-                      
-                      if (!is_reserved && !is_numeric_literal && !is_already_backticked) {
-                          # Replace the word with its backticked version
-                          r_expr = paste0(stringi::stri_sub(r_expr, 1, start_pos - 1),
-                                          "`", current_word, "`",
-                                          stringi::stri_sub(r_expr, end_pos + 1, stringi::stri_length(r_expr)))
-                      }
-                  }
-              }
+          # Check if already backticked (by checking characters around it)
+          is_already_backticked = FALSE
+          # Ensure indices are valid before accessing substrings
+          if (start_pos > 1 && end_pos < stringi::stri_length(r_expr)) {
+            if (stringi::stri_sub(r_expr, start_pos - 1, start_pos - 1) == "`" &&
+                stringi::stri_sub(r_expr, end_pos + 1, end_pos + 1) == "`") {
+                is_already_backticked = TRUE
+            }
           }
+          
+          if (!is_reserved && !is_numeric_literal && !is_already_backticked) {
+              # Replace the word with its backticked version
+              r_expr = paste0(stringi::stri_sub(r_expr, 1, start_pos - 1),
+                              "`", current_word, "`",
+                              stringi::stri_sub(r_expr, end_pos + 1, stringi::stri_length(r_expr)))
+          }
+      }
   }
 
 
