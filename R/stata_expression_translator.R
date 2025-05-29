@@ -152,15 +152,17 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
           is_already_backticked = FALSE
           # Ensure indices are valid before accessing substrings
           # FIX: Make this if condition robust to NA results from stringi::stri_length(r_expr)
+          # The fix for char_before/char_after NA values is to coalesce them.
           if (dplyr::coalesce(start_pos > 1 && end_pos <= stringi::stri_length(r_expr), FALSE)) { 
-            char_before = stringi::stri_sub(r_expr, start_pos - 1, start_pos - 1)
-            char_after = stringi::stri_sub(r_expr, end_pos + 1, end_pos + 1)
+            char_before = dplyr::coalesce(stringi::stri_sub(r_expr, start_pos - 1, start_pos - 1), "") # Coalesce NA to ""
+            char_after = dplyr::coalesce(stringi::stri_sub(r_expr, end_pos + 1, end_pos + 1), "") # Coalesce NA to ""
             # Ensure char_before and char_after are not NA before comparison
             # Coalesce ensures logical comparison even if stri_sub returns NA for out-of-bounds access (though guarded by if)
-            is_already_backticked = dplyr::coalesce(char_before == "`" && char_after == "`", FALSE)
+            is_already_backticked = (char_before == "`" && char_after == "`")
           }
           
-          if (!is_reserved && !is_numeric_literal && !is_already_backticked) {
+          # This is the line that caused the error. Coalesce each part to FALSE if NA.
+          if (dplyr::coalesce(!is_reserved, FALSE) && dplyr::coalesce(!is_numeric_literal, FALSE) && dplyr::coalesce(!is_already_backticked, FALSE)) {
               # Replace the word with its backticked version
               r_expr = paste0(stringi::stri_sub(r_expr, 1, start_pos - 1),
                               "`", current_word, "`",
@@ -173,23 +175,6 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   # Step 7: Translate Stata '+' operator to sfun_stata_add for polymorphic behavior
   # This must happen after all functions and variable names are translated/backticked.
   # Operands can now be: quoted strings, numbers, R literals, backticked variable names, or R function calls.
-  
-  # Update operand_pattern to include backticked variable names: `[^`]+`
-  # Also, for function calls, the function name might itself be backticked if it's a variable.
-  # Let's assume after step 6, all variables are backticked.
-  # So, `log(var)` becomes `log(`var`)`.
-  # The `operand_pattern` needs to match:
-  # - quoted strings: "[^"]*" or '[^']+'
-  # - numbers: \d+(?:\.\d+)?
-  # - R literals: NA_real_, NULL, TRUE, FALSE
-  # - backticked variables: `[^`]+`
-  # - function calls: \b[a-zA-Z_][a-zA-Z0-9_:]*\s*\(.*?\) # Function names are NOT backticked, arguments ARE.
-  # - anything else that is a valid R expression piece (e.g. results of other operations)
-  
-  # The original `operand_pattern` is good enough, as long as the variable names are backticked first.
-  # `\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b` will now match backticked variables as well IF it's inside the backticks.
-  # No, it won't. `\b` won't cross backticks.
-  # So we explicitly add `\`[^`]+\`` to the `operand_pattern`.
   
   # Updated operand_pattern to include backticked variable names
   operand_pattern = "(?:\"[^\"]*\"|'[^']*'|\\d+(?:\\.\\d+)?|\\b(?:NA_real_|NULL)\\b|\\b(?:TRUE|FALSE)\\b|`[^`]+`|\\b[a-zA-Z_][a-zA-Z0-9_:]*\\s*\\(.*?\\)\\s*)"
