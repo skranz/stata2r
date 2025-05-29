@@ -119,13 +119,14 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   
   # Logic for `keep()` option (converted to generated R code)
   if (!is.na(actual_keep_spec_from_options)) {
-      r_code_lines = c(r_code_lines, paste0("if (grepl(\"\\\\ball\\\\b\", \"", actual_keep_spec_from_options, "\")) {"))
+      # Use grepl with word boundaries for robustness
+      r_code_lines = c(r_code_lines, paste0("if (grepl(\"\\\\ball\\\\b\", \"", actual_keep_spec_from_options, "\", ignore.case=TRUE)) {"))
       r_code_lines = c(r_code_lines, paste0("  ", join_type_var_in_r, " = \"dplyr::full_join\""))
-      r_code_lines = c(r_code_lines, paste0("} else if (grepl(\"\\\\bmaster\\\\b\", \"", actual_keep_spec_from_options, "\")) {"))
+      r_code_lines = c(r_code_lines, paste0("} else if (grepl(\"\\\\bmaster\\\\b\", \"", actual_keep_spec_from_options, "\", ignore.case=TRUE)) {"))
       r_code_lines = c(r_code_lines, paste0("  ", join_type_var_in_r, " = \"dplyr::left_join\""))
-      r_code_lines = c(r_code_lines, paste0("} else if (grepl(\"\\\\busing\\\\b\", \"", actual_keep_spec_from_options, "\")) {"))
+      r_code_lines = c(r_code_lines, paste0("} else if (grepl(\"\\\\busing\\\\b\", \"", actual_keep_spec_from_options, "\", ignore.case=TRUE)) {"))
       r_code_lines = c(r_code_lines, paste0("  ", join_type_var_in_r, " = \"dplyr::right_join\""))
-      r_code_lines = c(r_code_lines, paste0("} else if (grepl(\"\\\\bmatch\\\\b\", \"", actual_keep_spec_from_options, "\")) {"))
+      r_code_lines = c(r_code_lines, paste0("} else if (grepl(\"\\\\bmatch\\\\b\", \"", actual_keep_spec_from_options, "\", ignore.case=TRUE)) {"))
       r_code_lines = c(r_code_lines, paste0("  ", join_type_var_in_r, " = \"dplyr::inner_join\""))
       r_code_lines = c(r_code_lines, "}")
   }
