@@ -113,16 +113,26 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
 
   # Apply condition only if it exists
+  # Introduce temporary variable for condition evaluation to avoid translation-time logical error
+  temp_if_cond_var = paste0("stata_tmp_if_cond_L", line_num)
+  
+  r_code_lines = c()
+  
+  # Generate the condition variable first using with(data, ...) to evaluate at runtime
   if (!is.na(r_if_cond) && r_if_cond != "") {
-    # Stata's 'if' condition treats NA as FALSE.
-    calc_expr = paste0("dplyr::if_else(as.logical(dplyr::coalesce(", r_if_cond, ", FALSE)), ", calculated_value_expr, ", ", na_or_empty_str_for_false_cond, ")")
+      r_code_lines = c(r_code_lines, paste0(temp_if_cond_var, " = as.logical(dplyr::coalesce(with(data, ", r_if_cond, "), FALSE))"))
+  } else {
+      r_code_lines = c(r_code_lines, paste0(temp_if_cond_var, " = TRUE")) # Always apply if no condition
+  }
+
+
+  if (!is.na(r_if_cond) && r_if_cond != "") {
+    calc_expr = paste0("dplyr::if_else(", temp_if_cond_var, ", ", calculated_value_expr, ", ", na_or_empty_str_for_false_cond, ")")
   } else {
     calc_expr = calculated_value_expr
   }
 
   # Step 2: Build the R code string using pipes for the mutate operation
-  r_code_lines = c()
-  
   pipe_elements = list("data") # Elements for the pipe chain, starting from `data`
 
   # Add grouping and mutate steps
@@ -138,9 +148,11 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # This is the final assignment line for the current command
   # It takes 'data' (potentially already arranged) and pipes it through the rest
   r_code_lines = c(r_code_lines, paste0("data = ", paste(pipe_elements, collapse = " %>% \n  ")))
+  
+  # Clean up temporary condition variable
+  r_code_lines = c(r_code_lines, paste0("rm(", temp_if_cond_var, ")"))
 
 
   return(paste(r_code_lines, collapse="\n"))
 }
-
 

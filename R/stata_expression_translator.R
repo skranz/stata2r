@@ -75,7 +75,9 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     old_r_expr = r_expr
 
     # Apply more specific regexes first if there are overlaps (e.g., round(x,y) before round(x))
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bcond\\(([^,]+),([^,]+),([^)]+)\\)", "dplyr::if_else(dplyr::coalesce(as.logical($1), FALSE), $2, $3)")
+    # FIX: For cond(), ensure the condition ($1) is converted to numeric before as.logical,
+    # and coalesce with 0 to handle Stata's missing-as-false logic.
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bcond\\(([^,]+),([^,]+),([^)]+)\\)", "dplyr::if_else(as.logical(dplyr::coalesce(as.numeric($1), 0)), $2, $3)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^,]+),([^)]+)\\)", "sfun_stata_round($1, $2)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^)]+)\\)", "sfun_stata_round($1, 1)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmod\\(([^,]+),([^)]+)\\)", "($1 %% $2)")
