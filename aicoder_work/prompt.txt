@@ -1564,7 +1564,6 @@ resolve_stata_filename = function(raw_filename_token, cmd_df, line_num, default_
   }
 }
 
-
 ```
 ### END OF FILE: stata_cmd_utils.R
 
@@ -1869,7 +1868,6 @@ t_append = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   return(r_code_str)
 }
 
-
 ```
 ### END OF FILE: t_append.R
 
@@ -1937,7 +1935,7 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
            return(paste0("# Failed to translate if/in condition for collapse: ", stata_if_in_cond))
       }
       # Using collapse::fsubset. r_subset_cond is a string representing the logical condition.
-      r_code_lines = c(r_code_lines, paste0("data = collapse::fsubset(data, as.logical(dplyr::coalesce(", r_subset_cond, ", FALSE)))"))
+      r_code_lines = c(r_code_lines, paste0("data = collapse::fsubset(data, (dplyr::coalesce(as.numeric(", r_subset_cond, "), 0) != 0))"))
       # data_source_for_collapse remains "data" as it's modified in place by fsubset
   }
 
@@ -2038,7 +2036,6 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
-
 
 ```
 ### END OF FILE: t_collapse.R
@@ -2176,7 +2173,7 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Apply the if/in condition for replacement
   if (!is.na(r_if_in_cond) && r_if_in_cond != "") {
        r_code_lines = c(r_code_lines,
-           paste0("data = dplyr::mutate(data, `", gen_var, "` = dplyr::if_else(as.logical(dplyr::coalesce(", r_if_in_cond, ", FALSE)), ", temp_decoded_values_L, ", `", gen_var, "`))")
+           paste0("data = dplyr::mutate(data, `", gen_var, "` = dplyr::if_else((dplyr::coalesce(as.numeric(", r_if_in_cond, "), 0) != 0), ", temp_decoded_values_L, ", `", gen_var, "`))")
        )
   } else {
       r_code_lines = c(r_code_lines,
@@ -2312,10 +2309,10 @@ t_destring = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
           # For rows meeting condition, use destrung value. Otherwise, keep original (or NA if new var).
            if (is_replace) {
                # Replace in place: use destrung if condition, old value otherwise
-               final_value_expr = paste0("dplyr::if_else(as.logical(dplyr::coalesce(", r_if_in_cond, ", FALSE)), ", destrung_value_expr, ", `", source_var_r, "`)")
+               final_value_expr = paste0("dplyr::if_else((dplyr::coalesce(as.numeric(", r_if_in_cond, "), 0) != 0), ", destrung_value_expr, ", `", source_var_r, "`)")
            } else {
                # Generate new var: use destrung if condition, NA otherwise
-               final_value_expr = paste0("dplyr::if_else(as.logical(dplyr::coalesce(", r_if_in_cond, ", FALSE)), ", destrung_value_expr, ", NA_real_)") # Assuming numeric result
+               final_value_expr = paste0("dplyr::if_else((dplyr::coalesce(as.numeric(", r_if_in_cond, "), 0) != 0), ", destrung_value_expr, ", NA_real_)") # Assuming numeric result
            }
       } else {
           # Apply to all rows
@@ -2376,7 +2373,7 @@ t_drop = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     stata_if_cond = stringi::stri_sub(rest_of_cmd_trimmed, from = 4)
     r_if_cond = translate_stata_expression_with_r_values(stata_if_cond, line_num, cmd_df, context)
     # Using dplyr::filter, treating NA in condition as FALSE (Stata behavior)
-    r_code_str = paste0("data = dplyr::filter(data, !as.logical(dplyr::coalesce(", r_if_cond, ", FALSE)))")
+    r_code_str = paste0("data = dplyr::filter(data, !(dplyr::coalesce(as.numeric(", r_if_cond, "), 0) != 0))")
   } else if (is_in_drop) {
     # drop in range
     range_str = stringi::stri_sub(rest_of_cmd_trimmed, from = 4)
@@ -2408,7 +2405,6 @@ t_drop = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
-
 
 ```
 ### END OF FILE: t_drop.R
@@ -2486,7 +2482,7 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   if (subcommand == "drop") {
       # For filter, NA in condition is treated as FALSE, which matches Stata's behavior.
       filter_cond_expr = if (!is.na(r_subset_cond) && r_subset_cond != "") {
-                           paste0("as.logical(dplyr::coalesce(", r_subset_cond, ", FALSE))")
+                           paste0("(dplyr::coalesce(as.numeric(", r_subset_cond, "), 0) != 0)")
                          } else {
                            "TRUE"
                          }
@@ -2522,7 +2518,7 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
       }
 
       mutate_cond_expr = if (!is.na(r_subset_cond) && r_subset_cond != "") {
-                           paste0("as.logical(dplyr::coalesce(", r_subset_cond, ", FALSE))")
+                           paste0("(dplyr::coalesce(as.numeric(", r_subset_cond, "), 0) != 0)")
                          } else {
                            "TRUE"
                          }
@@ -2545,7 +2541,7 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   } else if (subcommand == "list") {
        filter_cond_expr = if (!is.na(r_subset_cond) && r_subset_cond != "") {
-                           paste0("as.logical(dplyr::coalesce(", r_subset_cond, ", FALSE))")
+                           paste0("(dplyr::coalesce(as.numeric(", r_subset_cond, "), 0) != 0)")
                          } else {
                            "TRUE"
                          }
@@ -3006,7 +3002,7 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Apply the if/in condition for assignment to the target column in 'data'
   if (!is.na(r_if_in_cond) && r_if_in_cond != "") {
        r_code_lines = c(r_code_lines,
-           paste0("data = dplyr::mutate(data, `", gen_var, "` = dplyr::if_else(as.logical(dplyr::coalesce(", r_if_in_cond, ", FALSE)), ", encoded_values_full_tmp_var, ", `", gen_var, "`))")
+           paste0("data = dplyr::mutate(data, `", gen_var, "` = dplyr::if_else((dplyr::coalesce(as.numeric(", r_if_in_cond, "), 0) != 0), ", encoded_values_full_tmp_var, ", `", gen_var, "`))")
        )
   } else {
       # No condition, assign the full encoded vector
@@ -3123,7 +3119,7 @@ t_expand = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
                           }
   # For final_r_subset_cond:
   cond_expr_with_context = if (!is.na(final_r_subset_cond) && final_r_subset_cond != "") {
-                             paste0("as.logical(dplyr::coalesce(with(data, ", final_r_subset_cond, "), FALSE))")
+                             paste0("(dplyr::coalesce(as.numeric(with(data, ", final_r_subset_cond, ")), 0) != 0)")
                            } else {
                              NA_character_ # or "TRUE" if it's to be used directly
                            }
@@ -3159,7 +3155,6 @@ t_expand = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
-
 
 ```
 ### END OF FILE: t_expand.R
@@ -3300,7 +3295,7 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Apply condition only if it exists
   if (!is.na(r_if_cond) && r_if_cond != "") {
-    calc_expr = paste0("dplyr::if_else(as.logical(dplyr::coalesce(", r_if_cond, ", FALSE)), ", calculated_value_expr, ", ", na_or_empty_str_for_false_cond, ")")
+    calc_expr = paste0("dplyr::if_else((dplyr::coalesce(as.numeric(", r_if_cond, "), 0) != 0), ", calculated_value_expr, ", ", na_or_empty_str_for_false_cond, ")")
   } else {
     calc_expr = calculated_value_expr
   }
@@ -3325,8 +3320,6 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   return(paste(r_code_lines, collapse="\n"))
 }
 
-
-
 ```
 ### END OF FILE: t_generate.R
 
@@ -3349,7 +3342,7 @@ t_keep = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     stata_if_cond = stringi::stri_sub(rest_of_cmd_trimmed, from = 4)
     r_if_cond = translate_stata_expression_with_r_values(stata_if_cond, line_num, cmd_df, context)
     # Using dplyr::filter, treating NA in condition as FALSE (Stata behavior)
-    r_code_str = paste0("data = dplyr::filter(data, as.logical(dplyr::coalesce(", r_if_cond, ", FALSE)))")
+    r_code_str = paste0("data = dplyr::filter(data, (dplyr::coalesce(as.numeric(", r_if_cond, "), 0) != 0))")
   } else if (is_in_keep) {
     # keep in range
     range_str = stringi::stri_sub(rest_of_cmd_trimmed, from = 4)
@@ -3381,7 +3374,6 @@ t_keep = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
-
 
 ```
 ### END OF FILE: t_keep.R
@@ -4166,7 +4158,7 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       case_when_expr = paste0("dplyr::case_when(\n    ", paste(r_rules, collapse = ",\n    "), "\n  )")
 
       if (!is.na(r_subset_cond) && r_subset_cond != "") {
-          final_value_expr = paste0("dplyr::if_else(as.logical(dplyr::coalesce(", r_subset_cond, ", FALSE)),\n",
+          final_value_expr = paste0("dplyr::if_else((dplyr::coalesce(as.numeric(", r_subset_cond, "), 0) != 0),\n",
                                     "    ", case_when_expr, ",\n",
                                     "    `", source_var_r, "`)") # Keep original value if condition not met.
       } else {
@@ -4214,7 +4206,6 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
-
 
 ```
 ### END OF FILE: t_recode.R
@@ -4357,7 +4348,7 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Use dplyr::coalesce(condition, FALSE) to treat NA condition as FALSE.
   # Apply condition only if it exists
   if (!is.na(r_if_cond) && r_if_cond != "") {
-    calc_expr = paste0("dplyr::if_else(as.logical(dplyr::coalesce(", r_if_cond, ", FALSE)), ", calculated_value_expr, ", data$`", var_to_replace, "`)")
+    calc_expr = paste0("dplyr::if_else((dplyr::coalesce(as.numeric(", r_if_cond, "), 0) != 0), ", calculated_value_expr, ", data$`", var_to_replace, "`)")
   } else {
     calc_expr = calculated_value_expr
   }
@@ -4378,8 +4369,6 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
-
-
 
 ```
 ### END OF FILE: t_replace.R
@@ -4675,7 +4664,7 @@ t_summarize = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   if (!is.na(stata_if_cond_expr)) {
     r_subset_cond = translate_stata_expression_with_r_values(stata_if_cond_expr, cmd_obj$line, cmd_df, context = list(is_by_group = FALSE))
     data_subset_varname = paste0("data_subset_L", cmd_obj$line)
-    r_code_lines = c(r_code_lines, paste0(data_subset_varname, " = dplyr::filter(data, as.logical(dplyr::coalesce(", r_subset_cond, ", FALSE)))"))
+    r_code_lines = c(r_code_lines, paste0(data_subset_varname, " = dplyr::filter(data, (dplyr::coalesce(as.numeric(", r_subset_cond, "), 0) != 0))"))
     data_source_for_summary = data_subset_varname
   }
 
@@ -4692,7 +4681,7 @@ t_summarize = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       } else { # Default summarize or with other options (detail implies more)
         r_code_lines = c(
           r_code_lines,
-          paste0(line_prefix, "mean = mean(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)"),
+          paste0(line_prefix, "mean = mean(", data_source_for_Csummarize, "[['", var_for_r_vals, "']], na.rm = TRUE)"),
           paste0(line_prefix, "sd = stats::sd(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)"),
           paste0(line_prefix, "min = min(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)"),
           paste0(line_prefix, "max = max(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)"),
