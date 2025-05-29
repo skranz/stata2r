@@ -1545,19 +1545,6 @@ resolve_stata_filename = function(raw_filename_token, cmd_df, line_num, default_
 
 ### FILE: stata_expression_translator.R
 ```
-# Stata Expression Translator
-
-# Placeholder for Stata results (r() and e() values)
-# This environment would be populated by commands like summarize, regress
-# For now, we will generate unique variable names for r() values.
-# stata_results_env = new.env(parent = emptyenv())
-
-
-# Translates a Stata expression string into an R expression string
-# stata_expr: The Stata expression (e.g., "var1 + log(var2)")
-# context: Information about the context (e.g., if inside a by group, for _n/_N)
-# r_value_mappings: A named list/vector mapping Stata r-value names (e.g. "r(mean)")
-#                   to R variable names (e.g. "stata_r_val_L5_mean")
 translate_stata_expression_to_r = function(stata_expr, context = list(is_by_group = FALSE), r_value_mappings = NULL) {
   restore.point("translate_stata_expression_to_r")
   
@@ -1569,80 +1556,83 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   }
 
   if (is.na(stata_expr) || stata_expr == "") {
-    # If the expression is empty or NA, it generally means missing.
-    # For Stata, missing numeric is '.', missing string is "".
-    # In R context for translation, if an expression is missing, it should resolve to NA.
-    # The type of NA (numeric, logical, character) depends on the context.
-    # Since this function is general, assume numeric NA_real_ as default for missing expressions.
-    # If this is used as a logical condition (e.g., in an 'if' clause),
-    # `dplyr::coalesce(NA_real_, FALSE)` will correctly yield FALSE.
     return("NA_real_") 
   }
 
-  r_expr = stata_expr # Now r_expr is guaranteed to be a single, non-NA, non-empty character string.
+  r_expr = stata_expr
+
+  # --- New: Handle string literals by replacing them with unique placeholders ---
+  # This prevents them from being backticked or otherwise mangled by other regexes.
+  string_literal_map = list()
+  # Find all string literals (double or single quoted)
+  literal_matches = stringi::stri_match_all_regex(r_expr, '"[^"]*"|\'[^\']*\'')[[1]]
+  
+  if (!is.null(literal_matches) && NROW(literal_matches) > 0) {
+      # Iterate and replace. Sorting by end position descending is safer for overlapping regexes
+      # but here we are replacing fixed strings, so order doesn't strictly matter.
+      # However, to avoid issues if a placeholder becomes part of a later literal,
+      # it's good to replace in a way that doesn't affect other parts of the string being processed.
+      # For this simple replacement, a simple loop over matches is fine.
+      
+      # Use a unique counter for placeholders
+      placeholder_counter = 0
+      for (k in seq_len(NROW(literal_matches))) {
+          literal_text = literal_matches[k, 1]
+          # Check if this literal_text is already a placeholder from a previous iteration (unlikely but safe)
+          if (stringi::stri_startswith_fixed(literal_text, "STATA2R_STR_LITERAL_PLACEHOLDER_") && stringi::stri_endswith_fixed(literal_text, "_")) {
+            next # Already a placeholder, skip
+          }
+          placeholder_counter = placeholder_counter + 1
+          placeholder = paste0("STATA2R_STR_LITERAL_PLACEHOLDER_", placeholder_counter, "_")
+          string_literal_map[[placeholder]] = literal_text
+          # Replace only the first occurrence for this literal to handle duplicates correctly in a loop
+          r_expr = stringi::stri_replace_first_fixed(r_expr, literal_text, placeholder)
+      }
+  }
+  # --- End new string literal handling ---
+
 
   # Step 1: Handle Stata missing value literals '.', '.a', ..., '.z'
-  # This must happen early to prevent interference with decimal numbers or variable names.
-  # Regex matches '.' or '.a' to '.z' only when not part of a number or a variable name.
   r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![0-9a-zA-Z_])\\.[a-zA-Z]?(?![0-9a-zA-Z_])", "NA_real_")
 
   # Step 2: Handle r() values using the mapping.
-  # This ensures that r() values are replaced by their corresponding R variable names
-  # BEFORE other transformations (like missing value checks) are applied to them.
   if (!is.null(r_value_mappings) && length(r_value_mappings) > 0) {
     for (stata_r_name in names(r_value_mappings)) {
-      # Escape parentheses for regex matching
       stata_r_regex = gsub("(", "\\(", gsub(")", "\\)", stata_r_name, fixed=TRUE), fixed=TRUE)
       r_expr = stringi::stri_replace_all_regex(r_expr, stata_r_regex, r_value_mappings[[stata_r_name]])
     }
   }
 
   # Step 3: Translate Stata logical operators and missing value comparisons.
-  # These must happen after handling `r()` values so `r(mean)` is already `stata_r_val_Lxx_mean`.
-  # Stata `X == .` -> R `sfun_missing(X)`
   r_expr = stringi::stri_replace_all_regex(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*==\\s*NA_real_", "sfun_missing($1)")
-  # Stata `X != .` -> R `!sfun_missing($1)`
   r_expr = stringi::stri_replace_all_regex(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*!=\\s*NA_real_", "!sfun_missing($1)")
-
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![<>!=~])\\s*=\\s*(?![=])", " == ") # Replace single = with == if not part of other ops
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\s+~=\\s+", " != ") # Stata `~=` to R `!=`
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![<>=!~])\\s*=\\s*(?![=])", " == ")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "\\s+~=\\s+", " != ")
 
 
   # Step 4: Translate Stata special variables and indexing (e.g., _n, _N, var[_n-1])
-  # These are generally fixed references, not nested functions.
-  # Use dplyr::lag/lead which are context-aware in grouped operations.
-
-  # Directly replace with `n = $2`
   r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*-\\s*(\\d+)\\]", "dplyr::lag(`$1`, n = $2)")
   r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*\\+\\s*(\\d+)\\]", "dplyr::lead(`$1`, n = $2)")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\]", "`$1`") # Backtick for consistency, though not strictly needed here
-
-  # Handle _n and _N.
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\]", "`$1`")
   r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_n\\b", "dplyr::row_number()")
   r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_N\\b", "dplyr::n()")
 
 
   # Step 5: Iteratively translate Stata functions (e.g., cond(), round(), log(), etc.)
-  # This loop handles nested function calls by repeatedly applying transformations.
   old_r_expr = ""
-  # Ensure the loop condition always evaluates to a concrete TRUE/FALSE
   while (dplyr::coalesce(r_expr != old_r_expr, FALSE)) {
     old_r_expr = r_expr
 
-    # Apply more specific regexes first if there are overlaps (e.g., round(x,y) before round(x))
-    # FIX: For cond(), ensure the condition ($1) is converted to numeric before as.logical,
-    # and coalesce with 0 to handle Stata's missing-as-false logic.
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bcond\\(([^,]+),([^,]+),([^)]+)\\)", "dplyr::if_else(as.logical(dplyr::coalesce(as.numeric($1), 0)), $2, $3)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^,]+),([^)]+)\\)", "sfun_stata_round($1, $2)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^)]+)\\)", "sfun_stata_round($1, 1)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmod\\(([^,]+),([^)]+)\\)", "($1 %% $2)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmissing\\(([^)]+)\\)", "sfun_missing($1)") # Changed to sfun_missing
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmissing\\(([^)]+)\\)", "sfun_missing($1)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\blog\\(([^)]+)\\)", "log($1)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsqrt\\(([^)]+)\\)", "sqrt($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bint\\(([^)]+)\\)", "trunc($1)") # Stata int() truncates
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bint\\(([^)]+)\\)", "trunc($1)")
 
-    # String functions (using stringi or custom helpers)
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrtrim\\(([^)]+)\\)", "stringi::stri_trim_right($1)") # Corrected for Stata's strtrim
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrtrim\\(([^)]+)\\)", "stringi::stri_trim_right($1)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstritrim\\(([^)]+)\\)", "sfun_stritrim($1)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\blower\\(([^)]+)\\)", "stringi::stri_trans_tolower($1)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bupper\\(([^)]+)\\)", "stringi::stri_trans_toupper($1)")
@@ -1651,30 +1641,24 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrpos\\(([^,]+),([^)]+)\\)", "sfun_strpos($1, $2)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\blength\\(([^)]+)\\)", "stringi::stri_length($1)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrlen\\(([^)]+)\\)", "stringi::stri_length($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstring\\(([^)]+)\\)", "sfun_string($1)") # CHANGED HERE
-    # Random number generator functions
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bruniform\\(\\)", "stats::runif(dplyr::n())") # Stata runiform()
-    # Date functions
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstring\\(([^)]+)\\)", "sfun_string($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bruniform\\(\\)", "stats::runif(dplyr::n())")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bdate\\(([^,]+),([^,]+),([^)]+)\\)", "sfun_stata_date($1, $2, $3)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bdate\\(([^,]+),([^)]+)\\)", "sfun_stata_date($1, $2)")
-    # NEW: mdy() function
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmdy\\(([^,]+),([^,]+),([^)]+)\\)", "sfun_stata_mdy($1, $2, $3)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\byear\\(([^)]+)\\)", "as.numeric(format(as.Date($1, origin = '1960-01-01'), '%Y'))") # Stata date epoch is 1960-01-01
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\byear\\(([^)]+)\\)", "as.numeric(format(as.Date($1, origin = '1960-01-01'), '%Y'))")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmonth\\(([^)]+)\\)", "sfun_month($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bday\\(([^)]+)\\)", "sfun_day($1)") # Use sfun_day
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bqofd\\(([^)]+)\\)", "sfun_qofd($1)") # Use sfun_qofd
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bdow\\(([^)]+)\\)", "sfun_dow($1)") # NEW: Use sfun_dow
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bday\\(([^)]+)\\)", "sfun_day($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bqofd\\(([^)]+)\\)", "sfun_qofd($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bdow\\(([^)]+)\\)", "sfun_dow($1)")
   }
 
-  # Defensive check: if r_expr became empty or NA for some reason after function translations.
-  # This check is moved here to ensure subsequent string manipulations (backticking, + operator) don't fail.
   if (is.na(r_expr) || r_expr == "") {
       warning(paste0("R expression became NA or empty after function translation. Original Stata expression: '", stata_expr, "'"))
       return("NA_real_") 
   }
 
   # Step 6: Quote bare variable names with backticks
-  # Define R keywords and literals that should not be backticked.
   r_reserved_words = c(
     "TRUE", "FALSE", "NA_real_", "NA_character_", "NA_integer_", "NA", "NULL",
     "if_else", "coalesce", "row_number", "n", "lag", "lead", "select", "filter",
@@ -1694,11 +1678,9 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     "sfun_compress_col_type", "sfun_is_stata_expression_string_typed", "as.logical"
   )
   
-  # Find all occurrences of words matching Stata variable names and their locations
   locations = stringi::stri_locate_all_regex(r_expr, "\\b([a-zA-Z_][a-zA-Z0-9_.]*)\\b")[[1]]
   
   if (!is.null(locations) && NROW(locations) > 0) {
-      # Sort locations by end position descending to avoid issues with replacement as `r_expr` changes length
       locations = locations[order(locations[,2], decreasing = TRUE), , drop = FALSE]
       
       for (k in seq_len(NROW(locations))) {
@@ -1706,35 +1688,21 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
           end_pos = locations[k,2]
           current_word = stringi::stri_sub(r_expr, start_pos, end_pos)
           
-          # Only backtick if it's not an R reserved word, not a numeric literal, and not already backticked
           is_reserved = dplyr::coalesce(current_word %in% r_reserved_words, FALSE)
           is_numeric_literal = dplyr::coalesce(suppressWarnings(!is.na(as.numeric(current_word))), FALSE)
           
-          # Check if already backticked (by checking characters around it)
           is_already_backticked = FALSE
-          # Ensure indices are valid before accessing substrings
-          # FIX: Make this if condition robust to NA results from stringi::stri_length(r_expr)
-          # The fix for char_before/char_after NA values is to coalesce them.
           if (dplyr::coalesce(start_pos > 1 && end_pos <= stringi::stri_length(r_expr), FALSE)) { 
-            char_before = dplyr::coalesce(stringi::stri_sub(r_expr, start_pos - 1, start_pos - 1), "") # Coalesce NA to ""
-            char_after = dplyr::coalesce(stringi::stri_sub(r_expr, end_pos + 1, end_pos + 1), "") # Coalesce NA to ""
-            # Ensure char_before and char_after are not NA before comparison
-            # Coalesce ensures logical comparison even if stri_sub returns NA for out-of-bounds access (though guarded by if)
+            char_before = dplyr::coalesce(stringi::stri_sub(r_expr, start_pos - 1, start_pos - 1), "")
+            char_after = dplyr::coalesce(stringi::stri_sub(r_expr, end_pos + 1, end_pos + 1), "")
             is_already_backticked = (char_before == "`" && char_after == "`")
           }
           
-          # This is the line that caused the error. Coalesce each part to FALSE if NA.
-          # The `dplyr::coalesce` calls on `is_reserved`, `is_numeric_literal`, `is_already_backticked`
-          # already ensure they are not NA. The error might be a subtle bug in R's `&&` operator
-          # with some specific `NA` values or the underlying C code.
-          # Explicitly ensuring they are single logicals here might prevent it.
           local_is_reserved = as.logical(dplyr::coalesce(is_reserved, FALSE))
           local_is_numeric_literal = as.logical(dplyr::coalesce(is_numeric_literal, FALSE))
           local_is_already_backticked = as.logical(dplyr::coalesce(is_already_backticked, FALSE))
 
-          # FIX: Apply isTRUE() to each logical operand to ensure the `if` condition never evaluates to NA.
           if (isTRUE(!local_is_reserved) && isTRUE(!local_is_numeric_literal) && isTRUE(!local_is_already_backticked)) {
-              # Replace the word with its backticked version
               r_expr = paste0(stringi::stri_sub(r_expr, 1, start_pos - 1),
                               "`", current_word, "`",
                               stringi::stri_sub(r_expr, end_pos + 1, stringi::stri_length(r_expr)))
@@ -1744,22 +1712,31 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
 
   # Step 7: Translate Stata '+' operator to sfun_stata_add for polymorphic behavior
-  # This must happen after all functions and variable names are translated/backticked.
-  # Operands can now be: quoted strings, numbers, R literals, backticked variable names, or R function calls.
-  
-  # Updated operand_pattern to include backticked variable names
   operand_pattern = "(?:\"[^\"]*\"|'[^']*'|\\d+(?:\\.\\d+)?|\\b(?:NA_real_|NULL)\\b|\\b(?:TRUE|FALSE)\\b|`[^`]+`|\\b[a-zA-Z_][a-zA-Z0-9_:]*\\s*\\(.*?\\)\\s*)"
 
   old_r_expr_add = ""
   while (dplyr::coalesce(r_expr != old_r_expr_add, FALSE)) {
     old_r_expr_add = r_expr
-    # Regex: Match 'operand' + 'operand', ensuring `+` is an operator not part of `==` etc.
-    # The `(?<![<>=!~])` ensures `+` is not preceded by <, >, =, !, ~.
-    # The `(?!\\s*\\+|\\s*=\\s*)` ensures `+` is not followed by another `+` or `=` (for `++` or `+=`).
     add_regex_middle_part = "\\s*(?<![<>=!~])\\+\\s*(?!\\s*\\+|\\s*=\\s*)"
     add_regex_full = paste0("(", operand_pattern, ")", add_regex_middle_part, "(", operand_pattern, ")")
     r_expr = stringi::stri_replace_all_regex(r_expr, add_regex_full, "sfun_stata_add($1, $2)")
   }
+
+  # --- New: Restore string literals from placeholders ---
+  # Iterate in reverse order of placeholder creation to handle potential nested replacements
+  # though for string literals, simple fixed replacement is usually fine.
+  # Sorting by the length of the placeholder name (descending) ensures longer placeholders are replaced first,
+  # preventing partial matches if placeholders were substrings of each other.
+  # Here, placeholder names are unique and fixed length prefix, so simple iteration is fine.
+  if (length(string_literal_map) > 0) {
+      # Use a loop over sorted names to ensure deterministic order if needed, but for fixed string replacement, it's not critical.
+      # For robustness, we could sort by length then alphabetically.
+      sorted_placeholders = names(string_literal_map)[order(stringi::stri_length(names(string_literal_map)), names(string_literal_map), decreasing = TRUE)]
+      for (placeholder in sorted_placeholders) {
+          r_expr = stringi::stri_replace_all_fixed(r_expr, placeholder, string_literal_map[[placeholder]])
+      }
+  }
+  # --- End new string literal restoration ---
 
   return(r_expr)
 }
@@ -4922,115 +4899,12 @@ str(cmd_df)
 NULL
 
 ---
-#Translate Stata to R commands... ... translation done.
----
-# Run translated R commands and compare results
+#Translate Stata to R commands... 
+Error when creating translated code in for line 6
 
-
- 1 do:  use "data.dta", clear
- 1 r:  data = haven::read_dta(file.path(stata2r_env$working_dir, "data.dta")) %>% 
-  sfun_normalize_string_nas() %>%
-  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used 
-data = haven::read_dta(file.path(stata2r_env$working_dir, "data.dta")) %>% 
-  sfun_normalize_string_nas() %>%
-  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used
-
- 2 do:  sort group i
- 2 r:  data = dplyr::arrange(data, !!!dplyr::syms(c("group", "i"))) 
-data = dplyr::arrange(data, !!!dplyr::syms(c("group", "i")))
-
- 3 do:  keep in 1/39
- 3 r:  data = dplyr::slice(data, 1:39) 
-data = dplyr::slice(data, 1:39)
-
- 4 do:  list in 1/5 
-
- 4 r:  not translated since not flagged as data manipulation
-
- 5 do:  display _n 
-
- 5 r:  not translated since not flagged as data manipulation
-
- 6 do:  by group: gen seq = _n
- 6 r:  data = data %>% 
-  dplyr::group_by(!!!dplyr::syms(c("group"))) %>% 
-  dplyr::mutate(`seq` = dplyr::row_number()) %>% 
-  dplyr::ungroup() 
-data = data %>% 
-  dplyr::group_by(!!!dplyr::syms(c("group"))) %>% 
-  dplyr::mutate(`seq` = dplyr::row_number()) %>% 
-  dplyr::ungroup()
-
- 7 do:  gen logi = log(i)
- 7 r:  data = data %>% 
-  dplyr::mutate(`logi` = log(`i`)) 
-data = data %>% 
-  dplyr::mutate(`logi` = log(`i`))
-
- 8 do:  gen sqrt_i = sqrt(i)
- 8 r:  data = data %>% 
-  dplyr::mutate(`sqrt_i` = sqrt(`i`)) 
-data = data %>% 
-  dplyr::mutate(`sqrt_i` = sqrt(`i`))
-
- 9 do:  gen group_num = cond(group=="A",1,cond(group=="B",2,3))
- 9 r:  data = data %>% 
-  dplyr::mutate(`group_num` = as.character(dplyr::if_else(as.logical(dplyr::coalesce(as.numeric(`group`=="`A`"), 0)), 1, dplyr::if_else(as.logical(dplyr::coalesce(as.numeric(`group`=="`B`"), 0)), 2, 3)))) 
-data = data %>% 
-  dplyr::mutate(`group_num` = as.character(dplyr::if_else(as.logical(dplyr::coalesce(as.numeric(`group`=="`A`"), 0)), 1, dplyr::if_else(as.logical(dplyr::coalesce(as.numeric(`group`=="`B`"), 0)), 2, 3))))
-
-Error: After Stata line  9 , R data set differs from Stata reference.
-
-Data set from Stata (do_df):
-tibble [39 × 6] (S3: tbl_df/tbl/data.frame)
- $ i        : num [1:39] 10 13 16 19 20 21 22 27 31 34 ...
-  ..- attr(*, "label")= chr "i"
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ group    : chr [1:39] "A" "A" "A" "A" ...
-  ..- attr(*, "label")= chr "group"
-  ..- attr(*, "format.stata")= chr "%1s"
- $ seq      : num [1:39] 1 2 3 4 5 6 7 8 9 10 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ logi     : num [1:39] 2.3 2.56 2.77 2.94 3 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ sqrt_i   : num [1:39] 3.16 3.61 4 4.36 4.47 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ group_num: num [1:39] 1 1 1 1 1 1 1 1 1 1 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- - attr(*, "label")= chr "Written by R."
-NULL
-
-Data set from R (r_df):
-tibble [39 × 7] (S3: tbl_df/tbl/data.frame)
- $ i                         : num [1:39] 10 13 16 19 20 21 22 27 31 34 ...
-  ..- attr(*, "label")= chr "i"
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ group                     : chr [1:39] "A" "A" "A" "A" ...
-  ..- attr(*, "label")= chr "group"
-  ..- attr(*, "format.stata")= chr "%1s"
- $ stata2r_original_order_idx: int [1:39] 10 13 16 19 20 21 22 27 31 34 ...
- $ seq                       : int [1:39] 1 2 3 4 5 6 7 8 9 10 ...
- $ logi                      : num [1:39] 2.3 2.56 2.77 2.94 3 ...
-  ..- attr(*, "label")= chr "i"
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ sqrt_i                    : num [1:39] 3.16 3.61 4 4.36 4.47 ...
-  ..- attr(*, "label")= chr "i"
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ group_num                 : chr [1:39] "3" "3" "3" "3" ...
-NULL
-
-Differences:List of 3
- $ identical     : logi FALSE
- $ type_mismatch :'data.frame':	1 obs. of  3 variables:
-  ..$ col        : chr "group_num"
-  ..$ class_do_df: chr "numeric"
-  ..$ class_r_df : chr "character"
- $ value_mismatch:'data.frame':	5 obs. of  4 variables:
-  ..$ row      : int [1:5] 1 2 3 4 5
-  ..$ column   : chr [1:5] "group_num" "group_num" "group_num" "group_num" ...
-  ..$ df1_value: chr [1:5] "1" "1" "1" "1" ...
-  ..$ df2_value: chr [1:5] "3" "3" "3" "3" ...
-NULL
+do:  by group: gen seq = _n 
+R:  <translation error>
+Translation error message:  missing value where TRUE/FALSE needed 
 
 
 ---
@@ -5057,70 +4931,12 @@ str(cmd_df)
 NULL
 
 ---
-#Translate Stata to R commands... ... translation done.
----
-# Run translated R commands and compare results
+#Translate Stata to R commands... 
+Error when creating translated code in for line 2
 
-
- 1 do:  use "test_data.dta", clear
- 1 r:  data = haven::read_dta(file.path(stata2r_env$working_dir, "test_data.dta")) %>% 
-  sfun_normalize_string_nas() %>%
-  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used 
-data = haven::read_dta(file.path(stata2r_env$working_dir, "test_data.dta")) %>% 
-  sfun_normalize_string_nas() %>%
-  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used
-
- 2 do:  generate value1_log = log(value1)
- 2 r:  data = data %>% 
-  dplyr::mutate(`value1_log` = log(`value1`)) 
-data = data %>% 
-  dplyr::mutate(`value1_log` = log(`value1`))
-
- 3 do:  generate value2_squared = value2^2
- 3 r:  data = data %>% 
-  dplyr::mutate(`value2_squared` = `value2`^2) 
-data = data %>% 
-  dplyr::mutate(`value2_squared` = `value2`^2)
-
- 4 do:  generate int_value1 = int(value1) if !missing(value1)
- 4 r:  data = data %>% 
-  dplyr::mutate(`int_value1` = dplyr::if_else(as.logical(dplyr::coalesce(!sfun_missing(`value1`), FALSE)), trunc(`value1`), NA_real_)) 
-data = data %>% 
-  dplyr::mutate(`int_value1` = dplyr::if_else(as.logical(dplyr::coalesce(!sfun_missing(`value1`), FALSE)), trunc(`value1`), NA_real_))
-
- 5 do:  generate rounded_value1 = round(value1, 0.1) if !missing(value1)
- 5 r:  data = data %>% 
-  dplyr::mutate(`rounded_value1` = dplyr::if_else(as.logical(dplyr::coalesce(!sfun_missing(`value1`), FALSE)), sfun_stata_round(`value1`,  0.1), NA_real_)) 
-data = data %>% 
-  dplyr::mutate(`rounded_value1` = dplyr::if_else(as.logical(dplyr::coalesce(!sfun_missing(`value1`), FALSE)), sfun_stata_round(`value1`,  0.1), NA_real_))
-
- 6 do:  generate random_uniform_draw = runiform()
- 6 r:  data = data %>% 
-  dplyr::mutate(`random_uniform_draw` = stats::`runif`(dplyr::n())) 
-data = data %>% 
-  dplyr::mutate(`random_uniform_draw` = stats::`runif`(dplyr::n()))
-
- 7 do:  generate id_plus_value2 = id + value2 if value2 < 7 & !missing(value2)
- 7 r:  data = data %>% 
-  dplyr::mutate(`id_plus_value2` = dplyr::if_else(as.logical(dplyr::coalesce(`value2` < 7 & !sfun_missing(`value2`), FALSE)), sfun_stata_add(`id`, `value2`), NA_real_)) 
-data = data %>% 
-  dplyr::mutate(`id_plus_value2` = dplyr::if_else(as.logical(dplyr::coalesce(`value2` < 7 & !sfun_missing(`value2`), FALSE)), sfun_stata_add(`id`, `value2`), NA_real_))
-
- 8 do:  replace value1_log = 0 if missing(value1_log) & !missing(value1)
- 8 r:  data = data %>% 
-  dplyr::mutate(`value1_log` = dplyr::if_else(as.logical(dplyr::coalesce(sfun_missing(`value1_log`) & !sfun_missing(`value1`), FALSE)), NA`NA`NA, data$`value1_log`)) 
-data = data %>% 
-  dplyr::mutate(`value1_log` = dplyr::if_else(as.logical(dplyr::coalesce(sfun_missing(`value1_log`) & !sfun_missing(`value1`), FALSE)), NA`NA`NA, data$`value1_log`))
-Error: <text>:2:139: unexpected symbol
-1: data = data %>% 
-2:   dplyr::mutate(`value1_log` = dplyr::if_else(as.logical(dplyr::coalesce(sfun_missing(`value1_log`) & !sfun_missing(`value1`), FALSE)), NA`NA`
-                                                                                                                                             ^
-Error executing R code for Stata line  8 :  data = data %>% 
-  dplyr::mutate(`value1_log` = dplyr::if_else(as.logical(dplyr::coalesce(sfun_missing(`value1_log`) & !sfun_missing(`value1`), FALSE)), NA`NA`NA, data$`value1_log`))
-Error: <text>:2:139: unexpected symbol
-1: data = data %>% 
-2:   dplyr::mutate(`value1_log` = dplyr::if_else(as.logical(dplyr::coalesce(sfun_missing(`value1_log`) & !sfun_missing(`value1`), FALSE)), NA`NA`
-                                                                                                                                             ^ 
+do:  generate value1_log = log(value1) 
+R:  <translation error>
+Translation error message:  missing value where TRUE/FALSE needed 
 
 ##############################
 # YOUR TASK
