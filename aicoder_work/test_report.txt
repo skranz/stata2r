@@ -1,71 +1,15 @@
-In total 2 of 3 tests failed.
+In total 1 of 1 tests failed.
 
 
 ---
-Outcome of test 'source_r': ok
-All R files could be sourced.
+Outcome of test 'source_r': not ok
+
+Details of failed 'source' commands:
+source("/home/rstudio/aicoder/stata2r/R/stata_expression_translator.R")
+
+Error: /home/rstudio/aicoder/stata2r/R/stata_expression_translator.R:304:0: unexpected end of input
+302: }
+303: 
+    ^
 
 
-
----
-Outcome of test 'do1': not ok
-
-
-Details:
-
-cmd_df = do_parse(do_code)
-cmd_df = mark_data_manip_cmd(cmd_df)
-
-str(cmd_df)
-'data.frame':	38 obs. of  10 variables:
- $ line                   : int  1 2 3 4 5 6 7 8 9 10 ...
- $ do_code                : chr  "use \"data.dta\", clear" "sort group i" "keep in 1/39" "list in 1/5" ...
- $ stata_cmd_original     : chr  "use" "sort" "keep" "list" ...
- $ stata_cmd              : chr  "use" "sort" "keep" "list" ...
- $ rest_of_cmd            : chr  "\"data.dta\", clear" "group i" "in 1/39" "in 1/5" ...
- $ is_by_prefix           : logi  FALSE FALSE FALSE FALSE FALSE TRUE ...
- $ by_group_vars          : chr  NA NA NA NA ...
- $ by_sort_vars           : chr  NA NA NA NA ...
- $ stata_translation_error: chr  NA NA NA NA ...
- $ do_translate           : logi  TRUE TRUE TRUE FALSE FALSE TRUE ...
-NULL
-
----
-#Translate Stata to R commands... 
-Error when creating translated code in for line 6
-
-do:  by group: gen seq = _n 
-R:  <translation error>
-Translation error message:  missing value where TRUE/FALSE needed 
-
-
----
-Outcome of test 'do2': not ok
-
-
-Details:
-
-cmd_df = do_parse(do_code)
-cmd_df = mark_data_manip_cmd(cmd_df)
-
-str(cmd_df)
-'data.frame':	82 obs. of  10 variables:
- $ line                   : int  1 2 3 4 5 6 7 8 9 10 ...
- $ do_code                : chr  "use \"test_data.dta\", clear" "generate value1_log = log(value1)" "generate value2_squared = value2^2" "generate int_value1 = int(value1) if !missing(value1)" ...
- $ stata_cmd_original     : chr  "use" "generate" "generate" "generate" ...
- $ stata_cmd              : chr  "use" "generate" "generate" "generate" ...
- $ rest_of_cmd            : chr  "\"test_data.dta\", clear" "value1_log = log(value1)" "value2_squared = value2^2" "int_value1 = int(value1) if !missing(value1)" ...
- $ is_by_prefix           : logi  FALSE FALSE FALSE FALSE FALSE FALSE ...
- $ by_group_vars          : chr  NA NA NA NA ...
- $ by_sort_vars           : chr  NA NA NA NA ...
- $ stata_translation_error: chr  NA NA NA NA ...
- $ do_translate           : logi  TRUE TRUE TRUE TRUE TRUE TRUE ...
-NULL
-
----
-#Translate Stata to R commands... 
-Error when creating translated code in for line 2
-
-do:  generate value1_log = log(value1) 
-R:  <translation error>
-Translation error message:  missing value where TRUE/FALSE needed 
