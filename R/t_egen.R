@@ -171,8 +171,11 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     # Stata tag(varlist) creates 1 for first observation in a group (defined by varlist) and 0 otherwise.
     calc_expr = paste0("as.numeric(dplyr::row_number() == 1)")
   } else if (egen_func_name == "rowtotal") {
+    # FIX: Remove backticks from variable names as `translate_stata_expression_to_r` already adds them,
+    # and `dplyr::all_of` expects bare column names (strings), not backticked strings.
     vars_for_rowop_list = stringi::stri_split_regex(r_egen_args, "\\s+")[[1]] # Use non-conditional args here
     vars_for_rowop_list = vars_for_rowop_list[!is.na(vars_for_rowop_list) & vars_for_rowop_list != ""] # Filter empty/NA
+    vars_for_rowop_list = stringi::stri_replace_all_fixed(vars_for_rowop_list, "`", "") # Remove backticks
 
     # Stata rowtotal treats NA as 0 *before* summing.
     # Replace NA with 0 in the selected columns before summing.
@@ -180,8 +183,10 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     calc_expr = paste0("base::rowSums(", cols_selection_expr, " %>% replace(is.na(.), 0), na.rm = FALSE)")
     is_row_function = TRUE
   } else if (egen_func_name == "rowmean") {
+    # FIX: Remove backticks from variable names for `dplyr::all_of`.
     vars_for_rowop_list = stringi::stri_split_regex(r_egen_args, "\\s+")[[1]] # Use non-conditional args here
     vars_for_rowop_list = vars_for_rowop_list[!is.na(vars_for_rowop_list) & vars_for_rowop_list != ""] # Filter empty/NA
+    vars_for_rowop_list = stringi::stri_replace_all_fixed(vars_for_rowop_list, "`", "") # Remove backticks
 
     # Stata rowmean ignores NAs. base::rowMeans with na.rm = TRUE achieves this.
     cols_selection_expr = paste0("dplyr::select(dplyr::cur_data_all(), dplyr::all_of(c('", paste(vars_for_rowop_list, collapse="','"), "')))")
@@ -255,7 +260,11 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   if (!cmd_obj$is_by_prefix && length(group_vars_list_bare) > 0 && egen_func_name %in% c("rank", "group", "tag")) {
     sort_vars_for_arrange = unique(c(group_vars_list_bare))
     if (egen_func_name == "rank" && !is.na(egen_args_str) && egen_args_str != "") {
-      sort_vars_for_arrange = unique(c(sort_vars_for_arrange, egen_args_str))
+      # For rank, also sort by the argument of rank() if it's a variable
+      rank_arg_var = stringi::stri_replace_all_fixed(r_egen_args, "`", "") # Remove backticks for comparison
+      if (rank_arg_var %in% names(data)) { # Check if it's a valid variable name
+        sort_vars_for_arrange = unique(c(sort_vars_for_arrange, rank_arg_var))
+      }
     }
     sort_vars_for_arrange = sort_vars_for_arrange[!is.na(sort_vars_for_arrange) & sort_vars_for_arrange != ""]
   }
@@ -308,4 +317,5 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 

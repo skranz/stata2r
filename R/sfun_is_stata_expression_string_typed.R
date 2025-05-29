@@ -10,7 +10,13 @@ sfun_is_stata_expression_string_typed = function(stata_expr_original) {
 
   if (is.na(stata_expr_original) || stata_expr_original == "") return(FALSE)
 
-  # 1. `cond(condition, val_if_true, val_if_false)`: if any value (val_if_true, val_if_false) is string, result is string.
+  # NEW: 1. Check for logical/comparison operators. If present, the result is numeric (0/1).
+  # This must precede the string literal check.
+  if (dplyr::coalesce(stringi::stri_detect_regex(stata_expr_original, "==|!=|<=|>=|<|>|&|\\|"), FALSE)) {
+    return(FALSE)
+  }
+
+  # 2. `cond(condition, val_if_true, val_if_false)`: if any value (val_if_true, val_if_false) is string, result is string.
   #    This check must come BEFORE generic string literal check.
   cond_match = stringi::stri_match_first_regex(stata_expr_original, "\\bcond\\(([^,]+),([^,]+),([^)]+)\\)")
   if (!is.na(cond_match[1,1])) {
@@ -26,7 +32,7 @@ sfun_is_stata_expression_string_typed = function(stata_expr_original) {
       }
   }
 
-  # 2. Check for explicitly numeric-returning functions. If found, return FALSE immediately.
+  # 3. Check for explicitly numeric-returning functions. If found, return FALSE immediately.
   numeric_producing_functions = c(
     "log", "sqrt", "int", "round", "mod", "runiform", "mdy", "date",
     "year", "month", "day", "qofd", "dow", "missing",
@@ -39,7 +45,7 @@ sfun_is_stata_expression_string_typed = function(stata_expr_original) {
     }
   }
 
-  # 3. Check for explicitly string-returning functions.
+  # 4. Check for explicitly string-returning functions.
   string_producing_functions = c(
     "char", "itrim", "lower", "ltrim", "proper", "rtrim", "string", "subinstr",
     "substr", "strl", "strpos", "strreverse", "strtrim", "trim", "upper",
@@ -54,8 +60,16 @@ sfun_is_stata_expression_string_typed = function(stata_expr_original) {
     }
   }
   
-  # 4. Contains any string literal (text enclosed in double or single quotes)
-  # This must come after function checks, but before default.
+  # NEW: 5. Check for '+' operator and string literals.
+  #    If expression contains '+' AND a string literal, it's likely string concatenation.
+  #    This check is a heuristic.
+  if (dplyr::coalesce(stringi::stri_detect_fixed(stata_expr_original, "+"), FALSE) &&
+      dplyr::coalesce(stringi::stri_detect_regex(stata_expr_original, '"[^"]*"|\'[^\']*\'' ), FALSE)) {
+      return(TRUE)
+  }
+
+  # 6. Contains any string literal (text enclosed in double or single quotes)
+  #    This must come after function/operator checks.
   if (dplyr::coalesce(stringi::stri_detect_regex(stata_expr_original, '"[^"]*"|\'[^\']*\'' ), FALSE)) {
     return(TRUE)
   }
@@ -65,4 +79,5 @@ sfun_is_stata_expression_string_typed = function(stata_expr_original) {
   # Or if it's a simple arithmetic expression, it's numeric.
   return(FALSE)
 }
+
 
