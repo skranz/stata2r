@@ -63,17 +63,8 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   if (!is.na(declared_type_str) && stringi::stri_startswith_fixed(declared_type_str, "str")) {
       target_var_will_be_string = TRUE
   } else {
-      # Heuristic: If the R expression contains string functions or explicit character casting, assume string output.
-      if (stringi::stri_detect_fixed(r_expr, "as.character(") ||
-          stringi::stri_detect_fixed(r_expr, "stringi::stri_") ||
-          stringi::stri_detect_fixed(r_expr, "sfun_stata_add(") ||
-          stringi::stri_detect_fixed(r_expr, '""')
-          ) {
-          target_var_will_be_string = TRUE
-      }
-      if (stringi::stri_detect_regex(r_expr, '^\"[^\"]*\"$|^\'[^\']*\'$')) {
-          target_var_will_be_string = TRUE
-      }
+      # Infer type from Stata expression if not explicitly declared
+      target_var_will_be_string = sfun_is_stata_expression_string_typed(stata_expr)
   }
   # If not explicitly declared and not string expression, assume numeric.
 
@@ -139,5 +130,4 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
-
 
