@@ -1549,10 +1549,10 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     # Since this function is general, assume numeric NA_real_ as default for missing expressions.
     # If this is used as a logical condition (e.g., in an 'if' clause),
     # `dplyr::coalesce(NA_real_, FALSE)` will correctly yield FALSE.
-    return(NA_real_) 
+    return("NA_real_") 
   }
 
-  r_expr = stata_expr
+  r_expr = as.character(stata_expr) # Ensure r_expr is always a character string
 
   # Step 1: Handle Stata missing value literals '.', '.a', ..., '.z'
   # This must happen early to prevent interference with decimal numbers or variable names.
@@ -1664,7 +1664,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   # Defensive check: if r_expr became empty or NA for some reason (should not happen for valid input)
   if (is.na(r_expr) || r_expr == "") {
       warning(paste0("R expression became NA or empty during translation. Original Stata expression: '", stata_expr, "'"))
-      return(NA_real_) # Ensure it's NA_real_ here too
+      return("NA_real_") # Ensure it's NA_real_ here too
   }
 
   return(r_expr)
@@ -1980,7 +1980,6 @@ t_compress = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
-
 
 ```
 ### END OF FILE: t_compress.R
@@ -3132,6 +3131,16 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Translate the Stata expression to R first
   r_expr = translate_stata_expression_with_r_values(stata_expr, line_num, cmd_df, current_context)
 
+  # Ensure r_expr is a character string literal, even if it represents NA (logical)
+  if (is.na(r_expr) && !is.character(r_expr)) { # Check for logical NA, not string "NA"
+      r_expr = "NA_real_"
+  } else if (is.character(r_expr) && r_expr == "") {
+      # An empty string translated expression should likely be NA in numeric context
+      # or empty string in string context. Let's make it explicit for safety.
+      r_expr = "NA_real_" # Default to NA_real_ if it's empty string after translation
+  }
+
+
   r_if_cond = NA_character_
   if (!is.na(stata_if_cond) && stata_if_cond != "") {
     # The 'if' condition for generate/replace is evaluated row-wise on the whole dataset, not per group.
@@ -3232,7 +3241,6 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
-
 
 ```
 ### END OF FILE: t_generate.R
@@ -4153,7 +4161,7 @@ t_rename = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   restore.point("t_replace")
   # Capture explicit type declaration (e.g., `str10`)
-  explicit_type_match = stringi::stri_match_first_regex(rest_of_cmd, "^\\s*(byte|int|long|float|double|str\\d+|strL)\\s+")
+  explicit_type_match = stringi::stri_match_first_regex(rest_of_cmd, "^(?:byte|int|long|float|double|str\\d+|strL)\\s+")
   declared_type_str = NA_character_
   if (!is.na(explicit_type_match[1,1])) {
     declared_type_str = explicit_type_match[1,2]
@@ -4176,6 +4184,13 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   current_context = list(is_by_group = cmd_obj$is_by_prefix && length(cmd_obj$by_group_vars) > 0 && !is.na(cmd_obj$by_group_vars[1]))
   # Translate the Stata expression to R first
   r_expr = translate_stata_expression_with_r_values(stata_expr, line_num, cmd_df, current_context)
+
+  # Ensure r_expr is a character string literal, even if it represents NA (logical)
+  if (is.na(r_expr) && !is.character(r_expr)) { # Check for logical NA, not string "NA"
+      r_expr = "NA_real_"
+  } else if (is.character(r_expr) && r_expr == "") {
+      r_expr = "NA_real_"
+  }
 
   r_if_cond = NA_character_
   if (!is.na(stata_if_cond) && stata_if_cond != "") {
@@ -4269,7 +4284,6 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
-
 
 ```
 ### END OF FILE: t_replace.R
