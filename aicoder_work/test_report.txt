@@ -31,12 +31,115 @@ str(cmd_df)
 NULL
 
 ---
-#Translate Stata to R commands... 
-Error when creating translated code in for line 6
+#Translate Stata to R commands... ... translation done.
+---
+# Run translated R commands and compare results
 
-do:  by group: gen seq = _n 
-R:  <translation error>
-Translation error message:  missing value where TRUE/FALSE needed 
+
+ 1 do:  use "data.dta", clear
+ 1 r:  data = haven::read_dta(file.path(stata2r_env$working_dir, "data.dta")) %>% 
+  sfun_normalize_string_nas() %>%
+  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used 
+data = haven::read_dta(file.path(stata2r_env$working_dir, "data.dta")) %>% 
+  sfun_normalize_string_nas() %>%
+  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used
+
+ 2 do:  sort group i
+ 2 r:  data = dplyr::arrange(data, !!!dplyr::syms(c("group", "i"))) 
+data = dplyr::arrange(data, !!!dplyr::syms(c("group", "i")))
+
+ 3 do:  keep in 1/39
+ 3 r:  data = dplyr::slice(data, 1:39) 
+data = dplyr::slice(data, 1:39)
+
+ 4 do:  list in 1/5 
+
+ 4 r:  not translated since not flagged as data manipulation
+
+ 5 do:  display _n 
+
+ 5 r:  not translated since not flagged as data manipulation
+
+ 6 do:  by group: gen seq = _n
+ 6 r:  data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group"))) %>% 
+  dplyr::mutate(`seq` = dplyr::row_number()) %>% 
+  dplyr::ungroup() 
+data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group"))) %>% 
+  dplyr::mutate(`seq` = dplyr::row_number()) %>% 
+  dplyr::ungroup()
+
+ 7 do:  gen logi = log(i)
+ 7 r:  data = data %>% 
+  dplyr::mutate(`logi` = log(`i`)) 
+data = data %>% 
+  dplyr::mutate(`logi` = log(`i`))
+
+ 8 do:  gen sqrt_i = sqrt(i)
+ 8 r:  data = data %>% 
+  dplyr::mutate(`sqrt_i` = sqrt(`i`)) 
+data = data %>% 
+  dplyr::mutate(`sqrt_i` = sqrt(`i`))
+
+ 9 do:  gen group_num = cond(group=="A",1,cond(group=="B",2,3))
+ 9 r:  data = data %>% 
+  dplyr::mutate(`group_num` = as.character(dplyr::if_else(as.logical(dplyr::coalesce(as.numeric(`group`=="`A`"), 0)), 1, dplyr::if_else(as.logical(dplyr::coalesce(as.numeric(`group`=="`B`"), 0)), 2, 3)))) 
+data = data %>% 
+  dplyr::mutate(`group_num` = as.character(dplyr::if_else(as.logical(dplyr::coalesce(as.numeric(`group`=="`A`"), 0)), 1, dplyr::if_else(as.logical(dplyr::coalesce(as.numeric(`group`=="`B`"), 0)), 2, 3))))
+
+Error: After Stata line  9 , R data set differs from Stata reference.
+
+Data set from Stata (do_df):
+tibble [39 × 6] (S3: tbl_df/tbl/data.frame)
+ $ i        : num [1:39] 10 13 16 19 20 21 22 27 31 34 ...
+  ..- attr(*, "label")= chr "i"
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ group    : chr [1:39] "A" "A" "A" "A" ...
+  ..- attr(*, "label")= chr "group"
+  ..- attr(*, "format.stata")= chr "%1s"
+ $ seq      : num [1:39] 1 2 3 4 5 6 7 8 9 10 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ logi     : num [1:39] 2.3 2.56 2.77 2.94 3 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ sqrt_i   : num [1:39] 3.16 3.61 4 4.36 4.47 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ group_num: num [1:39] 1 1 1 1 1 1 1 1 1 1 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ - attr(*, "label")= chr "Written by R."
+NULL
+
+Data set from R (r_df):
+tibble [39 × 7] (S3: tbl_df/tbl/data.frame)
+ $ i                         : num [1:39] 10 13 16 19 20 21 22 27 31 34 ...
+  ..- attr(*, "label")= chr "i"
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ group                     : chr [1:39] "A" "A" "A" "A" ...
+  ..- attr(*, "label")= chr "group"
+  ..- attr(*, "format.stata")= chr "%1s"
+ $ stata2r_original_order_idx: int [1:39] 10 13 16 19 20 21 22 27 31 34 ...
+ $ seq                       : int [1:39] 1 2 3 4 5 6 7 8 9 10 ...
+ $ logi                      : num [1:39] 2.3 2.56 2.77 2.94 3 ...
+  ..- attr(*, "label")= chr "i"
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ sqrt_i                    : num [1:39] 3.16 3.61 4 4.36 4.47 ...
+  ..- attr(*, "label")= chr "i"
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ group_num                 : chr [1:39] "3" "3" "3" "3" ...
+NULL
+
+Differences:List of 3
+ $ identical     : logi FALSE
+ $ type_mismatch :'data.frame':	1 obs. of  3 variables:
+  ..$ col        : chr "group_num"
+  ..$ class_do_df: chr "numeric"
+  ..$ class_r_df : chr "character"
+ $ value_mismatch:'data.frame':	5 obs. of  4 variables:
+  ..$ row      : int [1:5] 1 2 3 4 5
+  ..$ column   : chr [1:5] "group_num" "group_num" "group_num" "group_num" ...
+  ..$ df1_value: chr [1:5] "1" "1" "1" "1" ...
+  ..$ df2_value: chr [1:5] "3" "3" "3" "3" ...
+NULL
 
 
 ---
@@ -63,9 +166,67 @@ str(cmd_df)
 NULL
 
 ---
-#Translate Stata to R commands... 
-Error when creating translated code in for line 2
+#Translate Stata to R commands... ... translation done.
+---
+# Run translated R commands and compare results
 
-do:  generate value1_log = log(value1) 
-R:  <translation error>
-Translation error message:  missing value where TRUE/FALSE needed 
+
+ 1 do:  use "test_data.dta", clear
+ 1 r:  data = haven::read_dta(file.path(stata2r_env$working_dir, "test_data.dta")) %>% 
+  sfun_normalize_string_nas() %>%
+  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used 
+data = haven::read_dta(file.path(stata2r_env$working_dir, "test_data.dta")) %>% 
+  sfun_normalize_string_nas() %>%
+  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used
+
+ 2 do:  generate value1_log = log(value1)
+ 2 r:  data = data %>% 
+  dplyr::mutate(`value1_log` = log(`value1`)) 
+data = data %>% 
+  dplyr::mutate(`value1_log` = log(`value1`))
+
+ 3 do:  generate value2_squared = value2^2
+ 3 r:  data = data %>% 
+  dplyr::mutate(`value2_squared` = `value2`^2) 
+data = data %>% 
+  dplyr::mutate(`value2_squared` = `value2`^2)
+
+ 4 do:  generate int_value1 = int(value1) if !missing(value1)
+ 4 r:  data = data %>% 
+  dplyr::mutate(`int_value1` = dplyr::if_else(as.logical(dplyr::coalesce(!sfun_missing(`value1`), FALSE)), trunc(`value1`), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`int_value1` = dplyr::if_else(as.logical(dplyr::coalesce(!sfun_missing(`value1`), FALSE)), trunc(`value1`), NA_real_))
+
+ 5 do:  generate rounded_value1 = round(value1, 0.1) if !missing(value1)
+ 5 r:  data = data %>% 
+  dplyr::mutate(`rounded_value1` = dplyr::if_else(as.logical(dplyr::coalesce(!sfun_missing(`value1`), FALSE)), sfun_stata_round(`value1`,  0.1), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`rounded_value1` = dplyr::if_else(as.logical(dplyr::coalesce(!sfun_missing(`value1`), FALSE)), sfun_stata_round(`value1`,  0.1), NA_real_))
+
+ 6 do:  generate random_uniform_draw = runiform()
+ 6 r:  data = data %>% 
+  dplyr::mutate(`random_uniform_draw` = stats::`runif`(dplyr::n())) 
+data = data %>% 
+  dplyr::mutate(`random_uniform_draw` = stats::`runif`(dplyr::n()))
+
+ 7 do:  generate id_plus_value2 = id + value2 if value2 < 7 & !missing(value2)
+ 7 r:  data = data %>% 
+  dplyr::mutate(`id_plus_value2` = dplyr::if_else(as.logical(dplyr::coalesce(`value2` < 7 & !sfun_missing(`value2`), FALSE)), sfun_stata_add(`id`, `value2`), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`id_plus_value2` = dplyr::if_else(as.logical(dplyr::coalesce(`value2` < 7 & !sfun_missing(`value2`), FALSE)), sfun_stata_add(`id`, `value2`), NA_real_))
+
+ 8 do:  replace value1_log = 0 if missing(value1_log) & !missing(value1)
+ 8 r:  data = data %>% 
+  dplyr::mutate(`value1_log` = dplyr::if_else(as.logical(dplyr::coalesce(sfun_missing(`value1_log`) & !sfun_missing(`value1`), FALSE)), NA`NA`NA, data$`value1_log`)) 
+data = data %>% 
+  dplyr::mutate(`value1_log` = dplyr::if_else(as.logical(dplyr::coalesce(sfun_missing(`value1_log`) & !sfun_missing(`value1`), FALSE)), NA`NA`NA, data$`value1_log`))
+Error: <text>:2:139: unexpected symbol
+1: data = data %>% 
+2:   dplyr::mutate(`value1_log` = dplyr::if_else(as.logical(dplyr::coalesce(sfun_missing(`value1_log`) & !sfun_missing(`value1`), FALSE)), NA`NA`
+                                                                                                                                             ^
+Error executing R code for Stata line  8 :  data = data %>% 
+  dplyr::mutate(`value1_log` = dplyr::if_else(as.logical(dplyr::coalesce(sfun_missing(`value1_log`) & !sfun_missing(`value1`), FALSE)), NA`NA`NA, data$`value1_log`))
+Error: <text>:2:139: unexpected symbol
+1: data = data %>% 
+2:   dplyr::mutate(`value1_log` = dplyr::if_else(as.logical(dplyr::coalesce(sfun_missing(`value1_log`) & !sfun_missing(`value1`), FALSE)), NA`NA`
+                                                                                                                                             ^ 
