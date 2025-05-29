@@ -1,4 +1,16 @@
-The main change is to prevent an R error "missing value where TRUE/FALSE needed" that occurred during the translation phase. This was caused by `stringi::stri_detect_regex` returning `NA` for certain inputs (e.g., when the input string itself was `NA`), and this `NA` then being used directly in an `if()` condition. The fix involves wrapping these `if()` conditions with `dplyr::coalesce(..., FALSE)` to explicitly convert any `NA` result to `FALSE`, ensuring a valid logical value for the `if` statement.
+The current test failures indicate an issue during the translation phase, specifically with expression parsing, leading to a "missing value where TRUE/FALSE needed" error. This error typically arises in R when a logical operation encounters an `NA` value.
+
+Upon reviewing the code, I've identified two potential areas for improvement, one of which is a clear bug in a regular expression:
+
+1.  **Bug in `sfun_is_stata_expression_string_typed.R`**: The regex for matching single-quoted strings `\'[^\']\'` is incorrect. It currently matches only a single character enclosed in single quotes (e.g., `'a'`), but not multiple characters (e.g., `'abc'`). It should be `\'[^\']*\''` to match zero or more characters. While this bug might not be directly responsible for the current specific test failures (as they don't involve string literals), it's a critical fix for correct string expression handling.
+2.  **Complexity of `+` operator regex in `stata_expression_translator.R`**: The `operand_regex` used for translating the `+` operator is highly complex and attempts to parse nested function calls. While designed to be robust, complex regular expressions can sometimes lead to unexpected behavior or performance issues, especially when the input string doesn't perfectly conform to the assumed structure or if the regex engine encounters edge cases. Although the failing tests (`_n` and `log(value1)`) do not directly use the `+` operator, the `while` loop that applies this regex runs iteratively. A subtle issue within this loop could potentially cause an `NA` to be generated or used in a logical context.
+
+My strategy to address the current failures and improve robustness is:
+
+1.  **Fix the regex in `sfun_is_stata_expression_string_typed.R`**: This is a direct bug fix.
+2.  **Temporarily simplify the `+` operator translation in `stata_expression_translator.R`**: To diagnose if the complexity of the `+` regex is related to the current "missing value where TRUE/FALSE needed" error, I will temporarily replace the sophisticated `operand_regex` with a much simpler one. This will allow basic `+` operations but might not handle complex nesting or mixed-type additions perfectly. If this resolves the current error, it points to the regex complexity as the root cause, and a more robust, but perhaps less regex-reliant, approach for `sfun_stata_add` would be needed in the future.
+
+This approach will isolate the problem and ensure the fundamental regex is correct.
 
 !CHANGE_FILE R/sfun_is_stata_expression_string_typed.R
 ```R
@@ -9,7 +21,7 @@ sfun_is_stata_expression_string_typed = function(stata_expr_original) {
 
   # 1. Contains any string literal (text enclosed in double or single quotes)
   # Ensure stri_detect_regex result is explicitly logical. If NA, treat as FALSE.
-  if (dplyr::coalesce(stringi::stri_detect_regex(stata_expr_original, '"[^"]*"|\'[^\']\''), FALSE)) {
+  if (dplyr::coalesce(stringi::stri_detect_regex(stata_expr_original, '"[^"]*"|\'[^\']*\'' ), FALSE)) {
     return(TRUE)
   }
 
@@ -60,5 +72,146 @@ sfun_is_stata_expression_string_typed = function(stata_expr_original) {
   # Or if it's a simple arithmetic expression, it's numeric.
   return(FALSE)
 }
+
 ```
 !END_CHANGE_FILE R/sfun_is_stata_expression_string_typed.R
+
+!CHANGE_FILE R/stata_expression_translator.R
+```R
+# Stata Expression Translator
+
+# Placeholder for Stata results (r() and e() values)
+# This environment would be populated by commands like summarize, regress
+# For now, we will generate unique variable names for r() values.
+# stata_results_env = new.env(parent = emptyenv())
+
+
+# Translates a Stata expression string into an R expression string
+# stata_expr: The Stata expression (e.g., "var1 + log(var2)")
+# context: Information about the context (e.g., if inside a by group, for _n/_N)
+# r_value_mappings: A named list/vector mapping Stata r-value names (e.g. "r(mean)")
+#                   to R variable names (e.g. "stata_r_val_L5_mean")
+translate_stata_expression_to_r = function(stata_expr, context = list(is_by_group = FALSE), r_value_mappings = NULL) {
+  restore.point("translate_stata_expression_to_r")
+  if (is.na(stata_expr) || stata_expr == "") return(NA_character_)
+
+  r_expr = stata_expr
+
+  # Step 1: Handle Stata missing value literals '.', '.a', ..., '.z'
+  # This must happen early to prevent interference with decimal numbers or variable names.
+  # Regex matches '.' or '.a' to '.z' only when not part of a number or a variable name.
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![0-9a-zA-Z_])\\.[a-zA-Z]?(?![0-9a-zA-Z_])", "NA_real_")
+
+  # Step 2: Handle r() values using the mapping.
+  # This ensures that r() values are replaced by their corresponding R variable names
+  # BEFORE other transformations (like missing value checks) are applied to them.
+  if (!is.null(r_value_mappings) && length(r_value_mappings) > 0) {
+    for (stata_r_name in names(r_value_mappings)) {
+      # Escape parentheses for regex matching
+      stata_r_regex = gsub("(", "\\(", gsub(")", "\\)", stata_r_name, fixed=TRUE), fixed=TRUE)
+      r_expr = stringi::stri_replace_all_regex(r_expr, stata_r_regex, r_value_mappings[[stata_r_name]])
+    }
+  }
+
+  # Step 3: Translate Stata logical operators and missing value comparisons.
+  # These must happen after handling `r()` values so `r(mean)` is already `stata_r_val_Lxx_mean`.
+  # Stata `X == .` -> R `sfun_missing(X)`
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*==\\s*NA_real_", "sfun_missing($1)")
+  # Stata `X != .` -> R `!sfun_missing($1)`
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*!=\\s*NA_real_", "!sfun_missing($1)")
+
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![<>!=~])\\s*=\\s*(?![=])", " == ") # Replace single = with == if not part of other ops
+  r_expr = stringi::stri_replace_all_regex(r_expr, "\\s+~=\\s+", " != ") # Stata `~=` to R `!=`
+
+
+  # Step 4: Translate Stata special variables and indexing (e.g., _n, _N, var[_n-1])
+  # These are generally fixed references, not nested functions.
+  # Use dplyr::lag/lead which are context-aware in grouped operations.
+
+  # Directly replace with `n = $2`
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*-\\s*(\\d+)\\]", "dplyr::lag($1, n = $2)")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*\\+\\s*(\\d+)\\]", "dplyr::lead($1, n = $2)")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\]", "$1")
+
+  # Handle _n and _N.
+  # Convert to numeric to match Stata's default float storage for integers.
+  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_n\\b", "as.numeric(dplyr::row_number())")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_N\\b", "as.numeric(dplyr::n())")
+
+
+  # Step 5: Iteratively translate Stata functions (e.g., cond(), round(), log(), etc.)
+  # This loop handles nested function calls by repeatedly applying transformations.
+  old_r_expr = ""
+  # Ensure the loop condition always evaluates to a concrete TRUE/FALSE
+  while (dplyr::coalesce(r_expr != old_r_expr, FALSE)) {
+    old_r_expr = r_expr
+
+    # Apply more specific regexes first if there are overlaps (e.g., round(x,y) before round(x))
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bcond\\(([^,]+),([^,]+),([^)]+)\\)", "dplyr::if_else($1, $2, $3)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^,]+),([^)]+)\\)", "sfun_stata_round($1, $2)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^)]+)\\)", "sfun_stata_round($1, 1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmod\\(([^,]+),([^)]+)\\)", "($1 %% $2)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmissing\\(([^)]+)\\)", "sfun_missing($1)") # Changed to sfun_missing
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\blog\\(([^)]+)\\)", "log($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsqrt\\(([^)]+)\\)", "sqrt($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bint\\(([^)]+)\\)", "trunc($1)") # Stata int() truncates
+
+    # String functions (using stringi or custom helpers)
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrtrim\\(([^)]+)\\)", "stringi::stri_trim_right($1)") # Corrected for Stata's strtrim
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstritrim\\(([^)]+)\\)", "sfun_stritrim($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\blower\\(([^)]+)\\)", "stringi::stri_trans_tolower($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bupper\\(([^)]+)\\)", "stringi::stri_trans_toupper($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsubstr\\(([^,]+),([^,]+),([^)]+)\\)", "stringi::stri_sub($1, from = $2, length = $3)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsubinstr\\(([^,]+),([^,]+),([^,]+),([^)]+)\\)", "sfun_subinstr($1, $2, $3, $4)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrpos\\(([^,]+),([^)]+)\\)", "sfun_strpos($1, $2)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\blength\\(([^)]+)\\)", "stringi::stri_length($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrlen\\(([^)]+)\\)", "stringi::stri_length($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstring\\(([^)]+)\\)", "sfun_string($1)") # CHANGED HERE
+    # Random number generator functions
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bruniform\\(\\)", "stats::runif(as.numeric(dplyr::n()))") # Stata runiform()
+    # Date functions
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bdate\\(([^,]+),([^,]+),([^)]+)\\)", "sfun_stata_date($1, $2, $3)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bdate\\(([^,]+),([^)]+)\\)", "sfun_stata_date($1, $2)")
+    # NEW: mdy() function
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmdy\\(([^,]+),([^,]+),([^)]+)\\)", "sfun_stata_mdy($1, $2, $3)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\byear\\(([^)]+)\\)", "as.numeric(format(as.Date($1, origin = '1960-01-01'), '%Y'))") # Stata date epoch is 1960-01-01
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmonth\\(([^)]+)\\)", "sfun_month($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bday\\(([^)]+)\\)", "sfun_day($1)") # Use sfun_day
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bqofd\\(([^)]+)\\)", "sfun_qofd($1)") # Use sfun_qofd
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bdow\\(([^)]+)\\)", "sfun_dow($1)") # NEW: Use sfun_dow
+  }
+
+  # Step 6: Translate Stata '+' operator to sfun_stata_add for polymorphic behavior
+  # Re-defining operand_regex for a simpler, more robust matching for addition.
+  # This avoids the complex nested function matching in the operand regex, reducing potential errors.
+  # It assumes function calls are already translated by Step 5 and will appear as simple R function calls.
+  func_name_pattern = "[a-zA-Z_][a-zA-Z0-9_:]*" # Allows package::function syntax
+
+  # Simpler operand regex: string literal, number, or any sequence of non-whitespace characters
+  # that might be a variable name or a fully translated R function call.
+  operand_regex = "(?:\"[^\"]*\"|'[^']*'|\\d+(?:\\.\\d+)?|\\b(?:NA_real_|NULL)\\b|\\b(?:TRUE|FALSE)\\b|\\b(?:"
+  # Add common R function calls that don't need parentheses for their argument
+  operand_regex = paste0(operand_regex, func_name_pattern, "(?:\\([^()]*\\))?|") # Matches func(args) (no nested paren in this specific pattern)
+  operand_regex = paste0(operand_regex, "[a-zA-Z_][a-zA-Z0-9_.]*))") # Matches simple variable names
+
+  old_r_expr_add = ""
+  while (dplyr::coalesce(r_expr != old_r_expr_add, FALSE)) {
+    old_r_expr_add = r_expr
+    # Regex: Match 'operand' + 'operand', where an operand is defined by `operand_regex`.
+    # It ensures that `+` is treated as an operator, not part of `==` or `!=`.
+    add_regex_middle_part = "\\s*(?<![<>=!~])\\+\\s*(?!\\s*\\+|\\s*=\\s*)"
+    add_regex_full = paste0("(", operand_regex, ")", add_regex_middle_part, "(", operand_regex, ")")
+    r_expr = stringi::stri_replace_all_regex(r_expr, add_regex_full, "sfun_stata_add($1, $2)")
+  }
+
+  # Defensive check: if r_expr became empty or NA for some reason (should not happen for valid input)
+  if (is.na(r_expr) || r_expr == "") {
+      warning(paste0("R expression became NA or empty during translation. Original Stata expression: '", stata_expr, "'"))
+      return(NA_character_)
+  }
+
+  return(r_expr)
+}
+
+```
+!END_CHANGE_FILE R/stata_expression_translator.R
