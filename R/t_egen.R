@@ -247,23 +247,13 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
 
 
-  # Determine variables for initial sorting (for `bysort` logic or for functions requiring internal sort)
+  # Determine variables for initial sorting for functions requiring internal sort (rank, group, tag)
   sort_vars_for_arrange = character(0)
 
-  if (cmd_obj$is_by_prefix) {
-    # Stata's `bysort` sorts by all variables in `varlist` (group + sort). This sort is permanent.
-    sort_vars_for_arrange = unique(c(group_vars_list_bare, cmd_obj$by_sort_vars))
-    sort_vars_for_arrange = sort_vars_for_arrange[!is.na(sort_vars_for_arrange) & sort_vars_for_arrange != ""]
-  } else if (egen_func_name %in% c("rank", "group", "tag")) {
-    # If not by-prefix, but it's a function sensitive to order (rank, group, tag)
-    # The sort is temporary, so we will restore original order later.
-    if (length(group_vars_list_bare) > 0) {
-      sort_vars_for_arrange = unique(c(sort_vars_for_arrange, group_vars_list_bare))
-    }
+  # Only sort temporarily if it's NOT a by-prefix command, but one of the order-sensitive egen functions
+  if (!cmd_obj$is_by_prefix && length(group_vars_list_bare) > 0 && egen_func_name %in% c("rank", "group", "tag")) {
+    sort_vars_for_arrange = unique(c(group_vars_list_bare))
     if (egen_func_name == "rank" && !is.na(egen_args_str) && egen_args_str != "") {
-      # For rank, the variable being ranked also affects the internal order for ties.
-      # It's typically sorted by grouping vars, then the ranked var.
-      # `egen_args_str` for rank is the variable to rank.
       sort_vars_for_arrange = unique(c(sort_vars_for_arrange, egen_args_str))
     }
     sort_vars_for_arrange = sort_vars_for_arrange[!is.na(sort_vars_for_arrange) & sort_vars_for_arrange != ""]
@@ -272,15 +262,10 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   r_code_lines = c()
   pipe_elements = list("data") # Start the pipe with the data object
 
-  # Add initial arrange if it's a `bysort` prefix. This is a permanent sort.
-  if (cmd_obj$is_by_prefix && length(sort_vars_for_arrange) > 0) {
-      arrange_vars_expr = paste0('!!!dplyr::syms(c("', paste0(sort_vars_for_arrange, collapse = '", "'), '"))')
-      r_code_lines = c(r_code_lines, paste0("data = dplyr::arrange(data, ", arrange_vars_expr, ")"))
-  }
-
-  # Add arrange for `egen group/tag/rank` functions within the pipe, if not already handled by bysort prefix
-  if (!cmd_obj$is_by_prefix && length(sort_vars_for_arrange) > 0 && !is_row_function) {
-    pipe_elements = c(pipe_elements, "dplyr::arrange(stata2r_original_order_idx)")
+  # Add arrange for `egen group/tag/rank` functions within the pipe, if not already handled by bysort command
+  if (length(sort_vars_for_arrange) > 0 && !is_row_function) {
+    arrange_vars_expr = paste0('!!!dplyr::syms(c("', paste0(sort_vars_for_arrange, collapse = '", "'), '"))')
+    pipe_elements = c(pipe_elements, paste0("dplyr::arrange(", arrange_vars_expr, ")"))
   }
 
 
@@ -297,13 +282,10 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
 
   # Restore original order if it was a temporary sort for egen functions without bysort prefix
-  # This section is now handled by the `arrange` added *before* the grouping, if `!is_row_function`.
-  # For row functions, no sort is needed for the calculation, so no re-arrange needed.
-  # If a temporary sort was explicitly added (e.g., for `rank`, `group`, `tag`), and it was not a bysort prefix,
-  # the `arrange(stata2r_original_order_idx)` will restore the order.
-  # The logic for `arrange` within the pipe for `!is_row_function` and `!cmd_obj$is_by_prefix` already handles this.
-  # No extra `dplyr::arrange(stata2r_original_order_idx)` needed here.
-
+  # This is handled by arranging by `stata2r_original_order_idx` after ungrouping.
+  if (!cmd_obj$is_by_prefix && length(sort_vars_for_arrange) > 0 && !is_row_function) {
+    pipe_elements = c(pipe_elements, "dplyr::arrange(stata2r_original_order_idx)")
+  }
 
   r_code_lines = c(r_code_lines, paste0("data = ", paste(pipe_elements, collapse = " %>% \n  ")))
 
@@ -324,4 +306,5 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 

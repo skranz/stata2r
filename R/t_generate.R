@@ -36,33 +36,16 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     r_if_cond = translate_stata_expression_with_r_values(stata_if_cond, line_num, cmd_df, context = list(is_by_group = FALSE))
   }
 
-  # Determine arrange step if needed
-  arrange_call = ""
-  group_vars_list_bare = character(0) # For dplyr::group_by
+  # Determine group_vars for dplyr::group_by
+  group_vars_list_bare = character(0) 
   
-  # Variables that define the sort order (from by-prefix)
-  vars_for_initial_sort = character(0)
-
   if (cmd_obj$is_by_prefix) {
     if (length(cmd_obj$by_group_vars) > 0 && !is.na(cmd_obj$by_group_vars[1])) {
       group_vars_list = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
       group_vars_list = group_vars_list[!is.na(group_vars_list) & group_vars_list != ""]
       if (length(group_vars_list) > 0) {
         group_vars_list_bare = group_vars_list # Assign just the bare names
-        vars_for_initial_sort = c(vars_for_initial_sort, group_vars_list)
       }
-    }
-
-    if (length(cmd_obj$by_sort_vars) > 0 && !is.na(cmd_obj$by_sort_vars[1])) {
-      sort_vars_list = stringi::stri_split_fixed(cmd_obj$by_sort_vars, ",")[[1]]
-      sort_vars_list = sort_vars_list[!is.na(sort_vars_list) & sort_vars_list != ""]
-      vars_for_initial_sort = c(vars_for_initial_sort, sort_vars_list)
-    }
-
-    if (length(vars_for_initial_sort) > 0) {
-      # Ensure unique and preserve order implicitly (by c() then unique)
-      vars_for_initial_sort = unique(vars_for_initial_sort) 
-      arrange_call = paste0("data = dplyr::arrange(data, !!!dplyr::syms(c(", paste0('"', vars_for_initial_sort, '"', collapse = ", "), ")))")
     }
   }
 
@@ -120,10 +103,6 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Step 2: Build the R code string using pipes for the mutate operation
   r_code_lines = c()
   
-  if (arrange_call != "") {
-      r_code_lines = c(r_code_lines, arrange_call)
-  }
-
   pipe_elements = list("data") # Elements for the pipe chain, starting from `data`
 
   # Add grouping and mutate steps
@@ -143,4 +122,5 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 

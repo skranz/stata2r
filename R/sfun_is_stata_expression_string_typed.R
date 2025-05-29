@@ -1,5 +1,5 @@
-is_stata_expression_string_typed = function(stata_expr_original) {
-  restore.point("is_stata_expression_string_typed")
+sfun_is_stata_expression_string_typed = function(stata_expr_original) {
+  restore.point("sfun_is_stata_expression_string_typed")
   
   if (is.na(stata_expr_original) || stata_expr_original == "") return(FALSE)
 
@@ -31,4 +31,5 @@ is_stata_expression_string_typed = function(stata_expr_original) {
   
   return(FALSE)
 }
+
 
