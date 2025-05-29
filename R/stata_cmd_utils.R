@@ -158,9 +158,15 @@ parse_stata_command_line = function(line_text) {
       is_by_prefix_val = TRUE
 
       # Parse raw_by_string_from_prefix into group_vars and sort_vars
-      # Sort vars are in parentheses, e.g., bysort grp (s1 s2):
-      # Use regex to find all parenthesized parts and non-parenthesized parts
-      by_tokens = stringi::stri_match_all_regex(raw_by_string_from_prefix, "\\s*(\\([^)]+\\)|[^\\s()]+)\\s*")[[1]][,2]
+      # Initialize by_tokens as empty character vector
+      by_tokens = character(0) 
+      if (!is.na(raw_by_string_from_prefix) && raw_by_string_from_prefix != "") {
+          match_result = stringi::stri_match_all_regex(raw_by_string_from_prefix, "\\s*(\\([^)]+\\)|[^\\s()]+)\\s*")
+          # Ensure match_result[[1]] is not NULL and has rows before accessing columns
+          if (!is.null(match_result[[1]]) && NROW(match_result[[1]]) > 0) {
+              by_tokens = match_result[[1]][,2]
+          }
+      }
 
       for (token in by_tokens) {
         if (stringi::stri_startswith_fixed(token, "(") && stringi::stri_endswith_fixed(token, ")")) {
@@ -290,5 +296,4 @@ resolve_stata_filename = function(raw_filename_token, cmd_df, line_num, default_
     }
   }
 }
-
 
