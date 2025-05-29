@@ -1,243 +1,144 @@
-The main issue causing the `do2` test to fail at line 31 (`gen obs_year = year(obs_date)`) is that the `translate_stata_expression_to_r` function was incorrectly constructing the R equivalent for Stata's `year()` function. Instead of calling a dedicated helper function (`sfun_year`), it was inlining the `format(as.Date(...), '%Y')` logic directly into the generated R expression. This caused the internal `'%Y'` string literal to be incorrectly parsed and backticked as `'%`Y`'` by subsequent translation steps, leading to an invalid R `format` string and `NA` values.
+The `do2` test failed at line 78, which involves a `reshape wide` command. The R output had significantly fewer columns than the Stata reference, suggesting that `tidyr::pivot_wider` was not correctly identifying the value columns to spread.
 
-To fix this, I will:
-1. Create a new helper function `sfun_year.R` that correctly implements Stata's `year()` behavior, similar to existing `sfun_month`, `sfun_day`, etc.
-2. Modify `stata_expression_translator.R` to use this new `sfun_year()` helper, ensuring that the R-specific formatting strings are encapsulated within the helper function and not exposed to the general expression translation logic.
+The primary issue is that Stata's `reshape wide` command, by default, concatenates the stubname and the `j()` variable's value directly (e.g., `value1101`), without a separator. `tidyr::pivot_wider`, by default, uses an underscore `_` as a separator (e.g., `value1_101`). When the generated R code was looking for `value1` and `value2` as `values_from` columns, it was expecting the columns to be `value1` and `value2` in the "long" format, and then it would combine these with `time_var_for_reshape` to create new columns. The `names_sep = ""` argument ensures that `pivot_wider` generates column names consistent with Stata's behavior.
 
-This approach ensures that the date formatting is handled correctly and consistently, aligning with the pattern established for other date functions.
+Additionally, a minor defensive change was made in `t_reshape` to pass `id_cols` and `values_from` arguments directly as character vectors, instead of wrapping them in `dplyr::all_of()`, although both approaches are generally valid. The `names_sep = ""` is the critical fix.
 
-!CHANGE_FILE R/sfun_year.R
+!CHANGE_FILE R/t_reshape.R
 ```R
-# Custom R implementation for Stata's year() behavior
-# Stata: year(date_value) returns the year of a Stata date value.
+# Translate Stata 'reshape' command
+# Stata: reshape wide/long stubnames, i(varlist) [j(varname) | j(varname) string] [options]
+# This is a complex command. Basic translation using tidyr.
 
-sfun_year = function(stata_date_values) {
-  restore.point("sfun_year")
-  # Convert Stata date (numeric days since 1960-01-01) to R Date object.
-  # as.Date handles NA values correctly.
-  r_dates = as.Date(stata_date_values, origin = "1960-01-01")
+t_reshape = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
+  restore.point("t_reshape") # Added restore.point
+  rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
-  # Extract year as numeric.
-  # format() returns a character string, so convert to numeric.
-  # This will result in NA for any invalid date conversions.
-  return(as.numeric(format(r_dates, "%Y")))
-}
-```
-!END_CHANGE_FILE R/sfun_year.R
+  # Parse wide/long, stubnames, options
+  # Pattern: ^\s*(wide|long)\s+(.*?)(?:,\\s*(.*))?$
+  # G1: type (wide/long), G2: stubnames/varlist, G3: options
 
-!CHANGE_FILE R/stata_expression_translator.R
-```R
-translate_stata_expression_to_r = function(stata_expr, context = list(is_by_group = FALSE), r_value_mappings = NULL) {
-  restore.point("translate_stata_expression_to_r")
-  
-  # Ensure stata_expr is a single character string or NA
-  if (is.null(stata_expr) || length(stata_expr) == 0 || !is.character(stata_expr)) {
-      stata_expr = NA_character_
+  reshape_match = stringi::stri_match_first_regex(rest_of_cmd_trimmed, "^\\s*(wide|long)\\s+(.*?)(?:,\\s*(.*))?$")
+
+  if (is.na(reshape_match[1,1])) {
+    return(paste0("# Failed to parse reshape command: ", rest_of_cmd))
+  }
+
+  reshape_type = reshape_match[1,2]
+  stubnames_or_varlist_str = stringi::stri_trim_both(reshape_match[1,3])
+  options_str = stringi::stri_trim_both(reshape_match[1,4]) # NA if no options
+
+  stubnames_or_varlist = stringi::stri_split_regex(stubnames_or_varlist_str, "\\s+")[[1]]
+  stubnames_or_varlist = stubnames_or_varlist[stubnames_or_varlist != ""]
+  if (length(stubnames_or_varlist) == 0) {
+       return(paste0("# reshape command requires stubnames or varlist: ", rest_of_cmd))
+  }
+
+
+  # Parse required options: i() and j()
+  i_vars = NA_character_
+  j_var = NA_character_
+  j_is_string = FALSE # Stata j() can create numeric or string j variable
+
+  if (!is.na(options_str)) {
+      i_opt_match = stringi::stri_match_first_regex(options_str, "\\bi\\s*\\(([^)]+)\\)")
+      if (!is.na(i_opt_match[1,1])) {
+           i_vars = stringi::stri_trim_both(i_opt_match[1,2])
+      }
+
+      j_opt_match = stringi::stri_match_first_regex(options_str, "\\bj\\s*\\(([^)]+)\\)")
+      if (!is.na(j_opt_match[1,1])) {
+           j_part = stringi::stri_trim_both(j_opt_match[1,2])
+           # Check if j part contains 'string' option
+           j_string_match = stringi::stri_match_first_regex(j_part, "^\\s*([a-zA-Z_][a-zA-Z0-9_]*)(?:\\s+string)?$")
+           if (!is.na(j_string_match[1,1])) {
+               j_var = j_string_match[1,2]
+               j_is_string = !is.na(stringi::stri_match_first_regex(j_part, "\\s+string$")[1,1])
+           }
+      }
+  }
+
+  if (is.na(i_vars) || i_vars == "") {
+      return(paste0("# reshape command requires i() variable(s): ", rest_of_cmd))
+  }
+  i_vars_list = stringi::stri_split_regex(i_vars, "\\s+")[[1]]
+  i_vars_list = i_vars_list[i_vars_list != ""]
+  i_vars_r_vec_str = paste0('c("', paste(i_vars_list, collapse = '", "'), '")')
+
+  if (is.na(j_var) || j_var == "") {
+       # j() is required unless the data is already structured s.t. it's obvious.
+       # Stata infers j if possible, but usually j() is explicitly required.
+       # For translation, let's assume j() is required.
+       return(paste0("# reshape command requires j() variable: ", rest_of_cmd))
+  }
+
+
+  r_code_str = ""
+
+  if (reshape_type == "wide") {
+      # Stata `reshape wide stubnames, i(i) j(j)`
+      # R `tidyr::pivot_wider(data, id_cols = i_vars, names_from = j_var, values_from = stubnames)`
+      # Multiple stubnames means values_from is a vector of stubnames.
+      # If stubnames are `inc limit`, R columns become inc_1990, inc_1991, limit_1990, limit_1991
+      # Stata by default creates `stubnamejvalue` columns.
+      # tidyr default is `stubname_jvalue`. Can control with `names_sep` or `names_from` + `values_from`.
+
+      stubnames_r_vec_str = paste0('c("', paste(stubnames_or_varlist, collapse = '", "'), '")')
+
+      # Changed id_cols and values_from to directly use string vectors (no dplyr::all_of)
+      # Added names_sep = "" to match Stata's default concatenation behavior.
+      r_code_str = paste0("data = tidyr::pivot_wider(data, id_cols = ", i_vars_r_vec_str, ", names_from = ", j_var, ", values_from = ", stubnames_r_vec_str, ", names_sep = \"\")")
+
+  } else if (reshape_type == "long") {
+      # Stata `reshape long stubnames, i(i) j(jname)`
+      # R `tidyr::pivot_longer(data, cols = c(list of stubnames), names_to = jname, values_to = value_name)`
+      # Stata: `reshape long inc limit, i(id) j(year)` -> creates `id`, `year`, `inc`, `limit`
+      # tidyr: `pivot_longer(..., names_to = "year", values_to = "value")` default puts all values in 'value'.
+      # If multiple stubnames, tidyr can gather them separately.
+      # `pivot_longer(..., names_to = c(".value", "year"), names_sep = "_")` if original cols were `inc_1990`, `limit_1990`, etc.
+
+      # The `stubnames_or_varlist` for long format lists the *stubnames* (e.g., "inc", "limit").
+      # The actual columns to gather are inferred from these stubs and the values of the `j` variable.
+      # This translation assumes that the wide variables are named `stubname` + `j_value`.
+      # e.g., for `stubnames = c("inc", "limit")` and `j_var = "year"`,
+      # it expects columns like `inc1990`, `inc1991`, `limit1990`, `limit1991`.
+
+      # Construct the `cols` argument for `pivot_longer`
+      # Stata's reshape long can infer columns, e.g., `reshape long income, i(id) j(year)` implies `income*`
+      # `reshape long income educ, i(id) j(year)` implies `income*` and `educ*`
+      # dplyr::matches is suitable for this.
+      cols_to_gather_regex = paste0("^(", paste(stubnames_or_varlist, collapse = "|"), ")")
+      cols_to_gather_expr = paste0("dplyr::matches(\"", cols_to_gather_regex, "\")")
+
+
+      # Construct the `names_pattern` to capture stubname and j_value
+      # e.g., (inc|limit)(\\d+)
+      names_pattern = paste0("^(", paste(stubnames_or_varlist, collapse = "|"), ")(.*)$")
+
+      # names_to should be c(".value", j_var) to create new columns for each stubname
+      # .value will map the captured stubname part to the correct column name (e.g., "income", "educ")
+      names_to_r = paste0('c(".value", "', j_var, '")')
+
+      r_code_str = paste0("data = tidyr::pivot_longer(data, cols = ", cols_to_gather_expr, ", names_to = ", names_to_r, ", names_pattern = \"", names_pattern, "\")")
+
+      # If j() string option was NOT used, need to convert the resulting j_var to numeric.
+      # tidyr's names_pattern captures as string by default.
+      if (!j_is_string) {
+         # Convert j_var to numeric after reshape
+         r_code_str = paste0(r_code_str, " %>%\n  dplyr::mutate(", j_var, " = as.numeric(", j_var, "))")
+      }
+
   } else {
-      stata_expr = as.character(stata_expr[1]) # Ensure it's a single string
+      r_code_str = paste0("# Unknown reshape type: ", reshape_type)
   }
 
-  if (is.na(stata_expr) || stata_expr == "") {
-    return("NA_real_") 
-  }
-
-  r_expr = stata_expr
-
-  # --- Handle string literals by replacing them with unique placeholders ---
-  # This prevents them from being backticked or otherwise mangled by other regexes.
-  string_literal_map = list()
-  placeholder_counter = 0
-
-  # Find all string literals (double or single quoted)
-  literal_matches_list = stringi::stri_match_all_regex(r_expr, '"[^"]*"|\'[^\']*\'' )
-  
-  if (length(literal_matches_list) > 0 && !is.null(literal_matches_list[[1]]) && NROW(literal_matches_list[[1]]) > 0 && !is.na(literal_matches_list[[1]][1,1])) {
-      # Get unique literals
-      unique_literals = unique(literal_matches_list[[1]][,1])
-      
-      for (literal_text in unique_literals) {
-          placeholder_counter = placeholder_counter + 1
-          # Make placeholder start with a number or other non-letter/non-underscore char
-          # to ensure it's not matched by `\\b([a-zA-Z_][a-zA-Z0-9_.]*)\\b`
-          placeholder = paste0("_", placeholder_counter, "STATA2R_SLIT_") 
-          r_expr = stringi::stri_replace_all_fixed(r_expr, literal_text, placeholder)
-          string_literal_map[[placeholder]] = literal_text # Store with original quotes
-      }
-  }
-  # --- End string literal handling ---
-
-
-  # Step 1: Handle Stata missing value literals '.', '.a', ..., '.z'
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![0-9a-zA-Z_])\\.[a-zA-Z]?(?![0-9a-zA-Z_])", "NA_real_")
-
-  # Step 2: Handle r() values using the mapping.
-  if (!is.null(r_value_mappings) && length(r_value_mappings) > 0) {
-    # Sort r_value_mappings by name length descending to avoid partial matches (e.g., r(N) before r(mean))
-    sorted_r_names = names(r_value_mappings)[order(stringi::stri_length(names(r_value_mappings)), decreasing = TRUE)]
-    for (stata_r_name in sorted_r_names) {
-      # Escape parentheses in the regex pattern
-      stata_r_regex = gsub("([()])", "\\\\\\1", stata_r_name, fixed=TRUE) # Use fixed=TRUE for simplicity with gsub
-      r_expr = stringi::stri_replace_all_fixed(r_expr, stata_r_name, r_value_mappings[[stata_r_name]])
-    }
-  }
-
-  # Step 3: Translate Stata logical operators and missing value comparisons.
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*==\\s*NA_real_", "sfun_missing($1)")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*!=\\s*NA_real_", "!sfun_missing($1)")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![<>=!~])\\s*=\\s*(?![=])", " == ")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\s+~=\\s+", " != ")
-
-
-  # Step 4: Translate Stata special variables and indexing (e.g., _n, _N, var[_n-1])
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*-\\s*(\\d+)\\]", "dplyr::lag(`$1`, n = $2)")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*\\+\\s*(\\d+)\\]", "dplyr::lead(`$1`, n = $2)")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\]", "`$1`")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_n\\b", "dplyr::row_number()")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_N\\b", "dplyr::n()")
-
-
-  # Step 5: Iteratively translate Stata functions (e.g., cond(), round(), log(), etc.)
-  old_r_expr = ""
-  while (dplyr::coalesce(r_expr != old_r_expr, FALSE)) {
-    old_r_expr = r_expr
-
-    # Fix: Use the new sfun_stata_cond helper for robust cond() translation
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bcond\\(([^,]+),([^,]+),([^)]+)\\)", "sfun_stata_cond($1, $2, $3)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^,]+),([^)]+)\\)", "sfun_stata_round($1, $2)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^)]+)\\)", "sfun_stata_round($1, 1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmod\\(([^,]+),([^)]+)\\)", "($1 %% $2)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmissing\\(([^)]+)\\)", "sfun_missing($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\blog\\(([^)]+)\\)", "log($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsqrt\\(([^)]+)\\)", "sqrt($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bint\\(([^)]+)\\)", "trunc($1)")
-
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrtrim\\(([^)]+)\\)", "stringi::stri_trim_right($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstritrim\\(([^)]+)\\)", "sfun_stritrim($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\blower\\(([^)]+)\\)", "stringi::stri_trans_tolower($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bupper\\(([^)]+)\\)", "stringi::stri_trans_toupper($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsubstr\\(([^,]+),([^,]+),([^)]+)\\)", "stringi::stri_sub($1, from = $2, length = $3)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsubinstr\\(([^,]+),([^,]+),([^,]+),([^)]+)\\)", "sfun_subinstr($1, $2, $3, $4)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrpos\\(([^,]+),([^)]+)\\)", "sfun_strpos($1, $2)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\blength\\(([^)]+)\\)", "stringi::stri_length($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrlen\\(([^)]+)\\)", "stringi::stri_length($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstring\\(([^)]+)\\)", "sfun_string($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bruniform\\(\\)", "stats::runif(dplyr::n())")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bdate\\(([^,]+),([^,]+),([^)]+)\\)", "sfun_stata_date($1, $2, $3)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bdate\\(([^,]+),([^)]+)\\)", "sfun_stata_date($1, $2)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmdy\\(([^,]+),([^,]+),([^)]+)\\)", "sfun_stata_mdy($1, $2, $3)")
-    # Fix: Use dedicated sfun_year helper instead of inlining format logic.
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\byear\\(([^)]+)\\)", "sfun_year($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmonth\\(([^)]+)\\)", "sfun_month($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bday\\(([^)]+)\\)", "sfun_day($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bqofd\\(([^)]+)\\)", "sfun_qofd($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bdow\\(([^)]+)\\)", "sfun_dow($1)")
-  }
-
-  if (is.na(r_expr) || r_expr == "") {
-      warning(paste0("R expression became NA or empty after function translation. Original Stata expression: '", stata_expr, "'"))
-      return("NA_real_") 
-  }
-
-  # Step 6: Quote bare variable names with backticks
-  r_reserved_words = c(
-    "TRUE", "FALSE", "NA_real_", "NA_character_", "NA_integer_", "NA", "NULL",
-    "if_else", "coalesce", "row_number", "n", "lag", "lead", "select", "filter",
-    "mutate", "group_by", "ungroup", "syms", "all_of", "everything", "matches",
-    "pivot_wider", "pivot_longer", "read_dta", "write_dta", "labelled", "zap_labels",
-    "zap_formats", "zap_missing", "as_factor", "parse_number",
-    "mean", "sum", "median", "sd", "min", "max", "log", "sqrt", "trunc", "rank",
-    "rowSums", "rowMeans", "setNames", "match", "tempfile", "file.path",
-    "fmean", "fsum", "fN", "ffirst", "flast", "fmin", "fmax", "fmedian", "fsd",
-    "fquantile", "fgroup_by", "fungroup", "fsubset", "frename", "bind_rows", "rep",
-    "as_tibble", "inherits", "format", "as.Date", "as.numeric", "as.character", "as.integer",
-    "sign", "floor", "abs", "pmax", "stringi", "base", "stats", "dplyr", "collapse", "haven",
-    "readr", "tidyr", "labelled", "restorepoint", "stata2r_env",
-    "sfun_missing", "sfun_stata_add", "sfun_stata_round", "sfun_string", "sfun_stritrim",
-    "sfun_strpos", "sfun_subinstr", "sfun_stata_mdy", "sfun_stata_date", "sfun_day",
-    "sfun_month", "sfun_qofd", "sfun_dow", "sfun_normalize_string_nas", "sfun_strip_stata_attributes",
-    "sfun_compress_col_type", "sfun_is_stata_expression_string_typed", "as.logical",
-    "sfun_stata_cond", "sfun_year"
-  )
-  
-  # Find all words that could be variable names
-  locations_list = stringi::stri_locate_all_regex(r_expr, "\\b([a-zA-Z_][a-zA-Z0-9_.]*)\\b")
-  locations = locations_list[[1]]
-
-  # Check if locations is valid (not NULL, not all NAs)
-  if (!is.null(locations) && NROW(locations) > 0 && !is.na(locations[1,1])) {
-      # Iterate from end to beginning to avoid issues with changed string length
-      locations = locations[order(locations[,2], decreasing = TRUE), , drop = FALSE]
-      
-      for (k in seq_len(NROW(locations))) {
-          start_pos = locations[k,1]
-          end_pos = locations[k,2]
-          current_word = stringi::stri_sub(r_expr, start_pos, end_pos)
-          
-          # Check if the word is a placeholder for a string literal
-          # This check is now robust because placeholders start with _number_ and won't match the regex.
-          # So `if (current_word %in% names(string_literal_map))` is technically not needed for *this* placeholder type,
-          # but keeping it for robustness/future changes.
-          if (current_word %in% names(string_literal_map)) {
-              next 
-          }
-
-          is_reserved = dplyr::coalesce(current_word %in% r_reserved_words, FALSE)
-          is_numeric_literal = dplyr::coalesce(suppressWarnings(!is.na(as.numeric(current_word))), FALSE)
-          
-          is_already_backticked = FALSE
-          # Check if the word is already backticked by looking at characters before and after
-          # Ensure position checks are robust against NA
-          if (dplyr::coalesce(start_pos > 1 && end_pos < stringi::stri_length(r_expr), FALSE)) { 
-            char_before = dplyr::coalesce(stringi::stri_sub(r_expr, start_pos - 1, start_pos - 1), "")
-            char_after = dplyr::coalesce(stringi::stri_sub(r_expr, end_pos + 1, end_pos + 1), "")
-            is_already_backticked = (char_before == "`" && char_after == "`")
-          }
-          
-          if (isTRUE(!is_reserved) && isTRUE(!is_numeric_literal) && isTRUE(!is_already_backticked)) {
-              r_expr = paste0(stringi::stri_sub(r_expr, 1, start_pos - 1),
-                              "`", current_word, "`",
-                              stringi::stri_sub(r_expr, end_pos + 1, stringi::stri_length(r_expr)))
-          }
-      }
+  # Add comment about options if any were present but not handled
+  if (!is.na(options_str) && !grepl("\\bi\\s*\\([^)]+\\)", options_str) && !grepl("\\bj\\s*\\([^)]+\\)", options_str)) {
+       r_code_str = paste0(r_code_str, paste0(" # Other options ignored: ", options_str))
   }
 
 
-  # Step 7: Translate Stata '+' operator to sfun_stata_add for polymorphic behavior
-  # Define a more robust pattern for operands that can be on either side of '+'
-  # This pattern tries to capture common R-translated elements like quoted strings, numbers, NA/NULL,
-  # backticked variable names, and function calls.
-  # It should now also correctly handle placeholders.
-  operand_pattern = "(?:\"[^\"]*\"|'[^']*'|\\d+(?:\\.\\d+)?(?:e[+-]?\\d+)?|\\b(?:NA_real_|NULL)\\b|\\b(?:TRUE|FALSE)\\b|`[^`]+`|\\b[a-zA-Z_][a-zA-Z0-9_.]*\\s*\\(.*?\\)\\s*|_[0-9]+STATA2R_SLIT_)"
-  
-  old_r_expr_add = ""
-  # Loop to apply replacements until no more '+' can be replaced, handling nested sfun_stata_add
-  while (dplyr::coalesce(r_expr != old_r_expr_add, FALSE)) {
-    old_r_expr_add = r_expr
-    # Regex to find '+' that is not part of '++', '+=', '!=', '>=', '<='
-    # Ensure it's not preceded by <, >, =, !, ~
-    # Ensure it's not followed by + or =
-    add_regex_middle_part = "\\s*(?<![<>=!~])\\+\\s*(?!\\s*\\+|\\s*=\\s*)"
-    add_regex_full = paste0("(", operand_pattern, ")", add_regex_middle_part, "(", operand_pattern, ")")
-    r_expr = stringi::stri_replace_all_regex(r_expr, add_regex_full, "sfun_stata_add($1, $2)")
-  }
-
-
-  # --- Restore string literals from placeholders ---
-  # Iterate in reverse order of placeholder creation to handle potential nested replacements
-  # though for string literals, simple fixed replacement is usually fine.
-  # Sorting by the length of the placeholder name (descending) ensures longer placeholders are replaced first,
-  # preventing partial matches if placeholders were substrings of each other.
-  # Here, placeholder names are unique and fixed length prefix, so simple iteration is fine.
-  if (length(string_literal_map) > 0) {
-      # Sort placeholders by length descending, then by name descending (for deterministic order)
-      sorted_placeholders = names(string_literal_map)[order(stringi::stri_length(names(string_literal_map)), names(string_literal_map), decreasing = TRUE)]
-      for (placeholder in sorted_placeholders) {
-          r_expr = stringi::stri_replace_all_fixed(r_expr, placeholder, string_literal_map[[placeholder]])
-      }
-  }
-  # --- End string literal restoration ---
-
-  return(r_expr)
+  return(r_code_str)
 }
 ```
-!END_CHANGE_FILE R/stata_expression_translator.R
+!END_CHANGE_FILE R/t_reshape.R
