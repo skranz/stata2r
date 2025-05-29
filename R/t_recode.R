@@ -105,12 +105,18 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
           string_label_part = ifelse(!is.na(label_match[1,3]), label_match[1,3], label_match[1,4])
 
           r_numeric_val = NA_real_
-          if (numeric_val_part == ".") r_numeric_val = NA_real_ # Stata system missing
-          else if (stringi::stri_detect_regex(numeric_val_part, "^\\.[a-zA-Z]$")) r_numeric_val = NA_real_ # Stata extended missing
-          else r_numeric_val = as.numeric(numeric_val_part) # Convert numeric strings to numeric
+          # Robustly handle numeric_val_part, which can be NA from regex if not present.
+          numeric_val_part_safe = dplyr::coalesce(numeric_val_part, "") 
 
-          if (!is.na(r_numeric_val)) {
-            collected_labels_for_numeric_target[[string_label_part]] = r_numeric_val
+          if (numeric_val_part_safe == ".") r_numeric_val = NA_real_ # Stata system missing
+          else if (stringi::stri_detect_regex(numeric_val_part_safe, "^\\.[a-zA-Z]$")) r_numeric_val = NA_real_ # Stata extended missing
+          else if (numeric_val_part_safe != "") r_numeric_val = as.numeric(numeric_val_part_safe) # Convert numeric strings to numeric
+          # If numeric_val_part_safe is "", r_numeric_val remains NA_real_, which is fine.
+
+          if (!is.na(r_numeric_val) && !is.na(string_label_part)) {
+            # Use a temporary list to store key-value pairs to handle duplicates
+            # Store as c(label, value) and process later.
+            collected_labels_for_numeric_target[[length(collected_labels_for_numeric_target) + 1]] = list(label = string_label_part, value = r_numeric_val)
           }
       }
   }
@@ -126,8 +132,8 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   final_labels_map = stats::setNames(numeric(0), character(0)) # Initialize empty named numeric vector
   if (final_r_var_type_is_labelled_numeric && length(collected_labels_for_numeric_target) > 0) {
       temp_df_labels = data.frame(
-          label = names(collected_labels_for_numeric_target),
-          value = unlist(collected_labels_for_numeric_target, use.names = FALSE),
+          label = sapply(collected_labels_for_numeric_target, `[[`, "label"),
+          value = sapply(collected_labels_for_numeric_target, `[[`, "value"),
           stringsAsFactors = FALSE
       )
       
@@ -135,12 +141,11 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       # If multiple rules map to the same *numeric value*, the label for that value is taken from the *last* rule that defines it.
       # The order of labels in the metadata is typically sorted by value.
       
-      # To replicate "last defined label for value": Sort by value (desc), then remove duplicates, then re-sort by value (asc).
-      # Add an original order index to ensure stable sort for equal values, though Stata does not guarantee this.
+      # To replicate "last defined label for value": Sort by value (desc), then original_order (desc), then remove duplicates, then re-sort by value (asc).
       temp_df_labels$original_order = seq_len(NROW(temp_df_labels))
-      temp_df_labels = temp_df_labels[order(temp_df_labels$value, -temp_df_labels$original_order), ] # Sort by value (asc), then original_order (desc)
-      temp_df_labels = temp_df_labels[!duplicated(temp_df_labels$value, fromLast = TRUE), ] # Keep the first unique for value (which is the last from original order)
-      temp_df_labels = temp_df_labels[order(temp_df_labels$value), ] # Final sort by value (asc)
+      temp_df_labels = temp_df_labels[order(temp_df_labels$value, -temp_df_labels$original_order), ] # Sort by value (asc), then original_order (desc) for tie-breaking
+      temp_df_labels = temp_df_labels[!duplicated(temp_df_labels$value, fromLast = TRUE), ] # Keep the last unique for value (which is the last from original order)
+      temp_df_labels = temp_df_labels[order(temp_df_labels$value), ] # Final sort by value (asc) for consistent output
       
       final_labels_map = stats::setNames(temp_df_labels$value, temp_df_labels$label)
   }

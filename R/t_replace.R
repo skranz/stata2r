@@ -12,23 +12,27 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   match = stringi::stri_match_first_regex(rest_of_cmd_no_type, "^\\s*([^=\\s]+)\\s*=\\s*(.*?)(?:\\s+if\\s+(.*))?$")
 
-  # NEW: Defensive check for successful parsing of core components
-  if (is.na(match[1,1]) || is.na(match[1,2]) || is.na(match[1,3])) {
-    return(paste0("# Failed to parse replace command structure: ", rest_of_cmd))
+  # Defensive assignment for potentially NA match groups
+  var_to_replace = NA_character_
+  stata_expr = NA_character_
+  stata_if_cond = NA_character_
+
+  if (!is.na(match[1,1])) { # If the overall regex matched
+      var_to_replace = dplyr::coalesce(stringi::stri_trim_both(match[1,2]), NA_character_)
+      stata_expr = dplyr::coalesce(stringi::stri_trim_both(match[1,3]), NA_character_)
+      stata_if_cond = dplyr::coalesce(stringi::stri_trim_both(match[1,4]), NA_character_)
+  } else {
+      # If no match, return a parsing error
+      return(paste0("# Failed to parse replace command structure: ", rest_of_cmd))
   }
 
-  var_to_replace = stringi::stri_trim_both(match[1,2])
-  stata_expr = stringi::stri_trim_both(match[1,3])
-  stata_if_cond = stringi::stri_trim_both(match[1,4]) # Might be NA
 
   current_context = list(is_by_group = cmd_obj$is_by_prefix && length(cmd_obj$by_group_vars) > 0 && !is.na(cmd_obj$by_group_vars[1]))
   # Translate the Stata expression to R first
   r_expr = translate_stata_expression_with_r_values(stata_expr, line_num, cmd_df, current_context)
 
   # Ensure r_expr is a character string literal, even if it represents NA (logical)
-  if (is.na(r_expr) && !is.character(r_expr)) { # Check for logical NA, not string "NA"
-      r_expr = "NA_real_"
-  } else if (is.character(r_expr) && r_expr == "") {
+  if (is.na(r_expr)) { # Check for logical NA, not string "NA"
       r_expr = "NA_real_"
   }
 
@@ -77,9 +81,7 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   } else { # Numeric output
       # Ensure logicals become 0/1. Stata converts TRUE/FALSE to 1/0 for numeric types.
       # This handles `gen newvar = x==y` resulting in numeric 0/1.
-      # The check for logical operators needs to be robust.
       # If it's a logical expression, cast to numeric.
-      # Fix: Use isTRUE() to handle potential NA from `&&` operation
       is_a_logical_expression = isTRUE(
           stringi::stri_detect_regex(calculated_value_expr_raw, "\\bTRUE\\b|\\bFALSE\\b|==|!=|<=|>=|<|>|&|\\||\\bsfun_missing\\b") &&
           !stringi::stri_detect_fixed(calculated_value_expr_raw, "dplyr::if_else")
@@ -118,5 +120,6 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 
 

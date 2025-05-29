@@ -2,7 +2,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   restore.point("translate_stata_expression_to_r")
   
   # Ensure stata_expr is a single character string or NA
-  if (is.null(stata_expr) || length(stata_expr) == 0) {
+  if (is.null(stata_expr) || length(stata_expr) == 0 || !is.character(stata_expr)) {
       stata_expr = NA_character_
   } else {
       stata_expr = as.character(stata_expr[1]) # Ensure it's a single string
@@ -37,9 +37,8 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
           }
           placeholder_counter = placeholder_counter + 1
           placeholder = paste0("STATA2R_STR_LITERAL_PLACEHOLDER_", placeholder_counter, "_")
-          string_literal_map[[placeholder]] = literal_text
-          # Replace only the first occurrence for this literal to handle duplicates correctly in a loop
           r_expr = stringi::stri_replace_first_fixed(r_expr, literal_text, placeholder)
+          string_literal_map[[placeholder]] = literal_text # Store after replacement to avoid issues with already replaced text
       }
   }
   # --- End new string literal handling ---
@@ -130,7 +129,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     "sfun_strpos", "sfun_subinstr", "sfun_stata_mdy", "sfun_stata_date", "sfun_day",
     "sfun_month", "sfun_qofd", "sfun_dow", "sfun_normalize_string_nas", "sfun_strip_stata_attributes",
     "sfun_compress_col_type", "sfun_is_stata_expression_string_typed", "as.logical",
-    "sfun_stata_cond" # Added new helper function
+    "sfun_stata_cond"
   )
   
   locations = stringi::stri_locate_all_regex(r_expr, "\\b([a-zA-Z_][a-zA-Z0-9_.]*)\\b")[[1]]
@@ -147,17 +146,14 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
           is_numeric_literal = dplyr::coalesce(suppressWarnings(!is.na(as.numeric(current_word))), FALSE)
           
           is_already_backticked = FALSE
-          if (dplyr::coalesce(start_pos > 1 && end_pos <= stringi::stri_length(r_expr), FALSE)) { 
+          # Check if the word is already backticked by looking at characters before and after
+          if (dplyr::coalesce(start_pos > 1 && end_pos < stringi::stri_length(r_expr), FALSE)) { # end_pos < length to ensure there's a char after
             char_before = dplyr::coalesce(stringi::stri_sub(r_expr, start_pos - 1, start_pos - 1), "")
             char_after = dplyr::coalesce(stringi::stri_sub(r_expr, end_pos + 1, end_pos + 1), "")
             is_already_backticked = (char_before == "`" && char_after == "`")
           }
           
-          local_is_reserved = as.logical(dplyr::coalesce(is_reserved, FALSE))
-          local_is_numeric_literal = as.logical(dplyr::coalesce(is_numeric_literal, FALSE))
-          local_is_already_backticked = as.logical(dplyr::coalesce(is_already_backticked, FALSE))
-
-          if (isTRUE(!local_is_reserved) && isTRUE(!local_is_numeric_literal) && isTRUE(!local_is_already_backticked)) {
+          if (isTRUE(!is_reserved) && isTRUE(!is_numeric_literal) && isTRUE(!is_already_backticked)) {
               r_expr = paste0(stringi::stri_sub(r_expr, 1, start_pos - 1),
                               "`", current_word, "`",
                               stringi::stri_sub(r_expr, end_pos + 1, stringi::stri_length(r_expr)))
@@ -167,15 +163,23 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
 
   # Step 7: Translate Stata '+' operator to sfun_stata_add for polymorphic behavior
-  operand_pattern = "(?:\"[^\"]*\"|'[^']*'|\\d+(?:\\.\\d+)?|\\b(?:NA_real_|NULL)\\b|\\b(?:TRUE|FALSE)\\b|`[^`]+`|\\b[a-zA-Z_][a-zA-Z0-9_:]*\\s*\\(.*?\\)\\s*)"
-
+  # Define a more robust pattern for operands that can be on either side of '+'
+  # This pattern tries to capture common R-translated elements like quoted strings, numbers, NA/NULL,
+  # backticked variable names, and function calls.
+  operand_pattern = "(?:\"[^\"]*\"|'[^']*'|\\d+(?:\\.\\d+)?(?:e[+-]?\\d+)?|\\b(?:NA_real_|NULL)\\b|\\b(?:TRUE|FALSE)\\b|`[^`]+`|\\b[a-zA-Z_][a-zA-Z0-9_.]*\\s*\\(.*?\\)\\s*)"
+  
   old_r_expr_add = ""
+  # Loop to apply replacements until no more '+' can be replaced, handling nested sfun_stata_add
   while (dplyr::coalesce(r_expr != old_r_expr_add, FALSE)) {
     old_r_expr_add = r_expr
+    # Regex to find '+' that is not part of '++', '+=', '!=', '>=', '<='
+    # Ensure it's not preceded by <, >, =, !, ~
+    # Ensure it's not followed by + or =
     add_regex_middle_part = "\\s*(?<![<>=!~])\\+\\s*(?!\\s*\\+|\\s*=\\s*)"
     add_regex_full = paste0("(", operand_pattern, ")", add_regex_middle_part, "(", operand_pattern, ")")
     r_expr = stringi::stri_replace_all_regex(r_expr, add_regex_full, "sfun_stata_add($1, $2)")
   }
+
 
   # --- New: Restore string literals from placeholders ---
   # Iterate in reverse order of placeholder creation to handle potential nested replacements

@@ -2,7 +2,7 @@ sfun_is_stata_expression_string_typed = function(stata_expr_original) {
   restore.point("sfun_is_stata_expression_string_typed")
   
   # Ensure stata_expr_original is a single character string or NA
-  if (is.null(stata_expr_original) || length(stata_expr_original) == 0) {
+  if (is.null(stata_expr_original) || length(stata_expr_original) == 0 || !is.character(stata_expr_original)) {
       stata_expr_original = NA_character_
   } else {
       stata_expr_original = as.character(stata_expr_original[1])
@@ -65,4 +65,5 @@ sfun_is_stata_expression_string_typed = function(stata_expr_original) {
   # Or if it's a simple arithmetic expression, it's numeric.
   return(FALSE)
 }
+
 
