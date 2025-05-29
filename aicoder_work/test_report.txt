@@ -1162,8 +1162,8 @@ data = dplyr::filter(data, !(stata_tmp_is_duplicate_L77 & TRUE))
 rm(stata_tmp_is_duplicate_L77) # Other options ignored: force
 
  78 do:  reshape wide value1 value2, i(id group_code_num) j(time_var_for_reshape)
- 78 r:  data = tidyr::pivot_wider(data, id_cols = dplyr::all_of(c("id", "group_code_num")), names_from = time_var_for_reshape, values_from = dplyr::all_of(c("value1", "value2"))) 
-data = tidyr::pivot_wider(data, id_cols = dplyr::all_of(c("id", "group_code_num")), names_from = time_var_for_reshape, values_from = dplyr::all_of(c("value1", "value2")))
+ 78 r:  data = tidyr::pivot_wider(data, id_cols = c("id", "group_code_num"), names_from = time_var_for_reshape, values_from = c("value1", "value2"), names_sep = "") 
+data = tidyr::pivot_wider(data, id_cols = c("id", "group_code_num"), names_from = time_var_for_reshape, values_from = c("value1", "value2"), names_sep = "")
 
 Error: After Stata line  78 , R data set differs from Stata reference.
 
@@ -1229,14 +1229,16 @@ tibble [12 × 20] (S3: tbl_df/tbl/data.frame)
 NULL
 
 Data set from R (r_df):
-tibble [12 × 2] (S3: tbl_df/tbl/data.frame)
+tibble [12 × 4] (S3: tbl_df/tbl/data.frame)
  $ id            : num [1:12] 1 4 5 7 8 9 10 11 14 15 ...
  $ group_code_num: num [1:12] 3 2 3 1 1 2 3 2 1 4 ...
+ $ value1101     : num [1:12] 77.6 28.3 42 65.6 28.5 ...
+ $ value2101     : num [1:12] 4 10 3 3 6 6 8 6 6 7 ...
 NULL
 
 Differences:List of 2
  $ identical      : logi FALSE
  $ column_mismatch:List of 2
   ..$ missing_in_do_df: chr(0) 
-  ..$ missing_in_r_df : chr [1:18] "value1101" "value2101" "orig_group_name" "group_clean" ...
+  ..$ missing_in_r_df : chr [1:16] "orig_group_name" "group_clean" "log_val1" "num_val_from_str" ...
 NULL
