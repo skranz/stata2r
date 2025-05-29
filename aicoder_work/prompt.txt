@@ -1401,7 +1401,7 @@ parse_stata_command_line = function(line_text) {
 
   # Extract command token from the (potentially remaining) line
   parts = stringi::stri_split_fixed(rest_of_line_for_cmd_parse, " ", n = 2)
-  cmd_token_original = parts[[1]][1]
+  cmd_token_original = stringi::stri_trim_both(parts[[1]][1]) # Trim for robustness
 
   if (is.na(cmd_token_original) || cmd_token_original == "") {
       return(list(
@@ -1513,6 +1513,7 @@ resolve_stata_filename = function(raw_filename_token, cmd_df, line_num, default_
     }
   }
 }
+
 
 ```
 ### END OF FILE: stata_cmd_utils.R
@@ -3155,7 +3156,7 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   if (force_r_output_type == "character") {
       # If Stata expression is numeric NA (.), it translates to NA_real_.
       # When assigned to a string variable, Stata treats '.' as "".
-      if (calculated_value_expr_raw == "NA_real_") {
+      if (isTRUE(calculated_value_expr_raw == "NA_real_")) {
           calculated_value_expr = '""'
       } else {
           # Cast to character for other expressions
@@ -3174,7 +3175,7 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
         is_logical_r_expr = dplyr::coalesce(regex_match, FALSE) && !dplyr::coalesce(fixed_match, FALSE)
       }
       if (is_logical_r_expr) {
-          calculated_value_expr = paste0("as.numeric(", calculated_value_expr_raw, ")")
+          calculated_value_expr = paste0("as.numeric(", calculated_value_raw, ")")
       } else {
           calculated_value_expr = calculated_value_expr_raw
       }
@@ -3217,6 +3218,7 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 
 ```
 ### END OF FILE: t_generate.R
@@ -4196,7 +4198,7 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   if (force_r_output_type == "character") {
       # If Stata expression is numeric NA (.), it translates to NA_real_.
       # When assigned to a string variable, Stata treats '.' as "".
-      if (calculated_value_expr_raw == "NA_real_") {
+      if (isTRUE(calculated_value_expr_raw == "NA_real_")) {
           calculated_value_expr = '""'
       } else {
           # Cast to character for other expressions
@@ -4251,6 +4253,7 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 
 ```
 ### END OF FILE: t_replace.R
