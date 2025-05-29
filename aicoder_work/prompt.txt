@@ -1596,9 +1596,8 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\]", "`$1`") # Backtick for consistency, though not strictly needed here
 
   # Handle _n and _N.
-  # Convert to numeric to match Stata's default float storage for integers.
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_n\\b", "as.numeric(dplyr::row_number())")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_N\\b", "as.numeric(dplyr::n())")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_n\\b", "dplyr::row_number()")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_N\\b", "dplyr::n()")
 
 
   # Step 5: Iteratively translate Stata functions (e.g., cond(), round(), log(), etc.)
@@ -1630,7 +1629,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrlen\\(([^)]+)\\)", "stringi::stri_length($1)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstring\\(([^)]+)\\)", "sfun_string($1)") # CHANGED HERE
     # Random number generator functions
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bruniform\\(\\)", "stats::runif(as.numeric(dplyr::n()))") # Stata runiform()
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bruniform\\(\\)", "stats::runif(dplyr::n())") # Stata runiform()
     # Date functions
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bdate\\(([^,]+),([^,]+),([^)]+)\\)", "sfun_stata_date($1, $2, $3)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bdate\\(([^,]+),([^)]+)\\)", "sfun_stata_date($1, $2)")
@@ -3678,13 +3677,14 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   
   # Logic for `keep()` option (converted to generated R code)
   if (!is.na(actual_keep_spec_from_options)) {
-      r_code_lines = c(r_code_lines, paste0("if (grepl(\"\\\\ball\\\\b\", \"", actual_keep_spec_from_options, "\")) {"))
+      # Use grepl with word boundaries for robustness
+      r_code_lines = c(r_code_lines, paste0("if (grepl(\"\\\\ball\\\\b\", \"", actual_keep_spec_from_options, "\", ignore.case=TRUE)) {"))
       r_code_lines = c(r_code_lines, paste0("  ", join_type_var_in_r, " = \"dplyr::full_join\""))
-      r_code_lines = c(r_code_lines, paste0("} else if (grepl(\"\\\\bmaster\\\\b\", \"", actual_keep_spec_from_options, "\")) {"))
+      r_code_lines = c(r_code_lines, paste0("} else if (grepl(\"\\\\bmaster\\\\b\", \"", actual_keep_spec_from_options, "\", ignore.case=TRUE)) {"))
       r_code_lines = c(r_code_lines, paste0("  ", join_type_var_in_r, " = \"dplyr::left_join\""))
-      r_code_lines = c(r_code_lines, paste0("} else if (grepl(\"\\\\busing\\\\b\", \"", actual_keep_spec_from_options, "\")) {"))
+      r_code_lines = c(r_code_lines, paste0("} else if (grepl(\"\\\\busing\\\\b\", \"", actual_keep_spec_from_options, "\", ignore.case=TRUE)) {"))
       r_code_lines = c(r_code_lines, paste0("  ", join_type_var_in_r, " = \"dplyr::right_join\""))
-      r_code_lines = c(r_code_lines, paste0("} else if (grepl(\"\\\\bmatch\\\\b\", \"", actual_keep_spec_from_options, "\")) {"))
+      r_code_lines = c(r_code_lines, paste0("} else if (grepl(\"\\\\bmatch\\\\b\", \"", actual_keep_spec_from_options, "\", ignore.case=TRUE)) {"))
       r_code_lines = c(r_code_lines, paste0("  ", join_type_var_in_r, " = \"dplyr::inner_join\""))
       r_code_lines = c(r_code_lines, "}")
   }
