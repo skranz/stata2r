@@ -713,7 +713,7 @@ sfun_is_stata_expression_string_typed = function(stata_expr_original) {
   restore.point("sfun_is_stata_expression_string_typed")
   
   # Ensure stata_expr_original is a single character string or NA
-  if (is.null(stata_expr_original) || length(stata_expr_original) == 0) {
+  if (is.null(stata_expr_original) || length(stata_expr_original) == 0 || !is.character(stata_expr_original)) {
       stata_expr_original = NA_character_
   } else {
       stata_expr_original = as.character(stata_expr_original[1])
@@ -776,6 +776,7 @@ sfun_is_stata_expression_string_typed = function(stata_expr_original) {
   # Or if it's a simple arithmetic expression, it's numeric.
   return(FALSE)
 }
+
 
 ```
 ### END OF FILE: sfun_is_stata_expression_string_typed.R
@@ -1576,7 +1577,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   restore.point("translate_stata_expression_to_r")
   
   # Ensure stata_expr is a single character string or NA
-  if (is.null(stata_expr) || length(stata_expr) == 0) {
+  if (is.null(stata_expr) || length(stata_expr) == 0 || !is.character(stata_expr)) {
       stata_expr = NA_character_
   } else {
       stata_expr = as.character(stata_expr[1]) # Ensure it's a single string
@@ -1611,9 +1612,8 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
           }
           placeholder_counter = placeholder_counter + 1
           placeholder = paste0("STATA2R_STR_LITERAL_PLACEHOLDER_", placeholder_counter, "_")
-          string_literal_map[[placeholder]] = literal_text
-          # Replace only the first occurrence for this literal to handle duplicates correctly in a loop
           r_expr = stringi::stri_replace_first_fixed(r_expr, literal_text, placeholder)
+          string_literal_map[[placeholder]] = literal_text # Store after replacement to avoid issues with already replaced text
       }
   }
   # --- End new string literal handling ---
@@ -1704,7 +1704,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     "sfun_strpos", "sfun_subinstr", "sfun_stata_mdy", "sfun_stata_date", "sfun_day",
     "sfun_month", "sfun_qofd", "sfun_dow", "sfun_normalize_string_nas", "sfun_strip_stata_attributes",
     "sfun_compress_col_type", "sfun_is_stata_expression_string_typed", "as.logical",
-    "sfun_stata_cond" # Added new helper function
+    "sfun_stata_cond"
   )
   
   locations = stringi::stri_locate_all_regex(r_expr, "\\b([a-zA-Z_][a-zA-Z0-9_.]*)\\b")[[1]]
@@ -1721,17 +1721,14 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
           is_numeric_literal = dplyr::coalesce(suppressWarnings(!is.na(as.numeric(current_word))), FALSE)
           
           is_already_backticked = FALSE
-          if (dplyr::coalesce(start_pos > 1 && end_pos <= stringi::stri_length(r_expr), FALSE)) { 
+          # Check if the word is already backticked by looking at characters before and after
+          if (dplyr::coalesce(start_pos > 1 && end_pos < stringi::stri_length(r_expr), FALSE)) { # end_pos < length to ensure there's a char after
             char_before = dplyr::coalesce(stringi::stri_sub(r_expr, start_pos - 1, start_pos - 1), "")
             char_after = dplyr::coalesce(stringi::stri_sub(r_expr, end_pos + 1, end_pos + 1), "")
             is_already_backticked = (char_before == "`" && char_after == "`")
           }
           
-          local_is_reserved = as.logical(dplyr::coalesce(is_reserved, FALSE))
-          local_is_numeric_literal = as.logical(dplyr::coalesce(is_numeric_literal, FALSE))
-          local_is_already_backticked = as.logical(dplyr::coalesce(is_already_backticked, FALSE))
-
-          if (isTRUE(!local_is_reserved) && isTRUE(!local_is_numeric_literal) && isTRUE(!local_is_already_backticked)) {
+          if (isTRUE(!is_reserved) && isTRUE(!is_numeric_literal) && isTRUE(!is_already_backticked)) {
               r_expr = paste0(stringi::stri_sub(r_expr, 1, start_pos - 1),
                               "`", current_word, "`",
                               stringi::stri_sub(r_expr, end_pos + 1, stringi::stri_length(r_expr)))
@@ -1741,15 +1738,23 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
 
   # Step 7: Translate Stata '+' operator to sfun_stata_add for polymorphic behavior
-  operand_pattern = "(?:\"[^\"]*\"|'[^']*'|\\d+(?:\\.\\d+)?|\\b(?:NA_real_|NULL)\\b|\\b(?:TRUE|FALSE)\\b|`[^`]+`|\\b[a-zA-Z_][a-zA-Z0-9_:]*\\s*\\(.*?\\)\\s*)"
-
+  # Define a more robust pattern for operands that can be on either side of '+'
+  # This pattern tries to capture common R-translated elements like quoted strings, numbers, NA/NULL,
+  # backticked variable names, and function calls.
+  operand_pattern = "(?:\"[^\"]*\"|'[^']*'|\\d+(?:\\.\\d+)?(?:e[+-]?\\d+)?|\\b(?:NA_real_|NULL)\\b|\\b(?:TRUE|FALSE)\\b|`[^`]+`|\\b[a-zA-Z_][a-zA-Z0-9_.]*\\s*\\(.*?\\)\\s*)"
+  
   old_r_expr_add = ""
+  # Loop to apply replacements until no more '+' can be replaced, handling nested sfun_stata_add
   while (dplyr::coalesce(r_expr != old_r_expr_add, FALSE)) {
     old_r_expr_add = r_expr
+    # Regex to find '+' that is not part of '++', '+=', '!=', '>=', '<='
+    # Ensure it's not preceded by <, >, =, !, ~
+    # Ensure it's not followed by + or =
     add_regex_middle_part = "\\s*(?<![<>=!~])\\+\\s*(?!\\s*\\+|\\s*=\\s*)"
     add_regex_full = paste0("(", operand_pattern, ")", add_regex_middle_part, "(", operand_pattern, ")")
     r_expr = stringi::stri_replace_all_regex(r_expr, add_regex_full, "sfun_stata_add($1, $2)")
   }
+
 
   # --- New: Restore string literals from placeholders ---
   # Iterate in reverse order of placeholder creation to handle potential nested replacements
@@ -3202,13 +3207,19 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   match = stringi::stri_match_first_regex(rest_of_cmd_no_type, "^\\s*([^=\\s]+)\\s*=\\s*(.*?)(?:\\s+if\\s+(.*))?$")
 
   # NEW: Defensive check for successful parsing of core components
-  if (is.na(match[1,1]) || is.na(match[1,2]) || is.na(match[1,3])) {
-    return(paste0("# Failed to parse generate command structure: ", rest_of_cmd))
-  }
+  # Ensure all parts are character, even if NA
+  new_var = NA_character_
+  stata_expr = NA_character_
+  stata_if_cond = NA_character_
 
-  new_var = stringi::stri_trim_both(match[1,2])
-  stata_expr = stringi::stri_trim_both(match[1,3])
-  stata_if_cond = stringi::stri_trim_both(match[1,4]) # Might be NA
+  if (!is.na(match[1,1])) { # If the overall regex matched
+      new_var = dplyr::coalesce(stringi::stri_trim_both(match[1,2]), NA_character_)
+      stata_expr = dplyr::coalesce(stringi::stri_trim_both(match[1,3]), NA_character_)
+      stata_if_cond = dplyr::coalesce(stringi::stri_trim_both(match[1,4]), NA_character_)
+  } else {
+      # If no match, return a parsing error
+      return(paste0("# Failed to parse generate command structure: ", rest_of_cmd))
+  }
 
   # Context for expression translation (e.g. _n, _N behavior)
   # is_by_group TRUE if cmd_obj$by_group_vars is not NA
@@ -3218,7 +3229,7 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   r_expr = translate_stata_expression_with_r_values(stata_expr, line_num, cmd_df, current_context)
 
   # Ensure r_expr is a character string literal, even if it represents NA (logical)
-  # Simplified check: if r_expr is NA (any type of NA), default it to NA_real_
+  # If r_expr is NA from translation (e.g., if stata_expr was empty), treat it as NA_real_ string.
   if (is.na(r_expr)) { 
       r_expr = "NA_real_"
   }
@@ -3270,9 +3281,7 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   } else { # Numeric output
       # Ensure logicals become 0/1. Stata converts TRUE/FALSE to 1/0 for numeric types.
       # This handles `gen newvar = x==y` resulting in numeric 0/1.
-      # The check for logical operators needs to be robust.
-      # If it's a logical expression, cast to numeric.
-      # Fix: Use isTRUE() to handle potential NA from `&&` operation
+      # If it's a logical expression (contains logical operators/TRUE/FALSE), cast to numeric.
       is_a_logical_expression = isTRUE(
           stringi::stri_detect_regex(calculated_value_expr_raw, "\\bTRUE\\b|\\bFALSE\\b|==|!=|<=|>=|<|>|&|\\||\\bsfun_missing\\b") &&
           !stringi::stri_detect_fixed(calculated_value_expr_raw, "dplyr::if_else")
@@ -3315,6 +3324,7 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   
   return(paste(r_code_lines, collapse="\n"))
 }
+
 
 
 ```
@@ -3997,12 +4007,18 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
           string_label_part = ifelse(!is.na(label_match[1,3]), label_match[1,3], label_match[1,4])
 
           r_numeric_val = NA_real_
-          if (numeric_val_part == ".") r_numeric_val = NA_real_ # Stata system missing
-          else if (stringi::stri_detect_regex(numeric_val_part, "^\\.[a-zA-Z]$")) r_numeric_val = NA_real_ # Stata extended missing
-          else r_numeric_val = as.numeric(numeric_val_part) # Convert numeric strings to numeric
+          # Robustly handle numeric_val_part, which can be NA from regex if not present.
+          numeric_val_part_safe = dplyr::coalesce(numeric_val_part, "") 
 
-          if (!is.na(r_numeric_val)) {
-            collected_labels_for_numeric_target[[string_label_part]] = r_numeric_val
+          if (numeric_val_part_safe == ".") r_numeric_val = NA_real_ # Stata system missing
+          else if (stringi::stri_detect_regex(numeric_val_part_safe, "^\\.[a-zA-Z]$")) r_numeric_val = NA_real_ # Stata extended missing
+          else if (numeric_val_part_safe != "") r_numeric_val = as.numeric(numeric_val_part_safe) # Convert numeric strings to numeric
+          # If numeric_val_part_safe is "", r_numeric_val remains NA_real_, which is fine.
+
+          if (!is.na(r_numeric_val) && !is.na(string_label_part)) {
+            # Use a temporary list to store key-value pairs to handle duplicates
+            # Store as c(label, value) and process later.
+            collected_labels_for_numeric_target[[length(collected_labels_for_numeric_target) + 1]] = list(label = string_label_part, value = r_numeric_val)
           }
       }
   }
@@ -4018,8 +4034,8 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   final_labels_map = stats::setNames(numeric(0), character(0)) # Initialize empty named numeric vector
   if (final_r_var_type_is_labelled_numeric && length(collected_labels_for_numeric_target) > 0) {
       temp_df_labels = data.frame(
-          label = names(collected_labels_for_numeric_target),
-          value = unlist(collected_labels_for_numeric_target, use.names = FALSE),
+          label = sapply(collected_labels_for_numeric_target, `[[`, "label"),
+          value = sapply(collected_labels_for_numeric_target, `[[`, "value"),
           stringsAsFactors = FALSE
       )
       
@@ -4027,12 +4043,11 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       # If multiple rules map to the same *numeric value*, the label for that value is taken from the *last* rule that defines it.
       # The order of labels in the metadata is typically sorted by value.
       
-      # To replicate "last defined label for value": Sort by value (desc), then remove duplicates, then re-sort by value (asc).
-      # Add an original order index to ensure stable sort for equal values, though Stata does not guarantee this.
+      # To replicate "last defined label for value": Sort by value (desc), then original_order (desc), then remove duplicates, then re-sort by value (asc).
       temp_df_labels$original_order = seq_len(NROW(temp_df_labels))
-      temp_df_labels = temp_df_labels[order(temp_df_labels$value, -temp_df_labels$original_order), ] # Sort by value (asc), then original_order (desc)
-      temp_df_labels = temp_df_labels[!duplicated(temp_df_labels$value, fromLast = TRUE), ] # Keep the first unique for value (which is the last from original order)
-      temp_df_labels = temp_df_labels[order(temp_df_labels$value), ] # Final sort by value (asc)
+      temp_df_labels = temp_df_labels[order(temp_df_labels$value, -temp_df_labels$original_order), ] # Sort by value (asc), then original_order (desc) for tie-breaking
+      temp_df_labels = temp_df_labels[!duplicated(temp_df_labels$value, fromLast = TRUE), ] # Keep the last unique for value (which is the last from original order)
+      temp_df_labels = temp_df_labels[order(temp_df_labels$value), ] # Final sort by value (asc) for consistent output
       
       final_labels_map = stats::setNames(temp_df_labels$value, temp_df_labels$label)
   }
@@ -4255,23 +4270,27 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   match = stringi::stri_match_first_regex(rest_of_cmd_no_type, "^\\s*([^=\\s]+)\\s*=\\s*(.*?)(?:\\s+if\\s+(.*))?$")
 
-  # NEW: Defensive check for successful parsing of core components
-  if (is.na(match[1,1]) || is.na(match[1,2]) || is.na(match[1,3])) {
-    return(paste0("# Failed to parse replace command structure: ", rest_of_cmd))
+  # Defensive assignment for potentially NA match groups
+  var_to_replace = NA_character_
+  stata_expr = NA_character_
+  stata_if_cond = NA_character_
+
+  if (!is.na(match[1,1])) { # If the overall regex matched
+      var_to_replace = dplyr::coalesce(stringi::stri_trim_both(match[1,2]), NA_character_)
+      stata_expr = dplyr::coalesce(stringi::stri_trim_both(match[1,3]), NA_character_)
+      stata_if_cond = dplyr::coalesce(stringi::stri_trim_both(match[1,4]), NA_character_)
+  } else {
+      # If no match, return a parsing error
+      return(paste0("# Failed to parse replace command structure: ", rest_of_cmd))
   }
 
-  var_to_replace = stringi::stri_trim_both(match[1,2])
-  stata_expr = stringi::stri_trim_both(match[1,3])
-  stata_if_cond = stringi::stri_trim_both(match[1,4]) # Might be NA
 
   current_context = list(is_by_group = cmd_obj$is_by_prefix && length(cmd_obj$by_group_vars) > 0 && !is.na(cmd_obj$by_group_vars[1]))
   # Translate the Stata expression to R first
   r_expr = translate_stata_expression_with_r_values(stata_expr, line_num, cmd_df, current_context)
 
   # Ensure r_expr is a character string literal, even if it represents NA (logical)
-  if (is.na(r_expr) && !is.character(r_expr)) { # Check for logical NA, not string "NA"
-      r_expr = "NA_real_"
-  } else if (is.character(r_expr) && r_expr == "") {
+  if (is.na(r_expr)) { # Check for logical NA, not string "NA"
       r_expr = "NA_real_"
   }
 
@@ -4320,9 +4339,7 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   } else { # Numeric output
       # Ensure logicals become 0/1. Stata converts TRUE/FALSE to 1/0 for numeric types.
       # This handles `gen newvar = x==y` resulting in numeric 0/1.
-      # The check for logical operators needs to be robust.
       # If it's a logical expression, cast to numeric.
-      # Fix: Use isTRUE() to handle potential NA from `&&` operation
       is_a_logical_expression = isTRUE(
           stringi::stri_detect_regex(calculated_value_expr_raw, "\\bTRUE\\b|\\bFALSE\\b|==|!=|<=|>=|<|>|&|\\||\\bsfun_missing\\b") &&
           !stringi::stri_detect_fixed(calculated_value_expr_raw, "dplyr::if_else")
@@ -4361,6 +4378,7 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 
 
 ```
