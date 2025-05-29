@@ -1702,7 +1702,15 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
           }
           
           # This is the line that caused the error. Coalesce each part to FALSE if NA.
-          if (dplyr::coalesce(!is_reserved, FALSE) && dplyr::coalesce(!is_numeric_literal, FALSE) && dplyr::coalesce(!is_already_backticked, FALSE)) {
+          # The `dplyr::coalesce` calls on `is_reserved`, `is_numeric_literal`, `is_already_backticked`
+          # already ensure they are not NA. The error might be a subtle bug in R's `&&` operator
+          # with some specific `NA` values or the underlying C code.
+          # Explicitly ensuring they are single logicals here might prevent it.
+          local_is_reserved = as.logical(dplyr::coalesce(is_reserved, FALSE))
+          local_is_numeric_literal = as.logical(dplyr::coalesce(is_numeric_literal, FALSE))
+          local_is_already_backticked = as.logical(dplyr::coalesce(is_already_backticked, FALSE))
+
+          if (!local_is_reserved && !local_is_numeric_literal && !local_is_already_backticked) {
               # Replace the word with its backticked version
               r_expr = paste0(stringi::stri_sub(r_expr, 1, start_pos - 1),
                               "`", current_word, "`",
