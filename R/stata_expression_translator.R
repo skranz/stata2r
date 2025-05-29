@@ -133,7 +133,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   # Find all occurrences of words matching Stata variable names and their locations
   locations = stringi::stri_locate_all_regex(r_expr, "\\b([a-zA-Z_][a-zA-Z0-9_.]*)\\b")[[1]]
   
-  if (NROW(locations) > 0) {
+  if (!is.null(locations) && NROW(locations) > 0) {
       # Sort locations by end position descending to avoid issues with replacement as `r_expr` changes length
       locations = locations[order(locations[,2], decreasing = TRUE), , drop = FALSE]
       
@@ -211,5 +211,4 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   return(r_expr)
 }
-
 
