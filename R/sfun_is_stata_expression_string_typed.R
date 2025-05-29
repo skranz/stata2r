@@ -43,7 +43,9 @@ sfun_is_stata_expression_string_typed = function(stata_expr_original) {
       val_if_true_str = stringi::stri_trim_both(cond_match[1,3])
       val_if_false_str = stringi::stri_trim_both(cond_match[1,4])
       # Recursively check the arguments for string type
-      if (sfun_is_stata_expression_string_typed(val_if_true_str) || sfun_is_stata_expression_string_typed(val_if_false_str)) {
+      # FIX: Ensure results of recursive calls are not NA before ORing them
+      if (dplyr::coalesce(sfun_is_stata_expression_string_typed(val_if_true_str), FALSE) ||
+          dplyr::coalesce(sfun_is_stata_expression_string_typed(val_if_false_str), FALSE)) {
           return(TRUE)
       } else {
           # If both are numeric, cond is numeric

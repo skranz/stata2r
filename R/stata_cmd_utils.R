@@ -150,7 +150,9 @@ parse_stata_command_line = function(line_text) {
   rest_of_line_for_cmd_parse = trimmed_line
 
   # Check for "by ... :" or "bysort ... :" prefix
-  if (stringi::stri_startswith_fixed(trimmed_line, "by ") || stringi::stri_startswith_fixed(trimmed_line, "bysort ")) {
+  # FIX: Ensure the condition is robust against NA inputs to stringi functions.
+  if (dplyr::coalesce(stringi::stri_startswith_fixed(trimmed_line, "by "), FALSE) || 
+      dplyr::coalesce(stringi::stri_startswith_fixed(trimmed_line, "bysort "), FALSE)) {
     prefix_match = stringi::stri_match_first_regex(trimmed_line, "^(?:by|bysort)\\s+([^:]+?)\\s*:\\s*(.*)$")
     if (!is.na(prefix_match[1,1])) {
       raw_by_string_from_prefix = stringi::stri_trim_both(prefix_match[1,2])
@@ -287,7 +289,10 @@ resolve_stata_filename = function(raw_filename_token, cmd_df, line_num, default_
     }
   } else {
     # It's a regular path string
-    is_absolute_path = stringi::stri_startswith_fixed(unquoted_content, "/") || stringi::stri_detect_regex(unquoted_content, "^[A-Za-z]:[\\\\/]")
+    # FIX: Ensure the condition for is_absolute_path is robust against NA outputs from stringi functions.
+    is_absolute_path = dplyr::coalesce(stringi::stri_startswith_fixed(unquoted_content, "/"), FALSE) || 
+                       dplyr::coalesce(stringi::stri_detect_regex(unquoted_content, "^[A-Za-z]:[\\\\/]"), FALSE)
+    
     if (is_absolute_path) {
       return(quote_for_r_literal(unquoted_content))
     } else {
@@ -296,4 +301,5 @@ resolve_stata_filename = function(raw_filename_token, cmd_df, line_num, default_
     }
   }
 }
+
 
