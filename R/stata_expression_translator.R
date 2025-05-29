@@ -21,10 +21,10 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     # Since this function is general, assume numeric NA_real_ as default for missing expressions.
     # If this is used as a logical condition (e.g., in an 'if' clause),
     # `dplyr::coalesce(NA_real_, FALSE)` will correctly yield FALSE.
-    return(NA_real_) 
+    return("NA_real_") 
   }
 
-  r_expr = stata_expr
+  r_expr = as.character(stata_expr) # Ensure r_expr is always a character string
 
   # Step 1: Handle Stata missing value literals '.', '.a', ..., '.z'
   # This must happen early to prevent interference with decimal numbers or variable names.
@@ -136,7 +136,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   # Defensive check: if r_expr became empty or NA for some reason (should not happen for valid input)
   if (is.na(r_expr) || r_expr == "") {
       warning(paste0("R expression became NA or empty during translation. Original Stata expression: '", stata_expr, "'"))
-      return(NA_real_) # Ensure it's NA_real_ here too
+      return("NA_real_") # Ensure it's NA_real_ here too
   }
 
   return(r_expr)

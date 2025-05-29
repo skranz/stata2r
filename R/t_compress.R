@@ -27,4 +27,3 @@ t_compress = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   return(paste(r_code_lines, collapse="\n"))
 }
 
-

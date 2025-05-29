@@ -1,7 +1,7 @@
 t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   restore.point("t_replace")
   # Capture explicit type declaration (e.g., `str10`)
-  explicit_type_match = stringi::stri_match_first_regex(rest_of_cmd, "^\\s*(byte|int|long|float|double|str\\d+|strL)\\s+")
+  explicit_type_match = stringi::stri_match_first_regex(rest_of_cmd, "^(?:byte|int|long|float|double|str\\d+|strL)\\s+")
   declared_type_str = NA_character_
   if (!is.na(explicit_type_match[1,1])) {
     declared_type_str = explicit_type_match[1,2]
@@ -24,6 +24,13 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   current_context = list(is_by_group = cmd_obj$is_by_prefix && length(cmd_obj$by_group_vars) > 0 && !is.na(cmd_obj$by_group_vars[1]))
   # Translate the Stata expression to R first
   r_expr = translate_stata_expression_with_r_values(stata_expr, line_num, cmd_df, current_context)
+
+  # Ensure r_expr is a character string literal, even if it represents NA (logical)
+  if (is.na(r_expr) && !is.character(r_expr)) { # Check for logical NA, not string "NA"
+      r_expr = "NA_real_"
+  } else if (is.character(r_expr) && r_expr == "") {
+      r_expr = "NA_real_"
+  }
 
   r_if_cond = NA_character_
   if (!is.na(stata_if_cond) && stata_if_cond != "") {
@@ -117,5 +124,4 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
-
 
