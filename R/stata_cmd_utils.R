@@ -174,7 +174,7 @@ parse_stata_command_line = function(line_text) {
 
   # Extract command token from the (potentially remaining) line
   parts = stringi::stri_split_fixed(rest_of_line_for_cmd_parse, " ", n = 2)
-  cmd_token_original = parts[[1]][1]
+  cmd_token_original = stringi::stri_trim_both(parts[[1]][1]) # Trim for robustness
 
   if (is.na(cmd_token_original) || cmd_token_original == "") {
       return(list(
@@ -286,4 +286,5 @@ resolve_stata_filename = function(raw_filename_token, cmd_df, line_num, default_
     }
   }
 }
+
 

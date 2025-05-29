@@ -68,7 +68,7 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   if (force_r_output_type == "character") {
       # If Stata expression is numeric NA (.), it translates to NA_real_.
       # When assigned to a string variable, Stata treats '.' as "".
-      if (calculated_value_expr_raw == "NA_real_") {
+      if (isTRUE(calculated_value_expr_raw == "NA_real_")) {
           calculated_value_expr = '""'
       } else {
           # Cast to character for other expressions
@@ -87,7 +87,7 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
         is_logical_r_expr = dplyr::coalesce(regex_match, FALSE) && !dplyr::coalesce(fixed_match, FALSE)
       }
       if (is_logical_r_expr) {
-          calculated_value_expr = paste0("as.numeric(", calculated_value_expr_raw, ")")
+          calculated_value_expr = paste0("as.numeric(", calculated_value_raw, ")")
       } else {
           calculated_value_expr = calculated_value_expr_raw
       }
@@ -130,4 +130,5 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 

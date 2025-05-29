@@ -61,7 +61,7 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   if (force_r_output_type == "character") {
       # If Stata expression is numeric NA (.), it translates to NA_real_.
       # When assigned to a string variable, Stata treats '.' as "".
-      if (calculated_value_expr_raw == "NA_real_") {
+      if (isTRUE(calculated_value_expr_raw == "NA_real_")) {
           calculated_value_expr = '""'
       } else {
           # Cast to character for other expressions
@@ -116,4 +116,5 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 
