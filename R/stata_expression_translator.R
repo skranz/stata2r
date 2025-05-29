@@ -62,7 +62,8 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   # Step 5: Iteratively translate Stata functions (e.g., cond(), round(), log(), etc.)
   # This loop handles nested function calls by repeatedly applying transformations.
   old_r_expr = ""
-  while (r_expr != old_r_expr) {
+  # Ensure the loop condition always evaluates to a concrete TRUE/FALSE
+  while (dplyr::coalesce(r_expr != old_r_expr, FALSE)) {
     old_r_expr = r_expr
 
     # Apply more specific regexes first if there are overlaps (e.g., round(x,y) before round(x))
@@ -124,7 +125,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
 
   old_r_expr_add = ""
-  while (r_expr != old_r_expr_add) {
+  while (dplyr::coalesce(r_expr != old_r_expr_add, FALSE)) { # Added coalesce
     old_r_expr_add = r_expr
     # Regex: Match 'operand' + 'operand', where an operand is defined by `operand_regex`.
     # It ensures that `+` is treated as an operator, not part of `==` or `!=`.
