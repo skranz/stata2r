@@ -151,7 +151,8 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
           # Check if already backticked (by checking characters around it)
           is_already_backticked = FALSE
           # Ensure indices are valid before accessing substrings
-          if (start_pos > 1 && end_pos <= stringi::stri_length(r_expr)) { # Corrected: end_pos <= length, not < length
+          # FIX: Make this if condition robust to NA results from stringi::stri_length(r_expr)
+          if (dplyr::coalesce(start_pos > 1 && end_pos <= stringi::stri_length(r_expr), FALSE)) { 
             char_before = stringi::stri_sub(r_expr, start_pos - 1, start_pos - 1)
             char_after = stringi::stri_sub(r_expr, end_pos + 1, end_pos + 1)
             # Ensure char_before and char_after are not NA before comparison
@@ -212,5 +213,4 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   return(r_expr)
 }
-
 
