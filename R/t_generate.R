@@ -105,6 +105,7 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
 
 
+  # Apply condition only if it exists
   if (!is.na(r_if_cond) && r_if_cond != "") {
     # Stata's 'if' condition treats NA as FALSE.
     calc_expr = paste0("dplyr::if_else(dplyr::coalesce(", r_if_cond, ", FALSE), ", calculated_value_expr, ", ", na_or_empty_str_for_false_cond, ")")

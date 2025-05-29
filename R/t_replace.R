@@ -88,6 +88,7 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # For 'replace' command, if condition is FALSE or NA, the value should be left unchanged.
   # Use dplyr::coalesce(condition, FALSE) to treat NA condition as FALSE.
+  # Apply condition only if it exists
   if (!is.na(r_if_cond) && r_if_cond != "") {
     calc_expr = paste0("dplyr::if_else(dplyr::coalesce(", r_if_cond, ", FALSE), ", calculated_value_expr, ", data$`", var_to_replace, "`)")
   } else {
