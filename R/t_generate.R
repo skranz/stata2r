@@ -64,6 +64,7 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # If no explicit type, let R infer from the translated expression.
   force_r_output_type = NA_character_ # "character" or "numeric"
 
+  # FIX: Added !is.na(declared_type_str) to prevent error if declared_type_str is NA
   if (!is.na(declared_type_str)) {
       if (stringi::stri_startswith_fixed(declared_type_str, "str")) {
           force_r_output_type = "character"
