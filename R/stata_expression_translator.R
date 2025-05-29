@@ -102,30 +102,20 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   }
 
   # Step 6: Translate Stata '+' operator to sfun_stata_add for polymorphic behavior
-  # This needs to be applied iteratively until no more '+' signs (that are not part of comparison operators) exist.
-  # The regex for operands must be robust to capture complete R expressions, including nested function calls.
-
-  # Define a robust pattern for an R expression unit that can be an operand.
-  # This pattern matches:
-  # 1. A variable name (starts with letter/underscore, then alphanumeric/underscore/dot)
-  # 2. A numeric literal
-  # 3. A string literal (single or double quoted)
-  # 4. A function call (e.g., `log(x)`, `sfun_stata_add(a, b)`)
-  #    Improved to allow `::` in function names and better nesting capture for one level.
+  # Re-defining operand_regex for a simpler, more robust matching for addition.
+  # This avoids the complex nested function matching in the operand regex, reducing potential errors.
+  # It assumes function calls are already translated by Step 5 and will appear as simple R function calls.
   func_name_pattern = "[a-zA-Z_][a-zA-Z0-9_:]*" # Allows package::function syntax
 
-  # Order of alternatives matters: specific patterns should come before general ones.
-  # A function call like `as.numeric(dplyr::row_number())` could be incorrectly matched
-  # by the variable name pattern if it comes first, as `as.numeric` itself is a valid variable name.
-  operand_regex_part1 = "(?:\"[^\"]*\"|'[^']*'|"
-  operand_regex_part2 = "\\d+(?:\\.\\d+)?|"
-  operand_regex_part3 = paste0("\\b", func_name_pattern, "\\((?:[^()]|\\b", func_name_pattern, "\\([^()]*\\))*\\)|")
-  operand_regex_part4 = "[a-zA-Z_][a-zA-Z0-9_.]*)"
-  operand_regex = paste0(operand_regex_part1, operand_regex_part2, operand_regex_part3, operand_regex_part4)
-
+  # Simpler operand regex: string literal, number, or any sequence of non-whitespace characters
+  # that might be a variable name or a fully translated R function call.
+  operand_regex = "(?:\"[^\"]*\"|'[^']*'|\\d+(?:\\.\\d+)?|\\b(?:NA_real_|NULL)\\b|\\b(?:TRUE|FALSE)\\b|\\b(?:"
+  # Add common R function calls that don't need parentheses for their argument
+  operand_regex = paste0(operand_regex, func_name_pattern, "(?:\\([^()]*\\))?|") # Matches func(args) (no nested paren in this specific pattern)
+  operand_regex = paste0(operand_regex, "[a-zA-Z_][a-zA-Z0-9_.]*))") # Matches simple variable names
 
   old_r_expr_add = ""
-  while (dplyr::coalesce(r_expr != old_r_expr_add, FALSE)) { # Added coalesce
+  while (dplyr::coalesce(r_expr != old_r_expr_add, FALSE)) {
     old_r_expr_add = r_expr
     # Regex: Match 'operand' + 'operand', where an operand is defined by `operand_regex`.
     # It ensures that `+` is treated as an operator, not part of `==` or `!=`.
@@ -142,4 +132,5 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   return(r_expr)
 }
+
 
