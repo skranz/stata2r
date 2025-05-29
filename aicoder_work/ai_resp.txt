@@ -1,267 +1,64 @@
-The primary issue causing the test failures (`missing value where TRUE/FALSE needed`) originates from the `t_generate` and `t_replace` functions. Specifically, when there is no `if` condition in the Stata command, the `r_if_cond` variable becomes `NA_character_`. This `NA_character_` is then passed directly into `dplyr::coalesce()` and subsequently `dplyr::if_else()` as part of the condition argument. `dplyr::if_else()` expects a logical vector for its condition, and `dplyr::coalesce(NA_character_, FALSE)` evaluates to `NA`, leading to the observed error.
+The main change is to prevent an R error "missing value where TRUE/FALSE needed" that occurred during the translation phase. This was caused by `stringi::stri_detect_regex` returning `NA` for certain inputs (e.g., when the input string itself was `NA`), and this `NA` then being used directly in an `if()` condition. The fix involves wrapping these `if()` conditions with `dplyr::coalesce(..., FALSE)` to explicitly convert any `NA` result to `FALSE`, ensuring a valid logical value for the `if` statement.
 
-The fix involves modifying `t_generate.R` and `t_replace.R` to conditionally apply the `dplyr::if_else` wrapper only when an `if` condition is actually present (i.e., `r_if_cond` is not `NA_character_`). If no condition exists, the `calculated_value_expr` is assigned directly.
-
-No other files require changes for these specific errors, and the overall structure and logic for other commands and helper functions appear robust.
-
-!CHANGE_FILE R/t_generate.R
+!CHANGE_FILE R/sfun_is_stata_expression_string_typed.R
 ```R
-t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
-  restore.point("t_generate")
-  # Parse `rest_of_cmd` for new variable name, expression, and if condition
-  # Example: "newvar = expression [if condition]"
-
-  # Capture explicit type declaration (e.g., `str10`)
-  explicit_type_match = stringi::stri_match_first_regex(rest_of_cmd, "^\\s*(byte|int|long|float|double|str\\d+|strL)\\s+")
-  declared_type_str = NA_character_
-  if (!is.na(explicit_type_match[1,1])) {
-    declared_type_str = explicit_type_match[1,2]
-  }
-
-  # Strip type if present (e.g. gen double newvar = ...)
-  rest_of_cmd_no_type = stringi::stri_replace_first_regex(rest_of_cmd, "^\\s*(?:byte|int|long|float|double|str\\d+|strL)\\s+", "")
-
-  match = stringi::stri_match_first_regex(rest_of_cmd_no_type, "^\\s*([^=\\s]+)\\s*=\\s*(.*?)(?:\\s+if\\s+(.*))?$")
-
-  if (is.na(match[1,1])) {
-    return(paste0("# Failed to parse generate command: ", rest_of_cmd))
-  }
-
-  new_var = stringi::stri_trim_both(match[1,2])
-  stata_expr = stringi::stri_trim_both(match[1,3])
-  stata_if_cond = stringi::stri_trim_both(match[1,4]) # Might be NA
-
-  # Context for expression translation (e.g. _n, _N behavior)
-  # is_by_group TRUE if cmd_obj$by_group_vars is not NA
-  current_context = list(is_by_group = cmd_obj$is_by_prefix && length(cmd_obj$by_group_vars) > 0 && !is.na(cmd_obj$by_group_vars[1]))
+sfun_is_stata_expression_string_typed = function(stata_expr_original) {
+  restore.point("sfun_is_stata_expression_string_typed")
   
-  # Translate the Stata expression to R first
-  r_expr = translate_stata_expression_with_r_values(stata_expr, line_num, cmd_df, current_context)
+  if (is.na(stata_expr_original) || stata_expr_original == "") return(FALSE)
 
-  r_if_cond = NA_character_
-  if (!is.na(stata_if_cond) && stata_if_cond != "") {
-    # The 'if' condition for generate/replace is evaluated row-wise on the whole dataset, not per group.
-    r_if_cond = translate_stata_expression_with_r_values(stata_if_cond, line_num, cmd_df, context = list(is_by_group = FALSE))
+  # 1. Contains any string literal (text enclosed in double or single quotes)
+  # Ensure stri_detect_regex result is explicitly logical. If NA, treat as FALSE.
+  if (dplyr::coalesce(stringi::stri_detect_regex(stata_expr_original, '"[^"]*"|\'[^\']\''), FALSE)) {
+    return(TRUE)
   }
 
-  # Determine group_vars for dplyr::group_by
-  group_vars_list_bare = character(0) 
-  
-  if (cmd_obj$is_by_prefix) {
-    if (length(cmd_obj$by_group_vars) > 0 && !is.na(cmd_obj$by_group_vars[1])) {
-      group_vars_list = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
-      group_vars_list = group_vars_list[!is.na(group_vars_list) & group_vars_list != ""]
-      if (length(group_vars_list) > 0) {
-        group_vars_list_bare = group_vars_list # Assign just the bare names
-      }
+  # 2. Check for explicitly numeric-returning functions. If found, return FALSE immediately.
+  numeric_producing_functions = c(
+    "log", "sqrt", "int", "round", "mod", "runiform", "mdy", "date",
+    "year", "month", "day", "qofd", "dow", "missing",
+    # Stata type casting functions that convert to numeric:
+    "float", "double", "long", "int", "byte"
+  )
+  for (func in numeric_producing_functions) {
+    if (dplyr::coalesce(stringi::stri_detect_regex(stata_expr_original, paste0("\\b", func, "\\s*\\(")), FALSE)) {
+      return(FALSE)
     }
   }
 
-  # Determine if the target variable will be a string type based on EXPLICIT Stata declaration.
-  # If no explicit type, let R infer from the translated expression.
-  force_r_output_type = NA_character_ # "character" or "numeric"
-
-  if (!is.na(declared_type_str)) {
-      if (stringi::stri_startswith_fixed(declared_type_str, "str")) {
-          force_r_output_type = "character"
-      } else { # byte, int, long, float, double
-          force_r_output_type = "numeric"
-      }
-  }
-
-  # Step 1: Calculate the value for the new variable, potentially conditionally
-  calculated_value_expr_raw = r_expr # This is the R translation of stata_expr
-
-  # Apply explicit type casting if declared in Stata command
-  if (force_r_output_type == "character") {
-      # If Stata expression is numeric NA (.), it translates to NA_real_.
-      # When assigned to a string variable, Stata treats '.' as "".
-      if (calculated_value_expr_raw == "NA_real_") {
-          calculated_value_expr = '""'
-      } else {
-          # Cast to character for other expressions
-          calculated_value_expr = paste0("as.character(", calculated_value_expr_raw, ")")
-      }
-  } else if (force_r_output_type == "numeric") {
-      # Ensure logicals become 0/1. Other numeric types should already be fine.
-      # This handles `gen newvar = x==y` resulting in numeric 0/1.
-      # Added robustness check for NA or empty `calculated_value_expr_raw`
-      is_logical_r_expr = FALSE # Default to FALSE
-      if (!is.na(calculated_value_expr_raw) && calculated_value_expr_raw != "") {
-        is_logical_r_expr = stringi::stri_detect_regex(calculated_value_expr_raw, "\\bTRUE\\b|\\bFALSE\\b|==|!=|<=|>=|<|>|&|\\|") &&
-                            !stringi::stri_detect_fixed(calculated_value_expr_raw, "dplyr::if_else")
-      }
-      if (is_logical_r_expr) {
-          calculated_value_expr = paste0("as.numeric(", calculated_value_expr_raw, ")")
-      } else {
-          calculated_value_expr = calculated_value_expr_raw
-      }
-  } else { # No explicit type declared in Stata, let R infer
-      calculated_value_expr = calculated_value_expr_raw
-  }
-
-  # The value to assign if the condition is false/missing.
-  na_or_empty_str_for_false_cond = if (force_r_output_type == "character") '""' else "NA_real_"
-  if (is.na(force_r_output_type)) { # If R infers, it should infer NA for missing.
-    # Check if the original stata_expr is numeric. If so, default to NA_real_. Else "".
-    # This is a heuristic. Let's simplify and assume NA_real_ unless it's explicitly a string expression.
-    if (sfun_is_stata_expression_string_typed(stata_expr)) { # If the expression itself is string, its "missing" should be "".
-      na_or_empty_str_for_false_cond = '""'
-    } else {
-      na_or_empty_str_for_false_cond = "NA_real_"
+  # 3. Check for explicitly string-returning functions.
+  string_producing_functions = c(
+    "char", "itrim", "lower", "ltrim", "proper", "rtrim", "string", "subinstr",
+    "substr", "strl", "strpos", "strreverse", "strtrim", "trim", "upper",
+    "ustrleft", "ustrlower", "ustrpos", "ustrright", "ustrtrim", "ustrunescape",
+    "ustrupper", "ustrword", "ustrwordcount", "word", "wordcount",
+    # Stata type casting functions that convert to string:
+    "string"
+  )
+  for (func in string_producing_functions) {
+    if (dplyr::coalesce(stringi::stri_detect_regex(stata_expr_original, paste0("\\b", func, "\\s*\\(")), FALSE)) {
+      return(TRUE)
     }
   }
 
-
-  # Apply condition only if it exists
-  if (!is.na(r_if_cond) && r_if_cond != "") {
-    # Stata's 'if' condition treats NA as FALSE.
-    calc_expr = paste0("dplyr::if_else(dplyr::coalesce(", r_if_cond, ", FALSE), ", calculated_value_expr, ", ", na_or_empty_str_for_false_cond, ")")
-  } else {
-    calc_expr = calculated_value_expr
+  # 4. `cond(condition, val_if_true, val_if_false)`: if any value (val_if_true, val_if_false) is string, result is string.
+  cond_match = stringi::stri_match_first_regex(stata_expr_original, "\\bcond\\(([^,]+),([^,]+),([^)]+)\\)")
+  if (!is.na(cond_match[1,1])) {
+      val_if_true_str = stringi::stri_trim_both(cond_match[1,3])
+      val_if_false_str = stringi::stri_trim_both(cond_match[1,4])
+      # Recursively check the arguments for string type
+      if (sfun_is_stata_expression_string_typed(val_if_true_str) || sfun_is_stata_expression_string_typed(val_if_false_str)) {
+          return(TRUE)
+      } else {
+          # If both are numeric, cond is numeric
+          return(FALSE)
+      }
   }
 
-  # Step 2: Build the R code string using pipes for the mutate operation
-  r_code_lines = c()
-  
-  pipe_elements = list("data") # Elements for the pipe chain, starting from `data`
-
-  # Add grouping and mutate steps
-  if (length(group_vars_list_bare) > 0) {
-      group_by_call_str = paste0('dplyr::group_by(!!!dplyr::syms(c("', paste0(group_vars_list_bare, collapse='", "'), '")))')
-      pipe_elements = c(pipe_elements, group_by_call_str)
-      pipe_elements = c(pipe_elements, paste0("dplyr::mutate(`", new_var, "` = ", calc_expr, ")"))
-      pipe_elements = c(pipe_elements, "dplyr::ungroup()")
-  } else {
-      pipe_elements = c(pipe_elements, paste0("dplyr::mutate(`", new_var, "` = ", calc_expr, ")"))
-  }
-
-  # This is the final assignment line for the current command
-  # It takes 'data' (potentially already arranged) and pipes it through the rest
-  r_code_lines = c(r_code_lines, paste0("data = ", paste(pipe_elements, collapse = " %>% \n  ")))
-
-
-  return(paste(r_code_lines, collapse="\n"))
+  # If none of the above rules apply, default to numeric.
+  # This implies that if it's a variable reference, it's numeric unless explicitly string.
+  # Or if it's a simple arithmetic expression, it's numeric.
+  return(FALSE)
 }
 ```
-!END_CHANGE_FILE R/t_generate.R
-
-!CHANGE_FILE R/t_replace.R
-```R
-t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
-  restore.point("t_replace")
-  # Capture explicit type declaration (e.g., `str10`)
-  explicit_type_match = stringi::stri_match_first_regex(rest_of_cmd, "^\\s*(byte|int|long|float|double|str\\d+|strL)\\s+")
-  declared_type_str = NA_character_
-  if (!is.na(explicit_type_match[1,1])) {
-    declared_type_str = explicit_type_match[1,2]
-  }
-
-  # Strip type if present (e.g. replace double oldvar = ...)
-  rest_of_cmd_no_type = stringi::stri_replace_first_regex(rest_of_cmd, "^(?:byte|int|long|float|double|str\\d+|strL)\\s+", "")
-
-  match = stringi::stri_match_first_regex(rest_of_cmd_no_type, "^\\s*([^=\\s]+)\\s*=\\s*(.*?)(?:\\s+if\\s+(.*))?$")
-
-  if (is.na(match[1,1])) {
-    return(paste0("# Failed to parse replace command: ", rest_of_cmd))
-  }
-
-  var_to_replace = stringi::stri_trim_both(match[1,2])
-  stata_expr = stringi::stri_trim_both(match[1,3])
-  stata_if_cond = stringi::stri_trim_both(match[1,4]) # Might be NA
-
-  current_context = list(is_by_group = cmd_obj$is_by_prefix && length(cmd_obj$by_group_vars) > 0 && !is.na(cmd_obj$by_group_vars[1]))
-  # Translate the Stata expression to R first
-  r_expr = translate_stata_expression_with_r_values(stata_expr, line_num, cmd_df, current_context)
-
-  r_if_cond = NA_character_
-  if (!is.na(stata_if_cond) && stata_if_cond != "") {
-    r_if_cond = translate_stata_expression_with_r_values(stata_if_cond, line_num, cmd_df, context = list(is_by_group = FALSE))
-  }
-
-  # Determine group_vars for dplyr::group_by
-  group_vars_list_bare = character(0)
-
-  if (cmd_obj$is_by_prefix) {
-    if (length(cmd_obj$by_group_vars) > 0 && !is.na(cmd_obj$by_group_vars[1])) {
-      group_vars_list = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
-      group_vars_list = group_vars_list[!is.na(group_vars_list) & group_vars_list != ""]
-      if (length(group_vars_list) > 0) {
-        group_vars_list_bare = group_vars_list # Assign just the bare names
-      }
-    }
-  }
-
-  # Determine if the target variable will be a string type based on EXPLICIT Stata declaration.
-  # If no explicit type, let R infer from the translated expression.
-  force_r_output_type = NA_character_ # "character" or "numeric"
-
-  if (!is.na(declared_type_str)) {
-      if (stringi::stri_startswith_fixed(declared_type_str, "str")) {
-          force_r_output_type = "character"
-      } else { # byte, int, long, float, double
-          force_r_output_type = "numeric"
-      }
-  }
-
-  # Step 1: Calculate the value for the new variable, potentially conditionally
-  calculated_value_expr_raw = r_expr # This is the R translation of stata_expr
-
-  # Apply explicit type casting if declared in Stata command
-  if (force_r_output_type == "character") {
-      # If Stata expression is numeric NA (.), it translates to NA_real_.
-      # When assigned to a string variable, Stata treats '.' as "".
-      if (calculated_value_expr_raw == "NA_real_") {
-          calculated_value_expr = '""'
-      } else {
-          # Cast to character for other expressions
-          calculated_value_expr = paste0("as.character(", calculated_value_expr_raw, ")")
-      }
-  } else if (force_r_output_type == "numeric") {
-      # Ensure logicals become 0/1. Other numeric types should already be fine.
-      # This handles `gen newvar = x==y` resulting in numeric 0/1.
-      # Added robustness check for NA or empty `calculated_value_expr_raw`
-      is_logical_r_expr = FALSE # Default to FALSE
-      if (!is.na(calculated_value_expr_raw) && calculated_value_expr_raw != "") {
-        is_logical_r_expr = stringi::stri_detect_regex(calculated_value_expr_raw, "\\bTRUE\\b|\\bFALSE\\b|==|!=|<=|>=|<|>|&|\\|") &&
-                            !stringi::stri_detect_fixed(calculated_value_expr_raw, "dplyr::if_else")
-      }
-      if (is_logical_r_expr) {
-          calculated_value_expr = paste0("as.numeric(", calculated_value_expr_raw, ")")
-      } else {
-          calculated_value_expr = calculated_value_expr_raw
-      }
-  } else { # No explicit type declared in Stata, let R infer
-      calculated_value_expr = calculated_value_expr_raw
-  }
-
-
-  # For 'replace' command, if condition is FALSE or NA, the value should be left unchanged.
-  # Use dplyr::coalesce(condition, FALSE) to treat NA condition as FALSE.
-  # Apply condition only if it exists
-  if (!is.na(r_if_cond) && r_if_cond != "") {
-    calc_expr = paste0("dplyr::if_else(dplyr::coalesce(", r_if_cond, ", FALSE), ", calculated_value_expr, ", data$`", var_to_replace, "`)")
-  } else {
-    calc_expr = calculated_value_expr
-  }
-
-  # Step 2: Build the R code string using pipes for the mutate operation
-  r_code_lines = c()
-
-  pipe_elements = list("data") # Elements for the pipe chain, starting from `data`
-
-  if (length(group_vars_list_bare) > 0) { # Check if group_vars_list_bare is not empty
-      group_by_call_str = paste0('dplyr::group_by(!!!dplyr::syms(c("', paste0(group_vars_list_bare, collapse='", "'), '")))')
-      pipe_elements = c(pipe_elements, group_by_call_str)
-      pipe_elements = c(pipe_elements, paste0("dplyr::mutate(`", var_to_replace, "` = ", calc_expr, ")"))
-      pipe_elements = c(pipe_elements, "dplyr::ungroup()")
-  } else {
-      pipe_elements = c(pipe_elements, paste0("dplyr::mutate(`", var_to_replace, "` = ", calc_expr, ")"))
-  }
-
-  r_code_lines = c(r_code_lines, paste0("data = ", paste(pipe_elements, collapse = " %>% \n  ")))
-
-  return(paste(r_code_lines, collapse="\n"))
-}
-```
-!END_CHANGE_FILE R/t_replace.R
+!END_CHANGE_FILE R/sfun_is_stata_expression_string_typed.R
