@@ -45,7 +45,7 @@ t_destring = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
 
   # Parse options, specifically `generate()` or `replace`
-  is_replace = stringi::stri_detect_fixed(options_str, "replace")
+  is_replace = dplyr::coalesce(stringi::stri_detect_fixed(options_str, "replace"), FALSE)
   gen_vars = NA_character_
   if (!is_replace) {
       gen_opt_match = stringi::stri_match_first_regex(options_str, "\\bgenerate\\s*\\(([^)]+)\\)")
@@ -142,5 +142,4 @@ t_destring = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
-
 

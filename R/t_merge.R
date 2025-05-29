@@ -49,7 +49,7 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   using_source_r_expr = resolve_stata_filename(raw_filename_token, cmd_df, line_num, default_base_dir_var = "working_dir")
 
   # Determine if nogenerate option is present (for comments later)
-  has_nogenerate = !is.na(options_str) && stringi::stri_detect_regex(options_str, "\\bno(?:generate|gen)\\b")
+  has_nogenerate = dplyr::coalesce(stringi::stri_detect_regex(options_str, "\\bno(?:generate|gen)\\b"), FALSE)
   
   # Determine keep_spec_for_comment based on parsing `options_str` in `t_merge` scope
   # This variable should be initialized to a default that reflects Stata's behavior for the given merge type.

@@ -37,8 +37,8 @@ t_summarize = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
 
 
-  is_meanonly = !is.na(options_str) && stringi::stri_detect_fixed(options_str, "meanonly")
-  is_detail = !is.na(options_str) && stringi::stri_detect_fixed(options_str, "detail")
+  is_meanonly = dplyr::coalesce(stringi::stri_detect_fixed(options_str, "meanonly"), FALSE)
+  is_detail = dplyr::coalesce(stringi::stri_detect_fixed(options_str, "detail"), FALSE)
 
   r_code_lines = c()
   line_prefix = paste0("stata_r_val_L", cmd_obj$line, "_") # Use cmd_obj$line
@@ -91,5 +91,4 @@ t_summarize = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
-
 
