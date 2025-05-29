@@ -58,27 +58,34 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     }
   }
 
-  # Determine if the target variable is a string type.
-  # For 'replace', we should check the current type of the variable in the data,
-  # or if an explicit `str#` type is declared.
-  # The existing variable `var_to_replace`'s type is difficult to know at translation time.
-  # However, `is_stata_expr_string_type` for the expression itself is a good proxy.
-  # If the target variable *was* string, and the expression *is* string, it stays string.
-  # If the target variable *was* numeric, and the expression *is* string, it becomes string.
-  # If the target variable *was* string, and the expression *is* numeric, it tries to convert (Stata warns/errors).
-  # The most robust approach is to rely on `is_stata_expr_string_type` and explicit `str#` declaration.
+  # Determine if the target variable will be a string type based on the R expression.
   target_var_will_be_string = FALSE
   if (!is.na(declared_type_str) && stringi::stri_startswith_fixed(declared_type_str, "str")) {
       target_var_will_be_string = TRUE
-  } else if (is_stata_expr_string_type(stata_expr)) {
-      target_var_will_be_string = TRUE
+  } else {
+      # Heuristic: If the R expression contains string functions or explicit character casting, assume string output.
+      if (stringi::stri_detect_fixed(r_expr, "as.character(") ||
+          stringi::stri_detect_fixed(r_expr, "stringi::stri_") ||
+          stringi::stri_detect_fixed(r_expr, "sfun_stata_add(") ||
+          stringi::stri_detect_fixed(r_expr, '""')
+          ) {
+          target_var_will_be_string = TRUE
+      }
+      if (stringi::stri_detect_regex(r_expr, '^\"[^\"]*\"$|^\'[^\']*\'$')) {
+          target_var_will_be_string = TRUE
+      }
   }
   # If not explicitly declared and not string expression, assume numeric.
 
   # Step 1: Calculate the value for the new variable, potentially conditionally
   calculated_value_expr_raw = r_expr # This is the R translation of stata_expr
 
-  # Apply type casting based on target variable's inferred type
+  # Determine if `calculated_value_expr_raw` (the R expression) is a logical one (TRUE/FALSE result).
+  # This is a heuristic. Exclude `dplyr::if_else` because its output type is managed internally
+  # and it already handles type consistency for its arguments.
+  is_logical_r_expr = stringi::stri_detect_regex(calculated_value_expr_raw, "\\bTRUE\\b|\\bFALSE\\b|==|!=|<=|>=|<|>|&|\\|") &&
+                      !stringi::stri_detect_fixed(calculated_value_expr_raw, "dplyr::if_else")
+
   if (target_var_will_be_string) {
       # If Stata expression is numeric NA (.), it translates to NA_real_.
       # When assigned to a string variable, Stata treats '.' as "".
@@ -92,7 +99,7 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
           calculated_value_expr = paste0("as.character(", calculated_value_expr_raw, ")")
       }
   } else { # Target variable will be numeric/logical
-      if (stringi::stri_detect_regex(stata_expr, "==|!=|~=|<=|>=|<|>|&|\\|")) {
+      if (is_logical_r_expr) {
           # Logical expressions should result in numeric 0/1 (Stata's behavior)
           calculated_value_expr = paste0("as.numeric(", calculated_value_expr_raw, ")")
       } else {
@@ -132,4 +139,5 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 
