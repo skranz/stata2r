@@ -80,8 +80,11 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       # Added robustness check for NA or empty `calculated_value_expr_raw`
       is_logical_r_expr = FALSE # Default to FALSE
       if (!is.na(calculated_value_expr_raw) && calculated_value_expr_raw != "") {
-        is_logical_r_expr = stringi::stri_detect_regex(calculated_value_expr_raw, "\\bTRUE\\b|\\bFALSE\\b|==|!=|<=|>=|<|>|&|\\|") &&
-                            !stringi::stri_detect_fixed(calculated_value_expr_raw, "dplyr::if_else")
+        # Check if the expression contains logical operators or literals, and is not already an if_else.
+        regex_match = stringi::stri_detect_regex(calculated_value_expr_raw, "\\bTRUE\\b|\\bFALSE\\b|==|!=|<=|>=|<|>|&|\\|")
+        fixed_match = stringi::stri_detect_fixed(calculated_value_expr_raw, "dplyr::if_else")
+        # Ensure the result of logical operations is always TRUE/FALSE, never NA.
+        is_logical_r_expr = dplyr::coalesce(regex_match, FALSE) && !dplyr::coalesce(fixed_match, FALSE)
       }
       if (is_logical_r_expr) {
           calculated_value_expr = paste0("as.numeric(", calculated_value_expr_raw, ")")
