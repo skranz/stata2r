@@ -264,7 +264,7 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       case_when_expr = paste0("dplyr::case_when(\n    ", paste(r_rules, collapse = ",\n    "), "\n  )")
 
       if (!is.na(r_subset_cond) && r_subset_cond != "") {
-          final_value_expr = paste0("dplyr::if_else(as.logical(dplyr::coalesce(", r_subset_cond, ", FALSE)),\n",
+          final_value_expr = paste0("dplyr::if_else((dplyr::coalesce(as.numeric(", r_subset_cond, "), 0) != 0),\n",
                                     "    ", case_when_expr, ",\n",
                                     "    `", source_var_r, "`)") # Keep original value if condition not met.
       } else {
@@ -312,5 +312,4 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
-
 

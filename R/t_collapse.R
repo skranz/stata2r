@@ -58,7 +58,7 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
            return(paste0("# Failed to translate if/in condition for collapse: ", stata_if_in_cond))
       }
       # Using collapse::fsubset. r_subset_cond is a string representing the logical condition.
-      r_code_lines = c(r_code_lines, paste0("data = collapse::fsubset(data, as.logical(dplyr::coalesce(", r_subset_cond, ", FALSE)))"))
+      r_code_lines = c(r_code_lines, paste0("data = collapse::fsubset(data, (dplyr::coalesce(as.numeric(", r_subset_cond, "), 0) != 0))"))
       # data_source_for_collapse remains "data" as it's modified in place by fsubset
   }
 
@@ -159,5 +159,4 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
-
 

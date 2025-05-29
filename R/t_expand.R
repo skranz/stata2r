@@ -79,7 +79,7 @@ t_expand = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
                           }
   # For final_r_subset_cond:
   cond_expr_with_context = if (!is.na(final_r_subset_cond) && final_r_subset_cond != "") {
-                             paste0("as.logical(dplyr::coalesce(with(data, ", final_r_subset_cond, "), FALSE))")
+                             paste0("(dplyr::coalesce(as.numeric(with(data, ", final_r_subset_cond, ")), 0) != 0)")
                            } else {
                              NA_character_ # or "TRUE" if it's to be used directly
                            }
@@ -115,5 +115,4 @@ t_expand = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
-
 

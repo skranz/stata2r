@@ -99,7 +99,7 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Use dplyr::coalesce(condition, FALSE) to treat NA condition as FALSE.
   # Apply condition only if it exists
   if (!is.na(r_if_cond) && r_if_cond != "") {
-    calc_expr = paste0("dplyr::if_else(as.logical(dplyr::coalesce(", r_if_cond, ", FALSE)), ", calculated_value_expr, ", data$`", var_to_replace, "`)")
+    calc_expr = paste0("dplyr::if_else((dplyr::coalesce(as.numeric(", r_if_cond, "), 0) != 0), ", calculated_value_expr, ", data$`", var_to_replace, "`)")
   } else {
     calc_expr = calculated_value_expr
   }
@@ -120,6 +120,4 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
-
-
 

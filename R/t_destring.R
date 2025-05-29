@@ -101,10 +101,10 @@ t_destring = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
           # For rows meeting condition, use destrung value. Otherwise, keep original (or NA if new var).
            if (is_replace) {
                # Replace in place: use destrung if condition, old value otherwise
-               final_value_expr = paste0("dplyr::if_else(as.logical(dplyr::coalesce(", r_if_in_cond, ", FALSE)), ", destrung_value_expr, ", `", source_var_r, "`)")
+               final_value_expr = paste0("dplyr::if_else((dplyr::coalesce(as.numeric(", r_if_in_cond, "), 0) != 0), ", destrung_value_expr, ", `", source_var_r, "`)")
            } else {
                # Generate new var: use destrung if condition, NA otherwise
-               final_value_expr = paste0("dplyr::if_else(as.logical(dplyr::coalesce(", r_if_in_cond, ", FALSE)), ", destrung_value_expr, ", NA_real_)") # Assuming numeric result
+               final_value_expr = paste0("dplyr::if_else((dplyr::coalesce(as.numeric(", r_if_in_cond, "), 0) != 0), ", destrung_value_expr, ", NA_real_)") # Assuming numeric result
            }
       } else {
           # Apply to all rows

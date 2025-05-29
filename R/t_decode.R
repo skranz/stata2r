@@ -91,7 +91,7 @@ t_decode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Apply the if/in condition for replacement
   if (!is.na(r_if_in_cond) && r_if_in_cond != "") {
        r_code_lines = c(r_code_lines,
-           paste0("data = dplyr::mutate(data, `", gen_var, "` = dplyr::if_else(as.logical(dplyr::coalesce(", r_if_in_cond, ", FALSE)), ", temp_decoded_values_L, ", `", gen_var, "`))")
+           paste0("data = dplyr::mutate(data, `", gen_var, "` = dplyr::if_else((dplyr::coalesce(as.numeric(", r_if_in_cond, "), 0) != 0), ", temp_decoded_values_L, ", `", gen_var, "`))")
        )
   } else {
       r_code_lines = c(r_code_lines,

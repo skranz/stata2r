@@ -48,7 +48,7 @@ t_summarize = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   if (!is.na(stata_if_cond_expr)) {
     r_subset_cond = translate_stata_expression_with_r_values(stata_if_cond_expr, cmd_obj$line, cmd_df, context = list(is_by_group = FALSE))
     data_subset_varname = paste0("data_subset_L", cmd_obj$line)
-    r_code_lines = c(r_code_lines, paste0(data_subset_varname, " = dplyr::filter(data, as.logical(dplyr::coalesce(", r_subset_cond, ", FALSE)))"))
+    r_code_lines = c(r_code_lines, paste0(data_subset_varname, " = dplyr::filter(data, (dplyr::coalesce(as.numeric(", r_subset_cond, "), 0) != 0))"))
     data_source_for_summary = data_subset_varname
   }
 
@@ -65,7 +65,7 @@ t_summarize = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       } else { # Default summarize or with other options (detail implies more)
         r_code_lines = c(
           r_code_lines,
-          paste0(line_prefix, "mean = mean(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)"),
+          paste0(line_prefix, "mean = mean(", data_source_for_Csummarize, "[['", var_for_r_vals, "']], na.rm = TRUE)"),
           paste0(line_prefix, "sd = stats::sd(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)"),
           paste0(line_prefix, "min = min(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)"),
           paste0(line_prefix, "max = max(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)"),

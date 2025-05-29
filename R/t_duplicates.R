@@ -67,7 +67,7 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   if (subcommand == "drop") {
       # For filter, NA in condition is treated as FALSE, which matches Stata's behavior.
       filter_cond_expr = if (!is.na(r_subset_cond) && r_subset_cond != "") {
-                           paste0("as.logical(dplyr::coalesce(", r_subset_cond, ", FALSE))")
+                           paste0("(dplyr::coalesce(as.numeric(", r_subset_cond, "), 0) != 0)")
                          } else {
                            "TRUE"
                          }
@@ -103,7 +103,7 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
       }
 
       mutate_cond_expr = if (!is.na(r_subset_cond) && r_subset_cond != "") {
-                           paste0("as.logical(dplyr::coalesce(", r_subset_cond, ", FALSE))")
+                           paste0("(dplyr::coalesce(as.numeric(", r_subset_cond, "), 0) != 0)")
                          } else {
                            "TRUE"
                          }
@@ -126,7 +126,7 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   } else if (subcommand == "list") {
        filter_cond_expr = if (!is.na(r_subset_cond) && r_subset_cond != "") {
-                           paste0("as.logical(dplyr::coalesce(", r_subset_cond, ", FALSE))")
+                           paste0("(dplyr::coalesce(as.numeric(", r_subset_cond, "), 0) != 0)")
                          } else {
                            "TRUE"
                          }

@@ -93,7 +93,7 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Apply the if/in condition for assignment to the target column in 'data'
   if (!is.na(r_if_in_cond) && r_if_in_cond != "") {
        r_code_lines = c(r_code_lines,
-           paste0("data = dplyr::mutate(data, `", gen_var, "` = dplyr::if_else(as.logical(dplyr::coalesce(", r_if_in_cond, ", FALSE)), ", encoded_values_full_tmp_var, ", `", gen_var, "`))")
+           paste0("data = dplyr::mutate(data, `", gen_var, "` = dplyr::if_else((dplyr::coalesce(as.numeric(", r_if_in_cond, "), 0) != 0), ", encoded_values_full_tmp_var, ", `", gen_var, "`))")
        )
   } else {
       # No condition, assign the full encoded vector
