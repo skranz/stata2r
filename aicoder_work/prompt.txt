@@ -1678,19 +1678,18 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
           current_word = stringi::stri_sub(r_expr, start_pos, end_pos)
           
           # Only backtick if it's not an R reserved word, not a numeric literal, and not already backticked
-          is_reserved = current_word %in% r_reserved_words
-          is_numeric_literal = suppressWarnings(!is.na(as.numeric(current_word)))
+          is_reserved = dplyr::coalesce(current_word %in% r_reserved_words, FALSE)
+          is_numeric_literal = dplyr::coalesce(suppressWarnings(!is.na(as.numeric(current_word))), FALSE)
           
           # Check if already backticked (by checking characters around it)
           is_already_backticked = FALSE
           # Ensure indices are valid before accessing substrings
-          if (start_pos > 1 && end_pos < stringi::stri_length(r_expr)) {
+          if (start_pos > 1 && end_pos <= stringi::stri_length(r_expr)) { # Corrected: end_pos <= length, not < length
             char_before = stringi::stri_sub(r_expr, start_pos - 1, start_pos - 1)
             char_after = stringi::stri_sub(r_expr, end_pos + 1, end_pos + 1)
             # Ensure char_before and char_after are not NA before comparison
-            if (!is.na(char_before) && !is.na(char_after) && char_before == "`" && char_after == "`") {
-                is_already_backticked = TRUE
-            }
+            # Coalesce ensures logical comparison even if stri_sub returns NA for out-of-bounds access (though guarded by if)
+            is_already_backticked = dplyr::coalesce(char_before == "`" && char_after == "`", FALSE)
           }
           
           if (!is_reserved && !is_numeric_literal && !is_already_backticked) {
@@ -1746,6 +1745,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   return(r_expr)
 }
+
 
 ```
 ### END OF FILE: stata_expression_translator.R
