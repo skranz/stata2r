@@ -77,8 +77,12 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   } else if (force_r_output_type == "numeric") {
       # Ensure logicals become 0/1. Other numeric types should already be fine.
       # This handles `gen newvar = x==y` resulting in numeric 0/1.
-      is_logical_r_expr = stringi::stri_detect_regex(calculated_value_expr_raw, "\\bTRUE\\b|\\bFALSE\\b|==|!=|<=|>=|<|>|&|\\|") &&
-                          !stringi::stri_detect_fixed(calculated_value_expr_raw, "dplyr::if_else")
+      # Added robustness check for NA or empty `calculated_value_expr_raw`
+      is_logical_r_expr = FALSE # Default to FALSE
+      if (!is.na(calculated_value_expr_raw) && calculated_value_expr_raw != "") {
+        is_logical_r_expr = stringi::stri_detect_regex(calculated_value_expr_raw, "\\bTRUE\\b|\\bFALSE\\b|==|!=|<=|>=|<|>|&|\\|") &&
+                            !stringi::stri_detect_fixed(calculated_value_expr_raw, "dplyr::if_else")
+      }
       if (is_logical_r_expr) {
           calculated_value_expr = paste0("as.numeric(", calculated_value_expr_raw, ")")
       } else {
@@ -130,5 +134,4 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
-
 
