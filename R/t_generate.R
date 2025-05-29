@@ -32,12 +32,9 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   r_expr = translate_stata_expression_with_r_values(stata_expr, line_num, cmd_df, current_context)
 
   # Ensure r_expr is a character string literal, even if it represents NA (logical)
-  if (is.na(r_expr) && !is.character(r_expr)) { # Check for logical NA, not string "NA"
+  # Simplified check: if r_expr is NA (any type of NA), default it to NA_real_
+  if (is.na(r_expr)) { 
       r_expr = "NA_real_"
-  } else if (is.character(r_expr) && r_expr == "") {
-      # An empty string translated expression should likely be NA in numeric context
-      # or empty string in string context. Let's make it explicit for safety.
-      r_expr = "NA_real_" # Default to NA_real_ if it's empty string after translation
   }
 
 

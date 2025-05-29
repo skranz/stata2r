@@ -170,7 +170,8 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
           local_is_numeric_literal = as.logical(dplyr::coalesce(is_numeric_literal, FALSE))
           local_is_already_backticked = as.logical(dplyr::coalesce(is_already_backticked, FALSE))
 
-          if (!local_is_reserved && !local_is_numeric_literal && !local_is_already_backticked) {
+          # FIX: Apply isTRUE() to each logical operand to ensure the `if` condition never evaluates to NA.
+          if (isTRUE(!local_is_reserved) && isTRUE(!local_is_numeric_literal) && isTRUE(!local_is_already_backticked)) {
               # Replace the word with its backticked version
               r_expr = paste0(stringi::stri_sub(r_expr, 1, start_pos - 1),
                               "`", current_word, "`",
