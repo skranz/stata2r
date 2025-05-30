@@ -32,17 +32,12 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   # Step 2: Handle r() and e() values using the mapping.
   if (!is.null(r_value_mappings) && length(r_value_mappings) > 0) {
+    # Sort by length to ensure longer macro names are replaced first, preventing partial matches.
     sorted_macro_names = names(r_value_mappings)[order(stringi::stri_length(names(r_value_mappings)), decreasing = TRUE)]
     for (stata_macro_name in sorted_macro_names) {
-      # Escape parentheses for regex if present in stata_macro_name (e.g. "r(N)", "e(sample)")
-      stata_macro_regex = stringi::stri_replace_all_fixed(stata_macro_name, "(", "\\(")
-      stata_macro_regex = stringi::stri_replace_all_fixed(stata_macro_regex, ")", "\\)")
-      # Use word boundaries to ensure full match, e.g. \br(N)\b
-      stata_macro_regex_boundary = paste0("\\b", stata_macro_regex, "\\b")
-
-      # Perform replacement using stri_replace_all_regex to respect word boundaries
-      # The r_value_mappings[[stata_macro_name]] is the R variable name, already safe.
-      r_expr = stringi::stri_replace_all_regex(r_expr, stata_macro_regex_boundary, r_value_mappings[[stata_macro_name]])
+      # Use fixed string replacement as macro names like "e(sample)" are literal.
+      # Word boundaries (\b) can be problematic with non-word characters like '(' and ')'.
+      r_expr = stringi::stri_replace_all_fixed(r_expr, stata_macro_name, r_value_mappings[[stata_macro_name]])
     }
   }
 
@@ -181,5 +176,4 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   return(r_expr)
 }
-
 
