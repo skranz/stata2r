@@ -1,70 +1,55 @@
 translate_stata_expression_with_r_values = function(stata_expr, line_num, cmd_df, context) {
-  restore.point("translate_stata_expression_with_r_values") # Added restore.point
-  
+  restore.point("translate_stata_expression_with_r_values")
+
   r_value_mappings = list()
 
-  # Find the most recent summarize command before the current line
-  most_recent_summarize_line_idx = NA_integer_
+  # --- Handle r() values from summarize/tabulate ---
+  # Find the most recent summarize/tabulate command before the current line that was translated
+  most_recent_r_producer_line_idx = NA_integer_
   for (i in (line_num - 1):1) {
-    if (cmd_df$stata_cmd[i] %in% c("summarize", "su")) {
-      most_recent_summarize_line_idx = i
+    if (cmd_df$stata_cmd[i] %in% c("summarize", "su", "tabulate", "tab") && cmd_df$do_translate[i]) {
+      most_recent_r_producer_line_idx = i
       break
     }
   }
 
-  if (!is.na(most_recent_summarize_line_idx)) {
-    prev_cmd_obj = cmd_df[most_recent_summarize_line_idx,]
-    
-    # Re-parse the summarize command's rest_of_cmd to determine its options
-    parts = stringi::stri_match_first_regex(prev_cmd_obj$rest_of_cmd, "^\\s*([^,]*?)(?:,\\s*(.*))?$")
-    # G1: varlist_and_cond_str, G2: options_str
-    varlist_and_cond_str = stringi::stri_trim_both(parts[1,2])
-    options_str = stringi::stri_trim_both(parts[1,3])
+  if (!is.na(most_recent_r_producer_line_idx)) {
+    prev_cmd_obj = cmd_df[most_recent_r_producer_line_idx,]
+    # Assuming t_summarize or t_tabulate stores values like stata_r_val_L<line>_N, stata_r_val_L<line>_mean etc.
+    line_prefix_r = paste0("stata_r_val_L", prev_cmd_obj$line, "_")
 
-    # Separate varlist from if condition (copied from t_summarize for consistency)
-    varlist_str = varlist_and_cond_str # Initialize
-    if_cond_match = stringi::stri_match_first_regex(varlist_and_cond_str, "\\s+if\\s+(.*)$")
-    if(!is.na(if_cond_match[1,1])) {
-        # stata_if_cond_expr = if_cond_match[1,2] # Not needed for r_value_mappings
-        varlist_str = stringi::stri_replace_all_fixed(varlist_and_cond_str, if_cond_match[1,1], "")
-        varlist_str = stringi::stri_trim_both(varlist_str)
-    }
+    # Populate r_value_mappings based on what t_summarize/t_tabulate might produce
+    # This is a simplified list; a more robust solution would check prev_cmd_obj$r_results_needed
+    # Common r() values from summarize:
+    r_value_mappings[["r(N)"]] = paste0(line_prefix_r, "N")
+    r_value_mappings[["r(mean)"]] = paste0(line_prefix_r, "mean")
+    r_value_mappings[["r(sd)"]] = paste0(line_prefix_r, "sd")
+    r_value_mappings[["r(min)"]] = paste0(line_prefix_r, "min")
+    r_value_mappings[["r(max)"]] = paste0(line_prefix_r, "max")
+    r_value_mappings[["r(sum)"]] = paste0(line_prefix_r, "sum")
+    r_value_mappings[["r(p50)"]] = paste0(line_prefix_r, "p50") # Median
+    # Add more as t_summarize implements them (e.g., p1, p5, Var, skewness, kurtosis)
+  }
 
-    vars_to_summarize = stringi::stri_split_regex(varlist_str, "\\s+")[[1]]
-    vars_to_summarize = vars_to_summarize[vars_to_summarize != ""]
-
-    var_for_r_vals = NA_character_
-    if (length(vars_to_summarize) > 0) {
-        var_for_r_vals = vars_to_summarize[length(vars_to_summarize)]
-    }
-
-    # FIX: Use dplyr::coalesce for robustness against NA in options_str
-    is_meanonly = dplyr::coalesce(stringi::stri_detect_fixed(options_str, "meanonly"), FALSE)
-    is_detail = dplyr::coalesce(stringi::stri_detect_fixed(options_str, "detail"), FALSE)
-
-    line_prefix = paste0("stata_r_val_L", prev_cmd_obj$line, "_")
-
-    # Populate r_value_mappings based on the options and variables
-    r_value_mappings[["r(N)"]] = paste0(line_prefix, "N")
-
-    if (!is.na(var_for_r_vals)) {
-        if (is_meanonly) {
-            r_value_mappings[["r(mean)"]] = paste0(line_prefix, "mean")
-        } else {
-            r_value_mappings[["r(mean)"]] = paste0(line_prefix, "mean")
-            r_value_mappings[["r(sd)"]] = paste0(line_prefix, "sd")
-            r_value_mappings[["r(min)"]] = paste0(line_prefix, "min")
-            r_value_mappings[["r(max)"]] = paste0(line_prefix, "max")
-            r_value_mappings[["r(sum)"]] = paste0(line_prefix, "sum")
-            if (is_detail) {
-                r_value_mappings[["r(p50)"]] = paste0(line_prefix, "p50")
-                # Add other detail r() values if implemented in t_summarize
-                # (e.g., r(p1), r(p5), r(p10), r(p25), r(p75), r(p90), r(p95), r(p99))
-                # (e.g., r(sum_w), r(Var), r(skewness), r(kurtosis))
-            }
-        }
+  # --- Handle e() values from estimation commands ---
+  most_recent_e_producer_line_idx = NA_integer_
+  for (i in (line_num - 1):1) {
+    if (cmd_df$stata_cmd[i] %in% stata_estimation_cmds && cmd_df$do_translate[i]) {
+      most_recent_e_producer_line_idx = i
+      break
     }
   }
+
+  if (!is.na(most_recent_e_producer_line_idx)) {
+    prev_cmd_obj_e = cmd_df[most_recent_e_producer_line_idx,]
+    line_prefix_e = paste0("stata_e_sample_L", prev_cmd_obj_e$line) # Specific to e(sample) for now
+
+    if ("e(sample)" %in% unlist(prev_cmd_obj_e$e_results_needed)) {
+      r_value_mappings[["e(sample)"]] = line_prefix_e
+    }
+    # Add mappings for other e() results like e(b), e(V) if t_regress etc. implement them
+  }
+
 
   translated_expr = translate_stata_expression_to_r(stata_expr, context = context, r_value_mappings = r_value_mappings)
   return(translated_expr)

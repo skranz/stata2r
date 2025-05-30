@@ -29,7 +29,7 @@ stata_cmd_abbreviations = list(
   "eg" = "egen",
   "en" = "encode",
   "er" = "erase",
-  "est" = "estimates",
+  "est" = "estimates", # estimates command group
   "ex" = "expand",
   "f" = "fillin",
   "g" = "generate",
@@ -56,7 +56,7 @@ stata_cmd_abbreviations = list(
   "ou" = "outsheet",
   "p" = "predict", # predict for generating variables from models
   "pres" = "preserve",
-  "q" = "quietly", # Prefix, handled differently
+  # "q" = "quietly", # Quietly is a prefix, handled differently
   "r" = "recode",
   "reg" = "regress", # Example statistical procedure
   "ren" = "rename",
@@ -120,25 +120,33 @@ stata_data_manip_cmds = c(
 stata_non_data_manip_cmds = c( # This list is for marking FALSE explicitly if needed
   "assert", "browse", "capture", "cd", "confirm", "constraint", "correlate", # correlate sets r() but often for display
   "count", # count sets r() but often for display
-  "describe", "d", "dir", "display", "di", "do", "edit", "erase", "error", "estimates",
+  "describe", "d", "dir", "display", "di", "do", "edit", "erase", "error", "estimates", # estimates command group
   "exit", "findit", "graph", "gr", "help", "h", "if", "inspect", "i", "list", "l", "log", "lookup", "marksample",
   "matrix", "mat", "memory", "mem", "mkdir", "more", "mo", "notes", "n", "outfile", "outsheet", "ou", "pause", "plot",
-  "print", "program", "pwd", "query", "quietly", "regress", "reg", # regress sets e(), might be used.
+  "print", "program", "pwd", "query", # "quietly" is not a command itself, but a prefix
   "return", "ret", "rmdir", "run", "ru", "scalar", "sc", "search", "shell", "sh", "signestim", "sleep",
   "stata", "st", "tabdisp", "table", "test", "te", "timer", "translate", "truncate",
   "tutorials", "type", "ty", # `type` command to display file content (different from `set type`)
   "view", "version", "v", "webuse", "w", "which", "while", "window", "winexec", "xmlsav"
 )
 
+# List of estimation commands that can produce e() results
+stata_estimation_cmds = c(
+  "regress", "logit", "probit", "ivregress", "xtreg", "areg", "sem", "asmixlogit", "gmm" # Add more as needed
+  # Could also include ANOVA, factor, etc.
+)
+
+
 # Helper to parse basic Stata command line: cmd + rest
-# Tries to handle `by varlist : command` prefix.
+# Tries to handle `by varlist : command` and `quietly command` prefixes.
 # Returns:
-#   stata_cmd_original: original command token
-#   stata_cmd: full command name
-#   rest_of_cmd: string after command token (excluding by prefix part)
+#   stata_cmd_original: original first token of the effective command (e.g. "g" for "gen")
+#   stata_cmd: full command name of the effective command (e.g. "generate")
+#   rest_of_cmd: string after effective command token
 #   is_by_prefix: logical, TRUE if "by/bysort prefix:" was found
 #   by_group_vars: character vector of grouping variables from by/bysort prefix
 #   by_sort_vars: character vector of sort-only variables (in parentheses) from by/bysort prefix
+#   is_quietly_prefix: logical, TRUE if "quietly" prefix was found
 parse_stata_command_line = function(line_text) {
   restore.point("parse_stata_command_line")
   trimmed_line = stringi::stri_trim_both(line_text)
@@ -150,8 +158,7 @@ parse_stata_command_line = function(line_text) {
   rest_of_line_for_cmd_parse = trimmed_line
 
   # Check for "by ... :" or "bysort ... :" prefix
-  # FIX: Ensure the condition is robust against NA inputs to stringi functions.
-  if (dplyr::coalesce(stringi::stri_startswith_fixed(trimmed_line, "by "), FALSE) || 
+  if (dplyr::coalesce(stringi::stri_startswith_fixed(trimmed_line, "by "), FALSE) ||
       dplyr::coalesce(stringi::stri_startswith_fixed(trimmed_line, "bysort "), FALSE)) {
     prefix_match = stringi::stri_match_first_regex(trimmed_line, "^(?:by|bysort)\\s+([^:]+?)\\s*:\\s*(.*)$")
     if (!is.na(prefix_match[1,1])) {
@@ -159,12 +166,9 @@ parse_stata_command_line = function(line_text) {
       rest_of_line_for_cmd_parse = stringi::stri_trim_both(prefix_match[1,3])
       is_by_prefix_val = TRUE
 
-      # Parse raw_by_string_from_prefix into group_vars and sort_vars
-      # Initialize by_tokens as empty character vector
-      by_tokens = character(0) 
+      by_tokens = character(0)
       if (!is.na(raw_by_string_from_prefix) && raw_by_string_from_prefix != "") {
           match_result = stringi::stri_match_all_regex(raw_by_string_from_prefix, "\\s*(\\([^)]+\\)|[^\\s()]+)\\s*")
-          # Ensure match_result[[1]] is not NULL and has rows before accessing columns
           if (!is.null(match_result[[1]]) && NROW(match_result[[1]]) > 0) {
               by_tokens = match_result[[1]][,2]
           }
@@ -178,15 +182,32 @@ parse_stata_command_line = function(line_text) {
           by_group_vars = c(by_group_vars, token)
         }
       }
-      # Ensure by_group_vars and by_sort_vars are clean (no NA or empty strings)
       by_group_vars = by_group_vars[!is.na(by_group_vars) & by_group_vars != ""]
       by_sort_vars = by_sort_vars[!is.na(by_sort_vars) & by_sort_vars != ""]
     }
   }
 
-  # Extract command token from the (potentially remaining) line
+  # Check for "quietly" prefix on the (potentially by-prefixed) command part
+  is_quietly_prefix_val = FALSE
+  # Regex to match "quietly" or "qui" or "q" as a whole word prefix followed by space
+  quietly_prefix_regex = "^(?:quietly|qui|q)\\s+(.*)$"
+  quietly_match = stringi::stri_match_first_regex(rest_of_line_for_cmd_parse, quietly_prefix_regex)
+
+  if (!is.na(quietly_match[1,1])) {
+      # Check if the matched prefix is indeed "quietly" or its abbreviation
+      # and not just a command starting with "q" that isn't "quietly" (e.g. "query").
+      # The first token before the space:
+      first_token_before_space = stringi::stri_extract_first_words(rest_of_line_for_cmd_parse)
+      if (tolower(first_token_before_space) %in% c("quietly", "qui", "q")) {
+        is_quietly_prefix_val = TRUE
+        rest_of_line_for_cmd_parse = stringi::stri_trim_both(quietly_match[1,2]) # The part after "quietly "
+      }
+  }
+
+
+  # Extract command token from the (now prefix-stripped) line
   parts = stringi::stri_split_fixed(rest_of_line_for_cmd_parse, " ", n = 2)
-  cmd_token_original = stringi::stri_trim_both(parts[[1]][1]) # Trim for robustness
+  cmd_token_original = stringi::stri_trim_both(parts[[1]][1])
 
   if (is.na(cmd_token_original) || cmd_token_original == "") {
       return(list(
@@ -194,8 +215,9 @@ parse_stata_command_line = function(line_text) {
         stata_cmd = NA_character_,
         rest_of_cmd = NA_character_,
         is_by_prefix = is_by_prefix_val,
-        by_group_vars = character(0), # Return character(0) for consistency
-        by_sort_vars = character(0)   # Return character(0) for consistency
+        by_group_vars = character(0),
+        by_sort_vars = character(0),
+        is_quietly_prefix = is_quietly_prefix_val # Added
       ))
   }
 
@@ -203,22 +225,21 @@ parse_stata_command_line = function(line_text) {
   rest_of_cmd = if (length(parts[[1]]) > 1 && !is.na(parts[[1]][2])) stringi::stri_trim_both(parts[[1]][2]) else NA_character_
 
   # Refine is_by_prefix: it's a prefix if by_vars were parsed AND command is not 'bysort'
-  if (stata_cmd == "bysort" || stata_cmd == "by") { # by is alias for bysort
+  if (stata_cmd == "bysort" || stata_cmd == "by") {
       is_by_prefix_val = FALSE
-      # For bysort command itself, its arguments are in rest_of_cmd.
-      # The prefix parsing for by_group_vars/by_sort_vars should be cleared if it's the bysort command.
       by_group_vars = character(0)
       by_sort_vars = character(0)
-      if (stata_cmd == "by") stata_cmd = "bysort" # Normalize "by" command to "bysort"
+      if (stata_cmd == "by") stata_cmd = "bysort"
   }
 
   return(list(
-    stata_cmd_original = cmd_token_original,
-    stata_cmd = stata_cmd,
+    stata_cmd_original = cmd_token_original, # First token of effective command
+    stata_cmd = stata_cmd,                   # Full name of effective command
     rest_of_cmd = rest_of_cmd,
-    is_by_prefix = is_by_prefix_val, # True if "by prefix:" was found AND command is not bysort
+    is_by_prefix = is_by_prefix_val,
     by_group_vars = by_group_vars,
-    by_sort_vars = by_sort_vars
+    by_sort_vars = by_sort_vars,
+    is_quietly_prefix = is_quietly_prefix_val # Added
   ))
 }
 
@@ -269,7 +290,7 @@ resolve_stata_filename = function(raw_filename_token, cmd_df, line_num, default_
   # Check if it's a Stata local macro reference `macroname'`
   if (dplyr::coalesce(stringi::stri_startswith_fixed(unquoted_content, "`") && stringi::stri_endswith_fixed(unquoted_content, "'"), FALSE)) {
     macro_name = stringi::stri_sub(unquoted_content, 2, -2)
-    
+
     found_def_line = NA_integer_
     for (i in (line_num - 1):1) {
         if (cmd_df$stata_cmd[i] == "tempfile") {
@@ -280,7 +301,7 @@ resolve_stata_filename = function(raw_filename_token, cmd_df, line_num, default_
             }
         }
     }
-    
+
     if (!is.na(found_def_line)) {
         return(paste0("R_tempfile_L", found_def_line, "_", macro_name, "_path"))
     } else {
@@ -289,16 +310,15 @@ resolve_stata_filename = function(raw_filename_token, cmd_df, line_num, default_
     }
   } else {
     # It's a regular path string
-    # FIX: Ensure the condition for is_absolute_path is robust against NA outputs from stringi functions.
-    is_absolute_path = dplyr::coalesce(stringi::stri_startswith_fixed(unquoted_content, "/"), FALSE) || 
+    is_absolute_path = dplyr::coalesce(stringi::stri_startswith_fixed(unquoted_content, "/"), FALSE) ||
                        dplyr::coalesce(stringi::stri_detect_regex(unquoted_content, "^[A-Za-z]:[\\\\/]"), FALSE)
-    
+
     if (is_absolute_path) {
       return(quote_for_r_literal(unquoted_content))
     } else {
-      # Use the specified default_base_dir_var (e.g., "working_dir" for use/save, "data_dir" for append/merge)
       return(paste0("file.path(stata2r_env$", default_base_dir_var, ", ", quote_for_r_literal(unquoted_content), ")"))
     }
   }
 }
+
 

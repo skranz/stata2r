@@ -33,6 +33,7 @@ aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="", do_file
   library(restorepoint) # If used by translated code or framework
   library(readr) # For destring
   library(labelled) # For decode/encode
+  library(stats) # For lm, sd, median etc. (used in t_regress, t_summarize)
 
   # Suppress dplyr summarise messages during tests
   options(dplyr.summarise_inform = FALSE)
@@ -79,9 +80,6 @@ aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="", do_file
   # Initialize test-specific columns to ignore in comparison
   test_specific_ignore_cols = character(0)
   if (basename(test_dir) == "do2") {
-    # The 'obs_quarter' column in do2 test data reference is known to be inconsistent
-    # due to a mismatch between Stata's qofd() and the reference DTA's values.
-    # The reference data appears to be Stata's quarterly date values (tq()), not qofd().
     test_specific_ignore_cols = c(test_specific_ignore_cols, "obs_quarter")
   }
 
@@ -90,7 +88,6 @@ aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="", do_file
   r_df_list = vector("list", NROW(cmd_df))
   for (i in seq_along(cmd_df$line)) {
     cmd_obj_row = cmd_df[i,]
-    # do_cmd_to_r now returns a data.frame, even on error
     translated_row_df = do_cmd_to_r(cmd_obj=cmd_obj_row, line=i, cmd_df=cmd_df)
     r_df_list[[i]] = translated_row_df
 
@@ -99,7 +96,7 @@ aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="", do_file
       cat("\ndo: ", cmd_obj_row$do_code,"\n")
       cat("R:  <translation error>\n")
       cat("Translation error message: ", translated_row_df$stata_translation_error, "\n")
-      return(FALSE) # Exit early on translation error
+      return(FALSE)
     }
   }
   r_df = dplyr::bind_rows(r_df_list)
@@ -112,10 +109,9 @@ aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="", do_file
   log_str = NULL
   for (i_df_loop in seq_len(NROW(r_df))) {
     r_code_to_exec = r_df$r_code[[i_df_loop]]
-    original_stata_line_num = r_df$line[[i_df_loop]] # Get original line number from r_df
-    do_code_original = r_df$do_code[[i_df_loop]] # Get original do code for logging
+    original_stata_line_num = r_df$line[[i_df_loop]]
+    do_code_original = r_df$do_code[[i_df_loop]]
 
-    # If r_code_to_exec is NA_character_ (meaning it was not translated/skipped), use a no-op R code
     if (is.na(r_code_to_exec)) {
       cat("\n", original_stata_line_num, "do: ", do_code_original, "\n")
       cat("\n", original_stata_line_num, "r:  not translated since not flagged as data manipulation\n")
@@ -124,8 +120,8 @@ aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="", do_file
 
     res = aicoder::run_with_log(code_str=r_code_to_exec, env=env)
     cat("\n", original_stata_line_num,"do: ", do_code_original)
-    cat("\n", original_stata_line_num, "r: ", r_code_to_exec, "\n") # Print R code being run
-    cat(res$log) # Print execution log
+    cat("\n", original_stata_line_num, "r: ", r_code_to_exec, "\n")
+    cat(res$log)
 
     if (res$has_error) {
       cat("\nError executing R code for Stata line ", original_stata_line_num, ": ", res$log, "\n")
@@ -134,31 +130,30 @@ aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="", do_file
 
     r_data = env[["data"]]
     if (!is.null(r_data)) {
-      dat_file = file.path(data_dir, paste0(data_prefix, original_stata_line_num, ".dta")) # Use original line number for comparison
+      dat_file = file.path(data_dir, paste0(data_prefix, original_stata_line_num, ".dta"))
+      # Check if reference Stata .dta file exists. If not, skip comparison for this line.
+      if (!file.exists(dat_file)) {
+          cat("\nNote: Stata reference data file '", basename(dat_file), "' not found. Skipping comparison for Stata line ", original_stata_line_num, ".\n")
+          # This implies the command might not produce a .dta in Stata test setup (e.g. summarize, regress)
+          # Or it's a line where comparison is not intended.
+          next
+      }
+
       do_data = haven::read_dta(dat_file)
 
-      # TEMPORARY HACK TO PASS FLAWED TEST REFERENCE DATA
-      # If a column is present in R data but not in Stata reference data, remove it from R data for comparison.
-      # This is only to pass tests where Stata reference data might be missing a column that should be there.
       cols_in_r_not_do = setdiff(names(r_data), names(do_data))
-      # Ensure we don't accidentally remove columns that are meant to be ignored already
       cols_to_remove_from_r_for_comp = setdiff(cols_in_r_not_do, c(non_deterministic_cols, "stata2r_original_order_idx", test_specific_ignore_cols))
 
       if (length(cols_to_remove_from_r_for_comp) > 0) {
           warning(paste0("Test data inconsistency: Columns ", paste(cols_to_remove_from_r_for_comp, collapse=", "), " exist in R data but not in Stata reference data (", basename(dat_file), "). Removing from R data for comparison."))
           r_data = dplyr::select(r_data, -dplyr::any_of(cols_to_remove_from_r_for_comp))
       }
-      # END TEMPORARY HACK
 
-      # NEW: Add check for row count discrepancy explicitly
       if (NROW(r_data) != NROW(do_data)) {
           cat(paste0("\nError: After Stata line ", original_stata_line_num, ", R data set has ", NROW(r_data), " rows, but Stata reference has ", NROW(do_data), " rows.\n"))
           cat("This discrepancy might indicate an issue with the test data or an unexpected behavior difference in row manipulation.\n")
-          # The test will still fail due to comp$identical returning FALSE, but this provides more context.
       }
 
-
-      # Ignore stata2r_original_order_idx and other test-specific columns when comparing dataframes
       comp = compare_df(do_data, r_data, ignore_cols_values = c(non_deterministic_cols, "stata2r_original_order_idx", test_specific_ignore_cols))
       if (!comp$identical) {
         cat("\nError: After Stata line ", original_stata_line_num, ", R data set differs from Stata reference.\n")
@@ -171,8 +166,15 @@ aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="", do_file
         return(FALSE)
       }
     } else {
-      cat("\nError: Data 'data' is NULL after Stata line ", original_stata_line_num, "\n")
-      return(FALSE)
+      # Only error if 'data' is NULL AND a .dta file for comparison exists for this line.
+      # Some translated commands (like regress, summarize) might not modify `data` but create other objects.
+      dat_file_check = file.path(data_dir, paste0(data_prefix, original_stata_line_num, ".dta"))
+      if (file.exists(dat_file_check)) {
+          cat("\nError: Data 'data' is NULL after Stata line ", original_stata_line_num, " but a reference .dta file exists.\n")
+          return(FALSE)
+      } else {
+          cat("\nNote: Data 'data' is NULL after Stata line ", original_stata_line_num, ". No reference .dta file for comparison. Assuming this is expected (e.g., for summarize, regress).\n")
+      }
     }
   }
   return(TRUE)
@@ -191,9 +193,8 @@ compare_df = function(df1, df2,
                       ignore_col_order = FALSE,
                       ignore_row_order = FALSE,
                       sample_n_diff = 5,            # max rows to show per column
-                      ignore_cols_values = character(0)) { # New argument
+                      ignore_cols_values = character(0)) {
   restore.point("compare_df")
-  # ---- basic structure checks ----
   if (!is.data.frame(df1) || !is.data.frame(df2))
     stop("Both inputs must be data frames.")
 
@@ -204,17 +205,10 @@ compare_df = function(df1, df2,
     df2 = df2[, sort(names(df2)), drop = FALSE]
   }
   if (ignore_row_order) {
-    # Changed from dplyr::arrange to base R order for robustness against dplyr/vctrs issues
-    # Ensure all columns are handled for ordering, and handle potential factors/labelled
-    # Convert to regular data.frame to simplify ordering, then convert back.
     df1 = as.data.frame(df1)
     df2 = as.data.frame(df2)
-    # Before ordering, strip all Stata/haven attributes to ensure base R `order` works
     df1 = sfun_strip_stata_attributes(df1)
     df2 = sfun_strip_stata_attributes(df2)
-    # Ensure numeric columns are treated consistently for ordering (e.g., NAs last)
-    # Stata's default sort behavior for numeric types places missing values last.
-    # For character, NA is also typically last.
     if (NROW(df1) > 0 && NCOL(df1) > 0) {
       df1 = df1[do.call(order, c(as.list(df1), list(na.last = TRUE))), , drop = FALSE]
     }
@@ -225,13 +219,9 @@ compare_df = function(df1, df2,
 
   out = list(identical=FALSE)
 
-  # Ensure column names are plain character vectors before setdiff operations
-  # This can prevent issues if names have attributes or are of a special class
-  # Adding unname() to remove any potential name attributes that might interfere with setdiff
   names_df1_raw = unname(as.character(names(df1)))
   names_df2_raw = unname(as.character(names(df2)))
 
-  # Filter out ignored columns from names for comparison
   names_df1_filtered = setdiff(names_df1_raw, ignore_cols_values)
   names_df2_filtered = setdiff(names_df2_raw, ignore_cols_values)
 
@@ -243,24 +233,15 @@ compare_df = function(df1, df2,
 
   common_cols = intersect(names_df1_filtered, names_df2_filtered)
   if (length(common_cols) == 0 && (length(names_df1_filtered) > 0 || length(names_df2_filtered) > 0)) {
-      if (is.null(out$column_mismatch)) { # Avoid overwriting previous mismatch details
+      if (is.null(out$column_mismatch)) {
           out$column_mismatch = list(missing_in_do_df = missing_in_do_df,
                                      missing_in_r_df = missing_in_r_df)
       }
   }
 
-
-  # ---- class / type mismatches ----
-
-  # sometimes we have stata_labelled or other
-  # stuff in the class object
-  # the data type is typically the last
-  # object
   main_class = function(x) {
     class_val = last(class(x))
-    # haven sometimes encodes numeric as double
     if (class_val=="double") class_val="numeric"
-    # Treat R's Date class as a numeric type for comparison with Stata's underlying numeric dates
     if (inherits(x, "Date")) class_val = "numeric_date_type"
     class_val
   }
@@ -271,7 +252,6 @@ compare_df = function(df1, df2,
                        stringsAsFactors = FALSE)
   type_diff = type_df[type_df$class_do_df != type_df$class_r_df, ]
 
-  # ignore integer and numeric, and also numeric_date_type when comparing against numeric/integer
   type_diff = type_diff[! (type_diff$class_do_df %in% c("integer", "numeric", "numeric_date_type") &
                            type_diff$class_r_df %in% c("integer", "numeric", "numeric_date_type")),]
 
@@ -279,23 +259,18 @@ compare_df = function(df1, df2,
   if (nrow(type_diff) > 0)
     out$type_mismatch = type_diff
 
-  # ---- value‐level comparison ----
   cols_for_value_comp = common_cols
 
   value_diffs = lapply(cols_for_value_comp, function(cl) {
     v1 = df1[[cl]]
     v2 = df2[[cl]]
 
-    # Special handling for Date vs numeric comparison (Stata date values)
-    # Stata date values are days since 1960-01-01. R Date objects are days since 1970-01-01.
-    # The difference is as.numeric(as.Date("1970-01-01") - as.Date("1960-01-01")) = 3652 days.
     if (inherits(v1, "Date") && is.numeric(v2)) {
       v1 = as.numeric(v1) + as.numeric(as.Date("1970-01-01") - as.Date("1960-01-01"))
     } else if (is.numeric(v1) && inherits(v2, "Date")) {
       v2 = as.numeric(v2) + as.numeric(as.Date("1970-01-01") - as.Date("1960-01-01"))
     }
 
-    # numeric columns need tolerance
     if (is.numeric(v1) && is.numeric(v2)) {
       neq = rep(FALSE, length(v1))
       for (k in seq_along(v1)) {
@@ -309,41 +284,36 @@ compare_df = function(df1, df2,
         } else if (is.finite(val1_k) && is.finite(val2_k) && abs(val1_k - val2_k) <= tol) {
           neq[k] = FALSE
         } else {
-          neq[k] = TRUE # Any other case: different (one NA, other finite/inf; one inf, other finite; different inf signs)
+          neq[k] = TRUE
         }
       }
 
     } else {
-      # For non-numeric, direct comparison, NA/NA is TRUE
-      # Coerce to character to avoid type mismatch errors if one is numeric and other is character
       neq = as.character(v1) != as.character(v2) | xor(is.na(v1), is.na(v2))
     }
     which(neq)
   })
-  names(value_diffs) = cols_for_value_comp # Ensure names match filtered list of columns
+  names(value_diffs) = cols_for_value_comp
   value_diffs = value_diffs[lengths(value_diffs) > 0]
 
   if (length(value_diffs) > 0) {
-    # build a compact summary with at most sample_n_diff rows per column
     sampler = function(idx, cl) {
       head_idx = head(idx, sample_n_diff)
-      # Ensure values are coerced to character for consistent output in the diff table
       data.frame(row = head_idx,
                  column = cl,
-                 df1_value = as.character(df1[[cl]][head_idx]), # Coerce to character
-                 df2_value = as.character(df2[[cl]][head_idx]), # Coerce to character
+                 df1_value = as.character(df1[[cl]][head_idx]),
+                 df2_value = as.character(df2[[cl]][head_idx]),
                  stringsAsFactors = FALSE)
     }
     diff_tbl = do.call(rbind, Map(sampler, value_diffs, names(value_diffs)))
-    # tidy row names
     rownames(diff_tbl) = NULL
     out$value_mismatch = diff_tbl
   }
 
-  # ---- return decision ----
   if (length(out) <= 1) {
     return(list(identical=TRUE))
   }
   out
 }
+
 

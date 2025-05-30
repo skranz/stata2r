@@ -19,10 +19,13 @@ do_parse = function(do_code) {
       stata_cmd = character(0),
       rest_of_cmd = character(0),
       is_by_prefix = logical(0),
-      by_group_vars = character(0), # Store as comma-separated string or list column
-      by_sort_vars = character(0),  # Store as comma-separated string or list column
-      do_translate = logical(0), # Added for consistency
-      stata_translation_error = character(0), # New column
+      by_group_vars = character(0),
+      by_sort_vars = character(0),
+      is_quietly_prefix = logical(0), # New column
+      do_translate = logical(0),
+      stata_translation_error = character(0),
+      e_results_needed = I(vector("list", 0)), # New column for e() results
+      r_results_needed = I(vector("list", 0)), # New column for r() results (future use)
       stringsAsFactors = FALSE
     ))
   }
@@ -37,15 +40,19 @@ do_parse = function(do_code) {
       stata_cmd = parsed_info$stata_cmd,
       rest_of_cmd = parsed_info$rest_of_cmd,
       is_by_prefix = parsed_info$is_by_prefix,
-      # Store by_group_vars and by_sort_vars as comma-separated strings
-      by_group_vars = if (length(parsed_info$by_group_vars)>0) paste(parsed_info$by_group_vars, collapse=",") else "", # Changed to ""
-      by_sort_vars = if (length(parsed_info$by_sort_vars)>0) paste(parsed_info$by_sort_vars, collapse=",") else "", # Changed to ""
-      stata_translation_error = NA_character_, # Initialize as NA
+      by_group_vars = if (length(parsed_info$by_group_vars)>0) paste(parsed_info$by_group_vars, collapse=",") else "",
+      by_sort_vars = if (length(parsed_info$by_sort_vars)>0) paste(parsed_info$by_sort_vars, collapse=",") else "",
+      is_quietly_prefix = parsed_info$is_quietly_prefix, # New field
+      stata_translation_error = NA_character_,
       stringsAsFactors = FALSE
     )
   })
 
   cmd_df = dplyr::bind_rows(cmd_list)
+  # Initialize e_results_needed and r_results_needed as list columns
+  cmd_df$e_results_needed = I(replicate(nrow(cmd_df), character(0), simplify = FALSE))
+  cmd_df$r_results_needed = I(replicate(nrow(cmd_df), character(0), simplify = FALSE))
   return(cmd_df)
 }
+
 

@@ -1,0 +1,101 @@
+# Translate Stata 'regress' command
+# Stata: regress depvar [indepvars] [if] [in] [weight] [, options]
+# Primarily for extracting e(sample) if needed by subsequent commands.
+
+t_regress = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_regress")
+
+  # Check if e(sample) is actually needed by a subsequent command
+  e_sample_needed = "e(sample)" %in% unlist(cmd_obj$e_results_needed)
+
+  if (!e_sample_needed) {
+    return(paste0("# regress command at line ", line_num, " translated to no-op as e(sample) (or other e() results) not used later."))
+  }
+
+  # Parse `rest_of_cmd` for depvar, indepvars, and if/in conditions
+  # Example: "y_outcome x_numeric if some_condition > 10"
+  # Regex to capture: (depvar indepvars_optional) (if_clause_optional) (in_clause_optional) (options_like_robust_optional)
+  # This is complex. A simpler split: find 'if', 'in', ','
+
+  # Remove options like robust, vce(), level() as they don't affect e(sample)
+  rest_of_cmd_no_opts = stringi::stri_replace_all_regex(rest_of_cmd, ",\\s*\\w+\\(?[^)]*\\)?", "")
+  rest_of_cmd_no_opts = stringi::stri_replace_all_regex(rest_of_cmd_no_opts, ",\\s*robust\\b", "")
+  rest_of_cmd_no_opts = stringi::stri_trim_both(rest_of_cmd_no_opts)
+
+  stata_if_cond = NA_character_
+  stata_in_range = NA_character_
+  var_part = rest_of_cmd_no_opts
+
+  # Extract `if` condition
+  if_match = stringi::stri_match_last_regex(var_part, "\\s+if\\s+(.*)$")
+  if (!is.na(if_match[1,1])) {
+    stata_if_cond = stringi::stri_trim_both(if_match[1,2])
+    var_part = stringi::stri_trim_both(stringi::stri_sub(var_part, 1, if_match[1,1, MRANGE_START=TRUE] - 1))
+  }
+
+  # Extract `in` range (not typically used with e(sample) logic directly but parse for completeness)
+  # `in` conditions are usually handled by filtering data *before* regress if they affect the sample.
+  # e(sample) is relative to the data *after* `if` and `in` are applied to `regress`.
+
+  vars_str_list = stringi::stri_split_regex(var_part, "\\s+")[[1]]
+  vars_str_list = vars_str_list[vars_str_list != ""]
+
+  if (length(vars_str_list) < 1) {
+    return(paste0("# regress command at line ", line_num, " has no dependent variable."))
+  }
+  dep_var = vars_str_list[1]
+  indep_vars = if (length(vars_str_list) > 1) vars_str_list[-1] else NULL
+
+  # Construct formula string
+  formula_str = dep_var
+  if (!is.null(indep_vars) && length(indep_vars) > 0) {
+    formula_str = paste0(dep_var, " ~ ", paste(indep_vars, collapse = " + "))
+  } else {
+    formula_str = paste0(dep_var, " ~ 1") # Regress on constant
+  }
+
+  all_vars_in_formula = c(dep_var, indep_vars) # All variables involved in the model
+
+  r_code_lines = c()
+
+  # Define the R variable name for e(sample)
+  e_sample_r_var_name = paste0("stata_e_sample_L", line_num)
+
+  # --- Generate code to calculate e(sample) ---
+  # 1. Determine rows satisfying the `if` condition (if any)
+  eligible_rows_if_cond_var = paste0("temp_eligible_if_L", line_num)
+  if (!is.na(stata_if_cond)) {
+    r_if_cond = translate_stata_expression_with_r_values(stata_if_cond, line_num, cmd_df, context = list(is_by_group = FALSE))
+    r_code_lines = c(r_code_lines,
+      paste0(eligible_rows_if_cond_var, " = (dplyr::coalesce(as.numeric(with(data, ", r_if_cond, ")), 0) != 0)")
+    )
+  } else {
+    r_code_lines = c(r_code_lines,
+      paste0(eligible_rows_if_cond_var, " = rep(TRUE, NROW(data))")
+    )
+  }
+
+  # 2. Determine rows with complete cases for model variables
+  complete_cases_vars_var = paste0("temp_complete_cases_L", line_num)
+  vars_for_cc_r_vec = paste0("c('", paste(all_vars_in_formula, collapse="','"), "')")
+  r_code_lines = c(r_code_lines,
+    paste0(complete_cases_vars_var, " = stats::complete.cases(data[, ", vars_for_cc_r_vec, ", drop=FALSE])")
+  )
+
+  # 3. Combine `if` eligibility and complete cases to define e(sample)
+  r_code_lines = c(r_code_lines,
+    paste0(e_sample_r_var_name, " = as.integer(", eligible_rows_if_cond_var, " & ", complete_cases_vars_var, ")")
+  )
+
+  # 4. Clean up temporary logical vectors
+  r_code_lines = c(r_code_lines, paste0("rm(", eligible_rows_if_cond_var, ", ", complete_cases_vars_var, ")"))
+
+  # Add a comment about the formula
+  r_code_lines = c(r_code_lines, paste0("# Regression model for e(sample): ", formula_str))
+  if (!is.na(stata_if_cond)) {
+    r_code_lines = c(r_code_lines, paste0("# Applied if condition: ", stata_if_cond))
+  }
+
+  return(paste(r_code_lines, collapse = "\n"))
+}
+
