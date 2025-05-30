@@ -17,7 +17,7 @@ cmd_df = do_parse(do_code)
 cmd_df = mark_data_manip_cmd(cmd_df)
 
 str(cmd_df)
-'data.frame':	38 obs. of  10 variables:
+'data.frame':	38 obs. of  13 variables:
  $ line                   : int  1 2 3 4 5 6 7 8 9 10 ...
  $ do_code                : chr  "use \"data.dta\", clear" "sort group i" "keep in 1/39" "list in 1/5" ...
  $ stata_cmd_original     : chr  "use" "sort" "keep" "list" ...
@@ -26,7 +26,88 @@ str(cmd_df)
  $ is_by_prefix           : logi  FALSE FALSE FALSE FALSE FALSE TRUE ...
  $ by_group_vars          : chr  "" "" "" "" ...
  $ by_sort_vars           : chr  "" "" "" "" ...
+ $ is_quietly_prefix      : logi  FALSE FALSE FALSE FALSE FALSE FALSE ...
  $ stata_translation_error: chr  NA NA NA NA ...
+ $ e_results_needed       :List of 38
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..- attr(*, "class")= chr "AsIs"
+ $ r_results_needed       :List of 38
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..- attr(*, "class")= chr "AsIs"
  $ do_translate           : logi  TRUE TRUE TRUE FALSE FALSE TRUE ...
 NULL
 
@@ -455,17 +536,34 @@ cmd_df = do_parse(do_code)
 cmd_df = mark_data_manip_cmd(cmd_df)
 
 str(cmd_df)
-'data.frame':	6 obs. of  10 variables:
+'data.frame':	6 obs. of  13 variables:
  $ line                   : int  1 2 3 4 5 6
  $ do_code                : chr  "use \"tricky_data.dta\", clear" "quietly regress y_outcome time" "quietly regress y_outcome x_numeric" "summarize x_numeric y_outcome" ...
- $ stata_cmd_original     : chr  "use" "quietly" "quietly" "summarize" ...
- $ stata_cmd              : chr  "use" "quietly" "quietly" "summarize" ...
- $ rest_of_cmd            : chr  "\"tricky_data.dta\", clear" "regress y_outcome time" "regress y_outcome x_numeric" "x_numeric y_outcome" ...
+ $ stata_cmd_original     : chr  "use" "regress" "regress" "summarize" ...
+ $ stata_cmd              : chr  "use" "regress" "regress" "summarize" ...
+ $ rest_of_cmd            : chr  "\"tricky_data.dta\", clear" "y_outcome time" "y_outcome x_numeric" "x_numeric y_outcome" ...
  $ is_by_prefix           : logi  FALSE FALSE FALSE FALSE FALSE FALSE
  $ by_group_vars          : chr  "" "" "" "" ...
  $ by_sort_vars           : chr  "" "" "" "" ...
+ $ is_quietly_prefix      : logi  FALSE TRUE TRUE FALSE FALSE FALSE
  $ stata_translation_error: chr  NA NA NA NA ...
- $ do_translate           : logi  TRUE FALSE FALSE TRUE TRUE TRUE
+ $ e_results_needed       :List of 6
+  ..$ : chr 
+  ..$ : chr "e(sample)"
+  ..$ : chr "e(sample)"
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..- attr(*, "class")= chr "AsIs"
+ $ r_results_needed       :List of 6
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..- attr(*, "class")= chr "AsIs"
+ $ do_translate           : logi  TRUE TRUE TRUE TRUE TRUE TRUE
 NULL
 
 ---
@@ -482,13 +580,37 @@ data = haven::read_dta(file.path(stata2r_env$working_dir, "tricky_data.dta")) %>
   sfun_normalize_string_nas() %>%
   dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used
 
- 2 do:  quietly regress y_outcome time 
+ 2 do:  quietly regress y_outcome time
+ 2 r:  temp_eligible_if_L2 = rep(TRUE, NROW(data))
+temp_complete_cases_L2 = stats::complete.cases(data[, c('y_outcome','time'), drop=FALSE])
+stata_e_sample_L2 = as.integer(temp_eligible_if_L2 & temp_complete_cases_L2)
+rm(temp_eligible_if_L2, temp_complete_cases_L2)
+# Regression model for e(sample): y_outcome ~ time 
+temp_eligible_if_L2 = rep(TRUE, NROW(data))
 
- 2 r:  not translated since not flagged as data manipulation
+temp_complete_cases_L2 = stats::complete.cases(data[, c('y_outcome','time'), drop=FALSE])
 
- 3 do:  quietly regress y_outcome x_numeric 
+stata_e_sample_L2 = as.integer(temp_eligible_if_L2 & temp_complete_cases_L2)
 
- 3 r:  not translated since not flagged as data manipulation
+rm(temp_eligible_if_L2, temp_complete_cases_L2)
+
+# Regression model for e(sample): y_outcome ~ time
+
+ 3 do:  quietly regress y_outcome x_numeric
+ 3 r:  temp_eligible_if_L3 = rep(TRUE, NROW(data))
+temp_complete_cases_L3 = stats::complete.cases(data[, c('y_outcome','x_numeric'), drop=FALSE])
+stata_e_sample_L3 = as.integer(temp_eligible_if_L3 & temp_complete_cases_L3)
+rm(temp_eligible_if_L3, temp_complete_cases_L3)
+# Regression model for e(sample): y_outcome ~ x_numeric 
+temp_eligible_if_L3 = rep(TRUE, NROW(data))
+
+temp_complete_cases_L3 = stats::complete.cases(data[, c('y_outcome','x_numeric'), drop=FALSE])
+
+stata_e_sample_L3 = as.integer(temp_eligible_if_L3 & temp_complete_cases_L3)
+
+rm(temp_eligible_if_L3, temp_complete_cases_L3)
+
+# Regression model for e(sample): y_outcome ~ x_numeric
 
  4 do:  summarize x_numeric y_outcome
  4 r:  stata_r_val_L4_N = NROW(data)
@@ -510,13 +632,13 @@ stata_r_val_L4_max = max(data[['y_outcome']], na.rm = TRUE)
 stata_r_val_L4_sum = sum(data[['y_outcome']], na.rm = TRUE)
 
  5 do:  keep if e(sample)
- 5 r:  data = dplyr::filter(data, (dplyr::coalesce(as.numeric(`e`(`sample`)), 0) != 0)) 
-data = dplyr::filter(data, (dplyr::coalesce(as.numeric(`e`(`sample`)), 0) != 0))
+ 5 r:  data = dplyr::filter(data, (dplyr::coalesce(as.numeric(e(`sample`)), 0) != 0)) 
+data = dplyr::filter(data, (dplyr::coalesce(as.numeric(e(`sample`)), 0) != 0))
 
 Error: Problem with `filter()` input `..1`.
 ℹ Input `..1` is `(dplyr::coalesce(as.numeric(e(sample)), 0) != 0)`.
 ✖ could not find function "e"
-Error executing R code for Stata line  5 :  data = dplyr::filter(data, (dplyr::coalesce(as.numeric(`e`(`sample`)), 0) != 0))
+Error executing R code for Stata line  5 :  data = dplyr::filter(data, (dplyr::coalesce(as.numeric(e(`sample`)), 0) != 0))
 
 Error: Problem with `filter()` input `..1`.
 ℹ Input `..1` is `(dplyr::coalesce(as.numeric(e(sample)), 0) != 0)`.
