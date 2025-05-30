@@ -21,8 +21,8 @@ t_use = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   r_code = paste0("data = haven::read_dta(", filename_r_expr, ")")
 
-  # Normalize string NAs to empty strings ""
-  r_code = paste0(r_code, " %>% \n  sfun_normalize_string_nas()")
+  # Strip haven attributes and normalize string NAs to empty strings ""
+  r_code = paste0(r_code, " %>% \n  sfun_strip_stata_attributes() %>% \n  sfun_normalize_string_nas()")
 
   # Add a column to preserve the original row order, for use in `egen group()`/`tag()`
   r_code = paste0(r_code, " %>%\n  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number())")
@@ -39,4 +39,5 @@ t_use = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   return(r_code)
 }
+
 

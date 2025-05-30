@@ -34,8 +34,9 @@ t_append = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   temp_using_data_var = paste0("stata_tmp_using_data_L", line_num)
   temp_master_data_var = paste0("stata_tmp_master_data_L", line_num) # New temp var for master data before binding
 
-  # Read using data and normalize string NAs
+  # Read using data, strip attributes and normalize string NAs
   r_code_lines = c(r_code_lines, paste0(temp_using_data_var, " = haven::read_dta(", using_source_r_expr, ")"))
+  r_code_lines = c(r_code_lines, paste0(temp_using_data_var, " = sfun_strip_stata_attributes(", temp_using_data_var, ")")) # Added
   r_code_lines = c(r_code_lines, paste0(temp_using_data_var, " = sfun_normalize_string_nas(", temp_using_data_var, ")"))
 
   # Prepare master data for append, including original order idx and source flag
@@ -73,4 +74,5 @@ t_append = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   return(r_code_str)
 }
+
 
