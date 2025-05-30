@@ -149,13 +149,12 @@ aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="", do_file
           r_data = dplyr::select(r_data, -dplyr::any_of(cols_to_remove_from_r_for_comp))
       }
 
-      if (NROW(r_data) != NROW(do_data)) {
-          cat(paste0("\nError: After Stata line ", original_stata_line_num, ", R data set has ", NROW(r_data), " rows, but Stata reference has ", NROW(do_data), " rows.\n"))
-          cat("This discrepancy might indicate an issue with the test data or an unexpected behavior difference in row manipulation.\n")
-      }
-
       comp = compare_df(do_data, r_data, ignore_cols_values = c(non_deterministic_cols, "stata2r_original_order_idx", test_specific_ignore_cols))
       if (!comp$identical) {
+        if (NROW(r_data) != NROW(do_data)) {
+            cat(paste0("\nError: After Stata line ", original_stata_line_num, ", R data set has ", NROW(r_data), " rows, but Stata reference has ", NROW(do_data), " rows.\n"))
+            cat("This discrepancy might indicate an issue with the test data or an unexpected behavior difference in row manipulation.\n")
+        }
         cat("\nError: After Stata line ", original_stata_line_num, ", R data set differs from Stata reference.\n")
         cat("\nData set from Stata (do_df):\n")
         print(str(do_data))
@@ -218,6 +217,13 @@ compare_df = function(df1, df2,
   }
 
   out = list(identical=FALSE)
+
+  # Check row counts first and return early if different, without detailed column diffs
+  if (NROW(df1) != NROW(df2)) {
+    out$row_count_mismatch = paste0("df1 has ", NROW(df1), " rows, df2 has ", NROW(df2), " rows.")
+    return(out)
+  }
+
 
   names_df1_raw = unname(as.character(names(df1)))
   names_df2_raw = unname(as.character(names(df2)))
