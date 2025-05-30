@@ -103,16 +103,15 @@ get_stata_full_cmd_name = function(cmd_token) {
 # List of Stata commands considered to modify the dataset or produce results for later modification
 stata_data_manip_cmds = c(
   "append", "collapse", "compress", "contract", "decode", "destring", "drop",
-  "duplicates", "egen", "encode", "expand", "fillin", "format",
+  "duplicates", "egen", "encode", "expand", "fillin",
   "generate", "gen", "gsort", "input", "insheet", "keep", "label",
   "merge", "modify", "move", "mvdecode", "mvrecode", "order", "pctile", # pctile often part of egen
   "predict", # predict generates new variables
   "preserve", "recode", "rename", "reshape", "restore", "sample", "set", # e.g. set obs, set type (can change data interpretation)
   "sort", "stack", "statsby", "stsplit",
-  "summarize", "su", # summarize if r() is used, or by default include
-  "svar", "sysuse", "tabulate", # tabulate can set r() values
+  "svar", "sysuse",
   "tempfile", "tempvar", "tempname",
-  "total", "type", # type can be for var type changes
+  "total", # total can generate new variables
   "use", "xtile" # xtile often part of egen
   ,"replace", "clear" # clear (all data), replace
 )
@@ -121,11 +120,14 @@ stata_non_data_manip_cmds = c( # This list is for marking FALSE explicitly if ne
   "assert", "browse", "capture", "cd", "confirm", "constraint", "correlate", # correlate sets r() but often for display
   "count", # count sets r() but often for display
   "describe", "d", "dir", "display", "di", "do", "edit", "erase", "error", "estimates", # estimates command group
-  "exit", "findit", "graph", "gr", "help", "h", "if", "inspect", "i", "list", "l", "log", "lookup", "marksample",
+  "exit", "findit", "format", # Format only affects display, not data values.
+  "graph", "gr", "help", "h", "if", "inspect", "i", "list", "l", "log", "lookup", "marksample",
   "matrix", "mat", "memory", "mem", "mkdir", "more", "mo", "notes", "n", "outfile", "outsheet", "ou", "pause", "plot",
   "print", "program", "pwd", "query", # "quietly" is not a command itself, but a prefix
   "return", "ret", "rmdir", "run", "ru", "scalar", "sc", "search", "shell", "sh", "signestim", "sleep",
-  "stata", "st", "tabdisp", "table", "test", "te", "timer", "translate", "truncate",
+  "stata", "st", "summarize", "su", # summarize if r() is used, or by default include
+  "tabulate", "t", # tabulate can set r() values
+  "tabdisp", "table", "test", "te", "timer", "translate", "truncate",
   "tutorials", "type", "ty", # `type` command to display file content (different from `set type`)
   "view", "version", "v", "webuse", "w", "which", "while", "window", "winexec", "xmlsav"
 )
@@ -320,5 +322,4 @@ resolve_stata_filename = function(raw_filename_token, cmd_df, line_num, default_
     }
   }
 }
-
 

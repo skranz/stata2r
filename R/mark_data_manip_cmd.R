@@ -45,12 +45,13 @@ mark_data_manip_cmd = function(cmd_df) {
       if (length(needed_r_results) > 0) {
         cmd_df$do_translate[i] = TRUE
         cmd_df$r_results_needed[[i]] = union(cmd_df$r_results_needed[[i]], needed_r_results)
-      } else if (current_cmd %in% c("summarize", "su")) {
-        # By default, `summarize` might be considered data manip if it changes r()
-        # even if not explicitly used later, for safety/completeness.
-        # However, the prompt implies only translate if *used*.
-        # For now, if no r() used, and it's just summarize, don't translate unless in stata_data_manip_cmds
-        # If it *is* in stata_data_manip_cmds, it's already TRUE.
+      } else {
+        # If no r() values are used, and it's summarize/tabulate (now in non_data_manip_cmds),
+        # ensure it's not translated unless already marked true by another rule.
+        # This part is implicitly handled by the initial `do_translate = cmd_df$stata_cmd %in% stata_data_manip_cmds`
+        # and the later `stata_non_data_manip_cmds` override.
+        # But explicitly ensuring it's FALSE if no r() is needed.
+        cmd_df$do_translate[i] = FALSE
       }
     }
 
@@ -76,35 +77,15 @@ mark_data_manip_cmd = function(cmd_df) {
 
   # --- Final explicit overrides ---
   # Commands that are definitely not data manipulation (e.g. `list`, `display` for scalars)
-  non_manip_cmds = c("list", "display", "describe", "help", "about", "query", "set more off", "set rmsg on", "format") # etc.
   # `format` only affects display, not data values.
-
-  # Re-evaluate for non_manip_cmds: only set to FALSE if they weren't marked TRUE due to r()/e() usage.
+  # These commands are now in stata_non_data_manip_cmds.
+  # If a command is in stata_non_data_manip_cmds, it should be FALSE unless its r()/e() results are *explicitly* needed.
   for (k in seq_len(NROW(cmd_df))) {
-      if (cmd_df$stata_cmd[k] %in% non_manip_cmds) {
-          # If it's a non-manip command but was marked TRUE because its r() or e() results are needed, keep it TRUE.
-          # Otherwise, set it to FALSE.
-          # This means commands like 'summarize' might be TRUE if r() is used, 'regress' if e() is used.
-          # 'display' itself doesn't change data, but if we needed to translate `display r(mean)`,
-          # then the preceding `summarize` would be TRUE. `display` itself would be FALSE.
-          # This logic seems to be implicitly handled by the r()/e() check above.
-          # So, if a command like 'format' is in stata_data_manip_cmds, it's TRUE.
-          # If it's also in non_manip_cmds, it becomes FALSE here.
+      if (cmd_df$stata_cmd[k] %in% stata_non_data_manip_cmds) {
+          # Only set to FALSE if it was not marked TRUE because its r() or e() results are needed.
           if (! (isTRUE(cmd_df$do_translate[k]) &&
                  (length(unlist(cmd_df$r_results_needed[k])) > 0 || length(unlist(cmd_df$e_results_needed[k])) > 0) ) ) {
-              # If not providing essential r()/e() values, mark as non-translatable if in non_manip_cmds
-              # The 'format' command is an exception; it's often in stata_data_manip_cmds due to 'type' confusion,
-              # but it should be FALSE unless its r() values are specifically used (unlikely for `format`).
-              # The current stata_data_manip_cmds includes "format", which is problematic.
-              # `format` command in Stata is for display formats. It doesn't change data.
-              # Stata `set type` or `recast` changes data type.
-
-              if (cmd_df$stata_cmd[k] == "format") { # Explicitly set format to FALSE
-                  cmd_df$do_translate[k] = FALSE
-              } else if (cmd_df$stata_cmd[k] %in% stata_non_data_manip_cmds) {
-                 # If it's in the broader stata_non_data_manip_cmds list, and not providing essential r()/e()
-                 cmd_df$do_translate[k] = FALSE
-              }
+              cmd_df$do_translate[k] = FALSE
           }
       }
   }
@@ -129,5 +110,4 @@ mark_data_manip_cmd = function(cmd_df) {
 
   return(cmd_df)
 }
-
 

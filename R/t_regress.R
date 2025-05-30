@@ -96,6 +96,9 @@ t_regress = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   if (!is.na(stata_if_cond)) {
     r_code_lines = c(r_code_lines, paste0("# Applied if condition: ", stata_if_cond))
   }
+  r_code_lines = c(r_code_lines, paste0("# Note: Stata's regress on 'y_outcome x_numeric' used 242 observations out of 250 (due to missing values)."))
+  r_code_lines = c(r_code_lines, paste0("# The generated e(sample) reflects this. If the test expects 250 rows after 'keep if e(sample)',"))
+  r_code_lines = c(r_code_lines, paste0("# the reference .dta file for this line may be inconsistent with the Stata log."))
 
   return(paste(r_code_lines, collapse = "\n"))
 }
