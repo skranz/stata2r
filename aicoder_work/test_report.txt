@@ -632,14 +632,12 @@ stata_r_val_L4_max = max(data[['y_outcome']], na.rm = TRUE)
 stata_r_val_L4_sum = sum(data[['y_outcome']], na.rm = TRUE)
 
  5 do:  keep if e(sample)
- 5 r:  data = dplyr::filter(data, (dplyr::coalesce(as.numeric(e(`sample`)), 0) != 0)) 
-data = dplyr::filter(data, (dplyr::coalesce(as.numeric(e(`sample`)), 0) != 0))
+ 5 r:  data = dplyr::filter(data, (dplyr::coalesce(as.numeric(stata_e_sample_L3), 0) != 0)) 
+data = dplyr::filter(data, (dplyr::coalesce(as.numeric(stata_e_sample_L3), 0) != 0))
 
-Error: Problem with `filter()` input `..1`.
-ℹ Input `..1` is `(dplyr::coalesce(as.numeric(e(sample)), 0) != 0)`.
-✖ could not find function "e"
-Error executing R code for Stata line  5 :  data = dplyr::filter(data, (dplyr::coalesce(as.numeric(e(`sample`)), 0) != 0))
+Error: After Stata line 5, R data set has 242 rows, but Stata reference has 250 rows.
+This discrepancy might indicate an issue with the test data or an unexpected behavior difference in row manipulation.
+Error in vec_slice(x, i) : Can't subset elements past the end.
+ℹ Location 243 doesn't exist.
+ℹ There are only 242 elements.
 
-Error: Problem with `filter()` input `..1`.
-ℹ Input `..1` is `(dplyr::coalesce(as.numeric(e(sample)), 0) != 0)`.
-✖ could not find function "e" 
