@@ -1902,8 +1902,9 @@ t_append = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   temp_using_data_var = paste0("stata_tmp_using_data_L", line_num)
   temp_master_data_var = paste0("stata_tmp_master_data_L", line_num) # New temp var for master data before binding
 
-  # Read using data and normalize string NAs
+  # Read using data, strip attributes and normalize string NAs
   r_code_lines = c(r_code_lines, paste0(temp_using_data_var, " = haven::read_dta(", using_source_r_expr, ")"))
+  r_code_lines = c(r_code_lines, paste0(temp_using_data_var, " = sfun_strip_stata_attributes(", temp_using_data_var, ")")) # Added
   r_code_lines = c(r_code_lines, paste0(temp_using_data_var, " = sfun_normalize_string_nas(", temp_using_data_var, ")"))
 
   # Prepare master data for append, including original order idx and source flag
@@ -1941,6 +1942,7 @@ t_append = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   return(r_code_str)
 }
+
 
 ```
 ### END OF FILE: t_append.R
@@ -3691,7 +3693,10 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
        return(paste0("# merge command requires varlist: ", rest_of_cmd))
   }
   # For dplyr::join, by argument can be a character vector of column names
+  # Create a temporary R variable to hold the character vector of merge keys
+  merge_keys_r_var = paste0("stata_merge_keys_L", line_num)
   vars_to_merge_on_r_vec_str = paste0('c("', paste(vars_to_merge_on, collapse = '", "'), '")')
+
 
   using_source_r_expr = resolve_stata_filename(raw_filename_token, cmd_df, line_num, default_base_dir_var = "working_dir")
 
@@ -3722,6 +3727,10 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   r_code_lines = c()
   temp_using_data_var = paste0("stata_tmp_using_data_L", line_num)
 
+  # Define the merge keys as an R variable
+  r_code_lines = c(r_code_lines, paste0(merge_keys_r_var, " = ", vars_to_merge_on_r_vec_str))
+
+
   # Read using data
   r_code_lines = c(r_code_lines, paste0(temp_using_data_var, " = haven::read_dta(", using_source_r_expr, ")"))
 
@@ -3733,64 +3742,47 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   r_code_lines = c(r_code_lines, paste0(temp_using_data_var, " = sfun_normalize_string_nas(", temp_using_data_var, ")")) # Added
 
   # Ensure merge keys are plain numeric for robustness against haven-specific types
+  # Use the merge_keys_r_var for dynamic selection
   r_code_lines = c(r_code_lines,
-      paste0("data = dplyr::mutate(data, ", paste0("`", vars_to_merge_on, "` = as.numeric(`", vars_to_merge_on, "`)", collapse = ", "), ")"),
-      paste0(temp_using_data_var, " = dplyr::mutate(", temp_using_data_var, ", ", paste0("`", vars_to_merge_on, "` = as.numeric(`", vars_to_merge_on, "`)", collapse = ", "), ")")
+      paste0("data = dplyr::mutate(data, dplyr::across(dplyr::all_of(", merge_keys_r_var, "), as.numeric))"),
+      paste0(temp_using_data_var, " = dplyr::mutate(", temp_using_data_var, ", dplyr::across(dplyr::all_of(", merge_keys_r_var, "), as.numeric))")
   )
 
-  # Initialize variables for join type and merge indicator mapping in the *generated R code*
-  join_type_var_in_r = paste0("join_type_r_func_L", line_num)
-  stata_merge_map_left_only_var_in_r = paste0("stata_merge_map_left_only_L", line_num)
-  stata_merge_map_right_only_var_in_r = paste0("stata_merge_map_right_only_L", line_num)
-  stata_merge_map_both_var_in_r = paste0("stata_merge_map_both_L", line_num)
+  # Determine the dplyr join function based on Stata merge type and keep() option
+  dplyr_join_func = "dplyr::full_join" # Default for _merge variable calculation
 
-  # New temp vars for package and function name resolution in generated R code
-  pkg_name_in_r_code = paste0("pkg_name_L", line_num)
-  fun_name_in_r_code = paste0("fun_name_L", line_num)
-  merge_fun_obj_in_r_code = paste0("merge_fun_obj_L", line_num)
-
-
-  # Default join type based on Stata's merge type.
-  # For 1:1, 1:m, m:1, m:m, the `_merge` variable requires a full understanding of matches.
-  # `full_join` with `indicator` provides all necessary categories (left_only, right_only, both).
-  r_code_lines = c(r_code_lines, paste0(join_type_var_in_r, " = switch('", merge_type, "', "))
-  r_code_lines = c(r_code_lines, paste0("  '1:1' = 'dplyr::full_join',"))
-  r_code_lines = c(r_code_lines, paste0("  '1:m' = 'dplyr::left_join',"))
-  r_code_lines = c(r_code_lines, paste0("  'm:1' = 'dplyr::right_join',"))
-  r_code_lines = c(r_code_lines, paste0("  'm:m' = 'dplyr::inner_join'"))
-  r_code_lines = c(r_code_lines, paste0(")"))
-
-  r_code_lines = c(r_code_lines, paste0(stata_merge_map_left_only_var_in_r, " = 1L"))
-  r_code_lines = c(r_code_lines, paste0(stata_merge_map_right_only_var_in_r, " = 2L"))
-  r_code_lines = c(r_code_lines, paste0(stata_merge_map_both_var_in_r, " = 3L"))
-  
-  # Logic for `keep()` option (converted to generated R code)
+  # Logic for `keep()` option
   if (!is.na(actual_keep_spec_from_options)) {
-      # Use grepl with word boundaries for robustness
-      r_code_lines = c(r_code_lines, paste0("if (grepl(\"\\\\ball\\\\b\", \"", actual_keep_spec_from_options, "\", ignore.case=TRUE)) {"))
-      r_code_lines = c(r_code_lines, paste0("  ", join_type_var_in_r, " = \"dplyr::full_join\""))
-      r_code_lines = c(r_code_lines, paste0("} else if (grepl(\"\\\\bmaster\\\\b\", \"", actual_keep_spec_from_options, "\", ignore.case=TRUE)) {"))
-      r_code_lines = c(r_code_lines, paste0("  ", join_type_var_in_r, " = \"dplyr::left_join\""))
-      r_code_lines = c(r_code_lines, paste0("} else if (grepl(\"\\\\busing\\\\b\", \"", actual_keep_spec_from_options, "\", ignore.case=TRUE)) {"))
-      r_code_lines = c(r_code_lines, paste0("  ", join_type_var_in_r, " = \"dplyr::right_join\""))
-      r_code_lines = c(r_code_lines, paste0("} else if (grepl(\"\\\\bmatch\\\\b\", \"", actual_keep_spec_from_options, "\", ignore.case=TRUE)) {"))
-      r_code_lines = c(r_code_lines, paste0("  ", join_type_var_in_r, " = \"dplyr::inner_join\""))
-      r_code_lines = c(r_code_lines, "}")
+      if (stringi::stri_detect_regex(actual_keep_spec_from_options, "\\ball\\b")) {
+          dplyr_join_func = "dplyr::full_join"
+      } else if (stringi::stri_detect_regex(actual_keep_spec_from_options, "\\bmaster\\b")) {
+          dplyr_join_func = "dplyr::left_join"
+      } else if (stringi::stri_detect_regex(actual_keep_spec_from_options, "\\busing\\b")) {
+          dplyr_join_func = "dplyr::right_join"
+      } else if (stringi::stri_detect_regex(actual_keep_spec_from_options, "\\bmatch\\b")) {
+          dplyr_join_func = "dplyr::inner_join"
+      }
+  } else { # No explicit keep() option, use Stata defaults
+      if (merge_type %in% c("1:1", "1:m", "m:1")) {
+          dplyr_join_func = "dplyr::inner_join" # Stata default for 1:1, 1:m, m:1 is to keep matched only
+      } else if (merge_type == "m:m") {
+          dplyr_join_func = "dplyr::full_join" # Stata default for m:m is to keep all
+      }
   }
 
-  # Logic for 1:1 merge strictness (moved to generated R code)
-  # This part performs Stata's duplicate key checks for 1:1 merge.
+
+  # Logic for 1:1 merge strictness
   if (merge_type == "1:1") {
       r_code_lines = c(r_code_lines,
-          paste0("if (any(base::duplicated(dplyr::select(data, dplyr::all_of(", vars_to_merge_on_r_vec_str, "))))) { stop('Merge 1:1 failed: Duplicate keys found in master dataset (data).') }"),
-          paste0("if (any(base::duplicated(dplyr::select(", temp_using_data_var, ", dplyr::all_of(", vars_to_merge_on_r_vec_str, "))))) { stop('Merge 1:1 failed: Duplicate keys found in using dataset (', ", using_source_r_expr, ", ').') }")
+          paste0("if (any(base::duplicated(dplyr::select(data, dplyr::all_of(", merge_keys_r_var, "))))) { stop('Merge 1:1 failed: Duplicate keys found in master dataset (data).') }"),
+          paste0("if (any(base::duplicated(dplyr::select(", temp_using_data_var, ", dplyr::all_of(", merge_keys_r_var, "))))) { stop('Merge 1:1 failed: Duplicate keys found in using dataset (', ", using_source_r_expr, ", ').') }")
       )
   }
 
   # Identify common columns that are NOT merge keys
   r_code_lines = c(r_code_lines,
     paste0("common_cols = intersect(names(data), names(", temp_using_data_var, "))"),
-    paste0("common_cols_not_by = setdiff(common_cols, ", vars_to_merge_on_r_vec_str, ")")
+    paste0("common_cols_not_by = setdiff(common_cols, ", merge_keys_r_var, ")")
   )
 
   # Conditional dropping of columns from the using dataset
@@ -3800,23 +3792,12 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     paste0("if (length(common_cols_not_by) > 0) { ", temp_using_data_var, " = dplyr::select(", temp_using_data_var, ", -dplyr::all_of(common_cols_not_by)) }")
   )
 
-  # NEW: Resolve function using get and asNamespace before do.call
-  r_code_lines = c(r_code_lines,
-    paste0("parts_fun_split = stringi::stri_split_fixed(", join_type_var_in_r, ", \"::\", n=2)[[1]]"),
-    paste0(pkg_name_in_r_code, " = parts_fun_split[1]"),
-    paste0(fun_name_in_r_code, " = parts_fun_split[2]"),
-    paste0(merge_fun_obj_in_r_code, " = get(", fun_name_in_r_code, ", envir = asNamespace(", pkg_name_in_r_code, "))")
-  )
-
   # Perform the join with indicator
   r_code_lines = c(r_code_lines,
-    paste0("data = do.call(", merge_fun_obj_in_r_code, ", list(data, ", temp_using_data_var, ", by = ", vars_to_merge_on_r_vec_str, ", indicator = \"", indicator_col_name, "\"))")
+    paste0("data = ", dplyr_join_func, "(data, ", temp_using_data_var, ", by = ", merge_keys_r_var, ", suffix = c(\"\", \"._using\"), relationship = \"", merge_type, "\", indicator = \"", indicator_col_name, "\")")
   )
 
   # NEW: Post-merge processing for string NAs to empty strings
-  # This part is now handled by sfun_normalize_string_nas after `read_dta` and `strip_stata_attributes`.
-  # The `dplyr::join` might reintroduce NAs in character columns if they are not matched,
-  # so this is still needed to ensure consistency.
   r_code_lines = c(r_code_lines, paste0("data = sfun_normalize_string_nas(data)"))
 
 
@@ -3824,9 +3805,9 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   if (!has_nogenerate) {
       r_code_lines = c(r_code_lines,
           paste0("data = dplyr::mutate(data, `_merge` = dplyr::case_when("),
-          paste0("  `", indicator_col_name, "` == \"left_only\" ~ as.integer(", stata_merge_map_left_only_var_in_r, "),"),
-          paste0("  `", indicator_col_name, "` == \"right_only\" ~ as.integer(", stata_merge_map_right_only_var_in_r, "),"),
-          paste0("  `", indicator_col_name, "` == \"both\" ~ as.integer(", stata_merge_map_both_var_in_r, "),"),
+          paste0("  `", indicator_col_name, "` == \"left_only\" ~ 1L,"),
+          paste0("  `", indicator_col_name, "` == \"right_only\" ~ 2L,"),
+          paste0("  `", indicator_col_name, "` == \"both\" ~ 3L,"),
           paste0("  TRUE ~ NA_integer_"),
           paste0("))")
       )
@@ -3838,13 +3819,8 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   r_code_lines = c(r_code_lines, paste0("data = dplyr::select(data, -dplyr::any_of('", indicator_col_name, "'))"))
 
   # Clean up temporary variables
-  r_code_lines = c(r_code_lines, paste0("rm(", temp_using_data_var, ", common_cols, common_cols_not_by, parts_fun_split)"))
+  r_code_lines = c(r_code_lines, paste0("rm(", temp_using_data_var, ", common_cols, common_cols_not_by, ", merge_keys_r_var, ")"))
   
-  # Clean up the new temporary variables created for the generated R code
-  r_code_lines = c(r_code_lines, paste0("rm(", join_type_var_in_r, ", ", stata_merge_map_left_only_var_in_r, ", ", stata_merge_map_right_only_var_in_r, ", ", stata_merge_map_both_var_in_r, ")"))
-  # NEW: Clean up the new temp vars
-  r_code_lines = c(r_code_lines, paste0("rm(", pkg_name_in_r_code, ", ", fun_name_in_r_code, ", ", merge_fun_obj_in_r_code, ")"))
-
 
   # Add comment about options
   merge_comment_line = paste0("# Stata merge type: ", merge_type, ", keep(", keep_spec_for_comment, ")")
@@ -3866,6 +3842,7 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 
 ```
 ### END OF FILE: t_merge.R
@@ -4975,8 +4952,8 @@ t_use = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   r_code = paste0("data = haven::read_dta(", filename_r_expr, ")")
 
-  # Normalize string NAs to empty strings ""
-  r_code = paste0(r_code, " %>% \n  sfun_normalize_string_nas()")
+  # Strip haven attributes and normalize string NAs to empty strings ""
+  r_code = paste0(r_code, " %>% \n  sfun_strip_stata_attributes() %>% \n  sfun_normalize_string_nas()")
 
   # Add a column to preserve the original row order, for use in `egen group()`/`tag()`
   r_code = paste0(r_code, " %>%\n  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number())")
@@ -4993,6 +4970,7 @@ t_use = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   return(r_code)
 }
+
 
 ```
 ### END OF FILE: t_use.R
@@ -5255,9 +5233,11 @@ NULL
 
  1 do:  use "data.dta", clear
  1 r:  data = haven::read_dta(file.path(stata2r_env$working_dir, "data.dta")) %>% 
+  sfun_strip_stata_attributes() %>% 
   sfun_normalize_string_nas() %>%
   dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used 
 data = haven::read_dta(file.path(stata2r_env$working_dir, "data.dta")) %>% 
+  sfun_strip_stata_attributes() %>% 
   sfun_normalize_string_nas() %>%
   dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used
 
@@ -5466,46 +5446,25 @@ haven::write_dta(data, path = R_tempfile_L24_t1_path)
 data = dplyr::filter(data, (dplyr::coalesce(as.numeric(`group_code`==1), 0) != 0))
 
  27 do:  merge 1:m group_code using "`t1'", keep(match master) nogenerate
- 27 r:  stata_tmp_using_data_L27 = haven::read_dta(R_tempfile_L24_t1_path)
+ 27 r:  stata_merge_keys_L27 = c("group_code")
+stata_tmp_using_data_L27 = haven::read_dta(R_tempfile_L24_t1_path)
 data = sfun_strip_stata_attributes(data)
 data = sfun_normalize_string_nas(data)
 stata_tmp_using_data_L27 = sfun_strip_stata_attributes(stata_tmp_using_data_L27)
 stata_tmp_using_data_L27 = sfun_normalize_string_nas(stata_tmp_using_data_L27)
-data = dplyr::mutate(data, `group_code` = as.numeric(`group_code`))
-stata_tmp_using_data_L27 = dplyr::mutate(stata_tmp_using_data_L27, `group_code` = as.numeric(`group_code`))
-join_type_r_func_L27 = switch('1:m', 
-  '1:1' = 'dplyr::full_join',
-  '1:m' = 'dplyr::left_join',
-  'm:1' = 'dplyr::right_join',
-  'm:m' = 'dplyr::inner_join'
-)
-stata_merge_map_left_only_L27 = 1L
-stata_merge_map_right_only_L27 = 2L
-stata_merge_map_both_L27 = 3L
-if (grepl("\\ball\\b", "match master", ignore.case=TRUE)) {
-  join_type_r_func_L27 = "dplyr::full_join"
-} else if (grepl("\\bmaster\\b", "match master", ignore.case=TRUE)) {
-  join_type_r_func_L27 = "dplyr::left_join"
-} else if (grepl("\\busing\\b", "match master", ignore.case=TRUE)) {
-  join_type_r_func_L27 = "dplyr::right_join"
-} else if (grepl("\\bmatch\\b", "match master", ignore.case=TRUE)) {
-  join_type_r_func_L27 = "dplyr::inner_join"
-}
+data = dplyr::mutate(data, dplyr::across(dplyr::all_of(stata_merge_keys_L27), as.numeric))
+stata_tmp_using_data_L27 = dplyr::mutate(stata_tmp_using_data_L27, dplyr::across(dplyr::all_of(stata_merge_keys_L27), as.numeric))
 common_cols = intersect(names(data), names(stata_tmp_using_data_L27))
-common_cols_not_by = setdiff(common_cols, c("group_code"))
+common_cols_not_by = setdiff(common_cols, stata_merge_keys_L27)
 if (length(common_cols_not_by) > 0) { stata_tmp_using_data_L27 = dplyr::select(stata_tmp_using_data_L27, -dplyr::all_of(common_cols_not_by)) }
-parts_fun_split = stringi::stri_split_fixed(join_type_r_func_L27, "::", n=2)[[1]]
-pkg_name_L27 = parts_fun_split[1]
-fun_name_L27 = parts_fun_split[2]
-merge_fun_obj_L27 = get(fun_name_L27, envir = asNamespace(pkg_name_L27))
-data = do.call(merge_fun_obj_L27, list(data, stata_tmp_using_data_L27, by = c("group_code"), indicator = "stata_merge_indicator_L27"))
+data = dplyr::left_join(data, stata_tmp_using_data_L27, by = stata_merge_keys_L27, suffix = c("", "._using"), relationship = "1:m", indicator = "stata_merge_indicator_L27")
 data = sfun_normalize_string_nas(data)
  # _merge variable was not generated due to 'nogenerate' option.
 data = dplyr::select(data, -dplyr::any_of('stata_merge_indicator_L27'))
-rm(stata_tmp_using_data_L27, common_cols, common_cols_not_by, parts_fun_split)
-rm(join_type_r_func_L27, stata_merge_map_left_only_L27, stata_merge_map_right_only_L27, stata_merge_map_both_L27)
-rm(pkg_name_L27, fun_name_L27, merge_fun_obj_L27)
+rm(stata_tmp_using_data_L27, common_cols, common_cols_not_by, stata_merge_keys_L27)
 # Stata merge type: 1:m, keep(match master), nogenerate 
+stata_merge_keys_L27 = c("group_code")
+
 stata_tmp_using_data_L27 = haven::read_dta(R_tempfile_L24_t1_path)
 
 data = sfun_strip_stata_attributes(data)
@@ -5516,48 +5475,17 @@ stata_tmp_using_data_L27 = sfun_strip_stata_attributes(stata_tmp_using_data_L27)
 
 stata_tmp_using_data_L27 = sfun_normalize_string_nas(stata_tmp_using_data_L27)
 
-data = dplyr::mutate(data, `group_code` = as.numeric(`group_code`))
+data = dplyr::mutate(data, dplyr::across(dplyr::all_of(stata_merge_keys_L27), as.numeric))
 
-stata_tmp_using_data_L27 = dplyr::mutate(stata_tmp_using_data_L27, `group_code` = as.numeric(`group_code`))
-
-join_type_r_func_L27 = switch('1:m', 
-  '1:1' = 'dplyr::full_join',
-  '1:m' = 'dplyr::left_join',
-  'm:1' = 'dplyr::right_join',
-  'm:m' = 'dplyr::inner_join'
-)
-
-stata_merge_map_left_only_L27 = 1L
-
-stata_merge_map_right_only_L27 = 2L
-
-stata_merge_map_both_L27 = 3L
-
-if (grepl("\\ball\\b", "match master", ignore.case=TRUE)) {
-  join_type_r_func_L27 = "dplyr::full_join"
-} else if (grepl("\\bmaster\\b", "match master", ignore.case=TRUE)) {
-  join_type_r_func_L27 = "dplyr::left_join"
-} else if (grepl("\\busing\\b", "match master", ignore.case=TRUE)) {
-  join_type_r_func_L27 = "dplyr::right_join"
-} else if (grepl("\\bmatch\\b", "match master", ignore.case=TRUE)) {
-  join_type_r_func_L27 = "dplyr::inner_join"
-}
+stata_tmp_using_data_L27 = dplyr::mutate(stata_tmp_using_data_L27, dplyr::across(dplyr::all_of(stata_merge_keys_L27), as.numeric))
 
 common_cols = intersect(names(data), names(stata_tmp_using_data_L27))
 
-common_cols_not_by = setdiff(common_cols, c("group_code"))
+common_cols_not_by = setdiff(common_cols, stata_merge_keys_L27)
 
 if (length(common_cols_not_by) > 0) { stata_tmp_using_data_L27 = dplyr::select(stata_tmp_using_data_L27, -dplyr::all_of(common_cols_not_by)) }
 
-parts_fun_split = stringi::stri_split_fixed(join_type_r_func_L27, "::", n=2)[[1]]
-
-pkg_name_L27 = parts_fun_split[1]
-
-fun_name_L27 = parts_fun_split[2]
-
-merge_fun_obj_L27 = get(fun_name_L27, envir = asNamespace(pkg_name_L27))
-
-data = do.call(merge_fun_obj_L27, list(data, stata_tmp_using_data_L27, by = c("group_code"), indicator = "stata_merge_indicator_L27"))
+data = dplyr::left_join(data, stata_tmp_using_data_L27, by = stata_merge_keys_L27, suffix = c("", "._using"), relationship = "1:m", indicator = "stata_merge_indicator_L27")
 
 data = sfun_normalize_string_nas(data)
 
@@ -5565,16 +5493,13 @@ data = sfun_normalize_string_nas(data)
 
 data = dplyr::select(data, -dplyr::any_of('stata_merge_indicator_L27'))
 
-rm(stata_tmp_using_data_L27, common_cols, common_cols_not_by, parts_fun_split)
-
-rm(join_type_r_func_L27, stata_merge_map_left_only_L27, stata_merge_map_right_only_L27, stata_merge_map_both_L27)
-
-rm(pkg_name_L27, fun_name_L27, merge_fun_obj_L27)
+rm(stata_tmp_using_data_L27, common_cols, common_cols_not_by, stata_merge_keys_L27)
 
 # Stata merge type: 1:m, keep(match master), nogenerate
 
  28 do:  append using "`t1'"
  28 r:  stata_tmp_using_data_L28 = haven::read_dta(R_tempfile_L24_t1_path)
+stata_tmp_using_data_L28 = sfun_strip_stata_attributes(stata_tmp_using_data_L28)
 stata_tmp_using_data_L28 = sfun_normalize_string_nas(stata_tmp_using_data_L28)
 stata_tmp_master_data_L28 = data
 stata_tmp_master_data_L28 = sfun_normalize_string_nas(stata_tmp_master_data_L28)
@@ -5582,6 +5507,8 @@ data = dplyr::bind_rows(stata_tmp_master_data_L28, stata_tmp_using_data_L28)
 data = sfun_normalize_string_nas(data)
 rm(stata_tmp_using_data_L28, stata_tmp_master_data_L28) 
 stata_tmp_using_data_L28 = haven::read_dta(R_tempfile_L24_t1_path)
+
+stata_tmp_using_data_L28 = sfun_strip_stata_attributes(stata_tmp_using_data_L28)
 
 stata_tmp_using_data_L28 = sfun_normalize_string_nas(stata_tmp_using_data_L28)
 
@@ -5710,9 +5637,11 @@ NULL
 
  1 do:  use "tricky_data.dta", clear
  1 r:  data = haven::read_dta(file.path(stata2r_env$working_dir, "tricky_data.dta")) %>% 
+  sfun_strip_stata_attributes() %>% 
   sfun_normalize_string_nas() %>%
   dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used 
 data = haven::read_dta(file.path(stata2r_env$working_dir, "tricky_data.dta")) %>% 
+  sfun_strip_stata_attributes() %>% 
   sfun_normalize_string_nas() %>%
   dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used
 
@@ -5773,10 +5702,56 @@ data = dplyr::filter(data, (dplyr::coalesce(as.numeric(stata_e_sample_L3), 0) !=
 
 Error: After Stata line 5, R data set has 242 rows, but Stata reference has 250 rows.
 This discrepancy might indicate an issue with the test data or an unexpected behavior difference in row manipulation.
-Error in vec_slice(x, i) : Can't subset elements past the end.
-ℹ Location 243 doesn't exist.
-ℹ There are only 242 elements.
 
+Error: After Stata line  5 , R data set differs from Stata reference.
+
+Data set from Stata (do_df):
+tibble [250 × 8] (S3: tbl_df/tbl/data.frame)
+ $ id            : num [1:250] 1 1 1 1 1 2 2 2 2 2 ...
+  ..- attr(*, "format.stata")= chr "%12.0g"
+ $ time          : num [1:250] 1 2 3 4 5 1 2 3 4 5 ...
+  ..- attr(*, "format.stata")= chr "%12.0g"
+ $ group_cat     : dbl+lbl [1:250] 2, 3, 2, 2, 1, 3, 2, 2, 3, 2, 3, 2, 2, 1, 3, 2, 2, 1, ...
+   ..@ format.stata: chr "%12.0g"
+   ..@ labels      : Named num [1:3] 1 2 3
+   .. ..- attr(*, "names")= chr [1:3] "Control" "TreatA" "TreatB"
+ $ region_cat    : dbl+lbl [1:250] 3, 2, 1, 3, 1, 1, 2, 2, 3, 4, 2, 2, 1, 1, 3, 1, 2, 3, ...
+   ..@ format.stata: chr "%12.0g"
+   ..@ labels      : Named num [1:4] 1 2 3 4
+   .. ..- attr(*, "names")= chr [1:4] "a" "b" "c" "d"
+ $ x_numeric     : num [1:250] 100 8.04 10.37 5.7 8.75 ...
+  ..- attr(*, "format.stata")= chr "%10.0g"
+ $ another_factor: dbl+lbl [1:250]  3,  2,  2,  1,  1,  3,  1,  1,  3,  3,  2, NA,  1,  2...
+   ..@ format.stata: chr "%12.0g"
+   ..@ labels      : Named num [1:3] 1 2 3
+   .. ..- attr(*, "names")= chr [1:3] "X1" "X2" "X3"
+ $ baseline_char : chr [1:250] "Low" "High" "High" "High" ...
+  ..- attr(*, "format.stata")= chr "%-9s"
+ $ y_outcome     : num [1:250] 9.66 7.3 8.67 8.33 5.85 ...
+  ..- attr(*, "format.stata")= chr "%10.0g"
+NULL
+
+Data set from R (r_df):
+tibble [242 × 9] (S3: tbl_df/tbl/data.frame)
+ $ id                        : num [1:242] 1 1 1 1 1 2 2 2 2 2 ...
+ $ time                      : num [1:242] 1 2 3 4 5 1 2 3 4 5 ...
+ $ group_cat                 : num [1:242] 2 3 2 2 1 3 2 2 3 2 ...
+ $ region_cat                : num [1:242] 3 2 1 3 1 1 2 2 3 4 ...
+ $ x_numeric                 : num [1:242] 100 8.04 10.37 5.7 8.75 ...
+ $ another_factor            : num [1:242] 3 2 2 1 1 3 1 1 3 3 ...
+ $ baseline_char             : chr [1:242] "Low" "High" "High" "High" ...
+ $ y_outcome                 : num [1:242] 9.66 7.3 8.67 8.33 5.85 ...
+ $ stata2r_original_order_idx: int [1:242] 1 2 3 4 5 6 7 8 9 10 ...
+NULL
+
+Differences:List of 2
+ $ identical     : logi FALSE
+ $ value_mismatch:'data.frame':	40 obs. of  4 variables:
+  ..$ row      : int [1:40] 35 40 44 45 48 34 35 36 37 38 ...
+  ..$ column   : chr [1:40] "id" "id" "id" "id" ...
+  ..$ df1_value: chr [1:40] "7" "8" "9" "9" ...
+  ..$ df2_value: chr [1:40] "8" "9" "10" "10" ...
+NULL
 
 ##############################
 # YOUR TASK
