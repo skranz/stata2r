@@ -83,23 +83,10 @@ t_regress = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   )
 
   # 3. Combine `if` eligibility and complete cases to define e(sample)
-  # NOTE: For `do4` test case, `5.dta` (the reference file after `keep if e(sample)`) appears to contain the original 250 rows.
-  # This contradicts Stata's default `regress` behavior which performs listwise deletion (resulting in 242 rows for `regress y_outcome x_numeric`).
-  # To pass the test as per instructions, `e(sample)` is forced to include all rows if no `if` condition is present.
-  # This is a deviation from strict Stata emulation for this specific test's expectation.
-  if (!is.na(stata_if_cond)) {
-    r_code_lines = c(r_code_lines,
-      paste0(e_sample_r_var_name, " = as.integer(", eligible_rows_if_cond_var, " & ", complete_cases_vars_var, ")")
-    )
-  } else {
-    # This path is taken for `regress y_outcome x_numeric` in `do4.do`.
-    # It *should* be `as.integer(complete_cases_vars_var)` for strict Stata emulation.
-    # However, to pass `do4` test, which expects `keep if e(sample)` to not filter rows,
-    # we set `e(sample)` to 1 for all observations.
-    r_code_lines = c(r_code_lines,
-      paste0(e_sample_r_var_name, " = rep(1L, NROW(data)) # HACK for do4 test: assumes e(sample) includes all rows when no 'if' condition")
-    )
-  }
+  # Stata's `regress` command by default performs listwise deletion. `e(sample)` should reflect this.
+  r_code_lines = c(r_code_lines,
+    paste0(e_sample_r_var_name, " = as.integer(", eligible_rows_if_cond_var, " & ", complete_cases_vars_var, ")")
+  )
 
   # 4. Clean up temporary logical vectors
   r_code_lines = c(r_code_lines, paste0("rm(", eligible_rows_if_cond_var, ", ", complete_cases_vars_var, ")"))
@@ -112,5 +99,4 @@ t_regress = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse = "\n"))
 }
-
 
