@@ -6,9 +6,12 @@ t_regress = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   restore.point("t_regress")
 
   # Check if e(sample) is actually needed by a subsequent command
+  # This check ensures that the function only generates code if its results are utilized later.
   e_sample_needed = "e(sample)" %in% unlist(cmd_obj$e_results_needed)
 
   if (!e_sample_needed) {
+    # If e(sample) is not needed, or if it's overwritten by a later estimation command,
+    # then this particular regress command doesn't need to produce any R output for e(sample).
     return(paste0("# regress command at line ", line_num, " translated to no-op as e(sample) (or other e() results) not used later."))
   }
 
@@ -46,7 +49,7 @@ t_regress = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   dep_var = vars_str_list[1]
   indep_vars = if (length(vars_str_list) > 1) vars_str_list[-1] else NULL
 
-  # Construct formula string
+  # Construct formula string (for comment purposes)
   formula_str = dep_var
   if (!is.null(indep_vars) && length(indep_vars) > 0) {
     formula_str = paste0(dep_var, " ~ ", paste(indep_vars, collapse = " + "))
@@ -65,6 +68,7 @@ t_regress = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # 1. Determine rows satisfying the `if` condition (if any)
   eligible_rows_if_cond_var = paste0("temp_eligible_if_L", line_num)
   if (!is.na(stata_if_cond)) {
+    # The 'if' condition for regress is evaluated row-wise on the whole dataset, not per group.
     r_if_cond = translate_stata_expression_with_r_values(stata_if_cond, line_num, cmd_df, context = list(is_by_group = FALSE))
     r_code_lines = c(r_code_lines,
       paste0(eligible_rows_if_cond_var, " = (dplyr::coalesce(as.numeric(with(data, ", r_if_cond, ")), 0) != 0)")
@@ -96,9 +100,8 @@ t_regress = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   if (!is.na(stata_if_cond)) {
     r_code_lines = c(r_code_lines, paste0("# Applied if condition: ", stata_if_cond))
   }
-  r_code_lines = c(r_code_lines, paste0("# Note: Stata's regress on 'y_outcome x_numeric' used 242 observations out of 250 (due to missing values)."))
-  r_code_lines = c(r_code_lines, paste0("# The generated e(sample) reflects this. If the test expects 250 rows after 'keep if e(sample)',"))
-  r_code_lines = c(r_code_lines, paste0("# the reference .dta file for this line may be inconsistent with the Stata log."))
+  # The note about discrepancy is removed as the fix to mark_data_manip_cmd should ensure consistency
+  # between Stata log and R output when `e(sample)` is correctly generated and used.
 
   return(paste(r_code_lines, collapse = "\n"))
 }

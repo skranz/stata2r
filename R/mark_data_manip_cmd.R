@@ -21,65 +21,82 @@ mark_data_manip_cmd = function(cmd_df) {
 
   # --- First pass: Mark commands that are inherently data-modifying ---
   cmd_df$do_translate = cmd_df$stata_cmd %in% stata_data_manip_cmds
+  # Ensure 'save' is always translated.
+  cmd_df$do_translate[cmd_df$stata_cmd == "save"] = TRUE
 
-  # --- Second pass: Mark estimation/summary commands if their results are used ---
-  for (i in seq_len(NROW(cmd_df))) {
+
+  # --- Second pass: Determine which commands produce e() or r() results that are *actually used* ---
+  # Iterate backwards to find the *last* command producing a needed result.
+  active_needed_e_results = character(0) # e.g., "e(sample)", "e(b)"
+  active_needed_r_results = character(0) # e.g., "r(N)", "r(mean)"
+
+  for (i in NROW(cmd_df):1) {
     current_cmd = cmd_df$stata_cmd[i]
-    current_line_num = cmd_df$line[i]
+    rest_of_cmd = dplyr::coalesce(cmd_df$rest_of_cmd[i], "")
 
-    # Check for r() usage from summarize/tabulate
-    if (current_cmd %in% c("summarize", "su", "tabulate", "tab")) {
-      needed_r_results = character(0)
-      # Scan subsequent commands for r(...) usage
-      for (j in (i + 1):NROW(cmd_df)) {
-        # Check in rest_of_cmd (e.g., in `if` conditions or expressions)
-        # This regex looks for r(anything_not_closing_paren)
-        if (dplyr::coalesce(stringi::stri_detect_regex(cmd_df$rest_of_cmd[j], "r\\([^)]+\\)"), FALSE)) {
-          # Extract specific r() values used, e.g., r(mean), r(N)
-          matches = stringi::stri_match_all_regex(cmd_df$rest_of_cmd[j], "r\\(([^)]+)\\)")[[1]]
-          if (NROW(matches) > 0) {
-            needed_r_results = unique(c(needed_r_results, paste0("r(", matches[,2], ")")))
-          }
-        }
-      }
-      if (length(needed_r_results) > 0) {
-        cmd_df$do_translate[i] = TRUE
-        cmd_df$r_results_needed[[i]] = union(cmd_df$r_results_needed[[i]], needed_r_results)
-      } else {
-        # If no r() values are used, and it's summarize/tabulate (now in non_data_manip_cmds),
-        # ensure it's not translated unless already marked true by another rule.
-        # This part is implicitly handled by the initial `do_translate = cmd_df$stata_cmd %in% stata_data_manip_cmds`
-        # and the later `stata_non_data_manip_cmds` override.
-        # But explicitly ensuring it's FALSE if no r() is needed.
-        cmd_df$do_translate[i] = FALSE
-      }
+    # Identify e() and r() usage in the current command's `rest_of_cmd`
+    used_e_macros = character(0)
+    matches_e_used = stringi::stri_match_all_regex(rest_of_cmd, "e\\(([^)]+)\\)")[[1]]
+    if (NROW(matches_e_used) > 0) {
+        used_e_macros = unique(paste0("e(", matches_e_used[,2], ")"))
     }
 
-    # Check for e() usage from estimation commands
+    used_r_macros = character(0)
+    matches_r_used = stringi::stri_match_all_regex(rest_of_cmd, "r\\(([^)]+)\\)")[[1]]
+    if (NROW(matches_r_used) > 0) {
+        used_r_macros = unique(paste0("r(", matches_r_used[,2], ")"))
+    }
+
+    # If any of these used macros are currently needed from a *previous* producer, mark this command for translation
+    if (any(used_e_macros %in% active_needed_e_results) || any(used_r_macros %in% active_needed_r_results)) {
+        cmd_df$do_translate[i] = TRUE
+    }
+
+    # Add results that this command *would produce* to active_needed_e/r_results if they are not already.
+    # And mark this command to translate if it produces a needed result.
+
+    # Estimation commands produce e() results
     if (current_cmd %in% stata_estimation_cmds) {
-      needed_e_results = character(0)
-      # Scan subsequent commands for e(...) usage
-      for (j in (i + 1):NROW(cmd_df)) {
-        if (dplyr::coalesce(stringi::stri_detect_regex(cmd_df$rest_of_cmd[j], "e\\([^)]+\\)"), FALSE)) {
-          matches = stringi::stri_match_all_regex(cmd_df$rest_of_cmd[j], "e\\(([^)]+)\\)")[[1]]
-          if (NROW(matches) > 0) {
-            needed_e_results = unique(c(needed_e_results, paste0("e(", matches[,2], ")")))
-          }
-        }
-      }
-      if (length(needed_e_results) > 0) {
-        cmd_df$do_translate[i] = TRUE
-        cmd_df$e_results_needed[[i]] = union(cmd_df$e_results_needed[[i]], needed_e_results)
+      # For now, only 'e(sample)' is tracked for regress. Extend as needed.
+      potential_e_results_produced = c("e(sample)") # Add e(b), e(V) etc. if needed
+      
+      # If any of these potential results are currently needed, then this command is the producer.
+      if (any(potential_e_results_produced %in% active_needed_e_results)) {
+          cmd_df$do_translate[i] = TRUE
+          # Store which results this command should actually produce
+          cmd_df$e_results_needed[[i]] = union(cmd_df$e_results_needed[[i]], intersect(potential_e_results_produced, active_needed_e_results))
+          # Remove these from active_needed_e_results as we've found their producer
+          active_needed_e_results = setdiff(active_needed_e_results, potential_e_results_produced)
       }
     }
-  }
 
+    # Summarize/Tabulate commands produce r() results
+    if (current_cmd %in% c("summarize", "su", "tabulate", "tab")) {
+      # For now, only common r() values are tracked. Extend as needed.
+      potential_r_results_produced = c("r(N)", "r(mean)", "r(sd)", "r(min)", "r(max)", "r(sum)", "r(p50)")
+      
+      if (any(potential_r_results_produced %in% active_needed_r_results)) {
+          cmd_df$do_translate[i] = TRUE
+          cmd_df$r_results_needed[[i]] = union(cmd_df$r_results_needed[[i]], intersect(potential_r_results_produced, active_needed_r_results))
+          active_needed_r_results = setdiff(active_needed_r_results, potential_r_results_produced)
+      } else {
+          # If a summarize/tabulate command is not producing needed r() results, it should not be translated
+          # unless it's already marked as data manipulation.
+          # This is implicitly handled by the final override section below.
+      }
+    }
+    
+    # Add any results used by *this* command to `active_needed_e/r_results` for prior commands to produce.
+    # This must be done *after* checking if current command is a producer of these results.
+    active_needed_e_results = union(active_needed_e_results, used_e_macros)
+    active_needed_r_results = union(active_needed_r_results, used_r_macros)
+  }
 
   # --- Final explicit overrides ---
   # Commands that are definitely not data manipulation (e.g. `list`, `display` for scalars)
   # `format` only affects display, not data values.
   # These commands are now in stata_non_data_manip_cmds.
-  # If a command is in stata_non_data_manip_cmds, it should be FALSE unless its r()/e() results are *explicitly* needed.
+  # If a command is in stata_non_data_manip_cmds, it should be FALSE unless its r() or e() results are *explicitly* needed.
   for (k in seq_len(NROW(cmd_df))) {
       if (cmd_df$stata_cmd[k] %in% stata_non_data_manip_cmds) {
           # Only set to FALSE if it was not marked TRUE because its r() or e() results are needed.
@@ -99,15 +116,7 @@ mark_data_manip_cmd = function(cmd_df) {
   if ("clear" %in% cmd_df$stata_cmd) {
       cmd_df$do_translate[cmd_df$stata_cmd == "clear" & (is.na(cmd_df$rest_of_cmd) | cmd_df$rest_of_cmd == "")] = TRUE # standalone clear
   }
-  # Ensure 'save' is always translated.
-  cmd_df$do_translate[cmd_df$stata_cmd == "save"] = TRUE
-
-
-  # Ensure estimation commands that produce needed e() results are NOT turned off by is_quietly_prefix
-  # This should be covered by the e_results_needed logic setting do_translate = TRUE.
-  # The `is_quietly_prefix` flag from parsing can be used by t_ an t_ function if needed,
-  # but should not gatekeep translation if results are used.
-
+  
   return(cmd_df)
 }
 
