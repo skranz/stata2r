@@ -17,4 +17,3 @@ sfun_stata_cond = function(condition_val, true_val, false_val) {
   return(dplyr::if_else(is_true_in_stata, true_val, false_val))
 }
 
-

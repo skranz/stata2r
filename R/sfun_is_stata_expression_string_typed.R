@@ -80,4 +80,3 @@ sfun_is_stata_expression_string_typed = function(stata_expr_original) {
   return(FALSE)
 }
 
-

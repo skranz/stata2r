@@ -281,8 +281,8 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Add grouping and mutate steps
   if (length(group_vars_list_bare) > 0 && !is_row_function) {
-    group_by_expr = paste0('dplyr::group_by(!!!dplyr::syms(c("', paste0(group_vars_list_bare, collapse='", "'), '")))')
-    pipe_elements = c(pipe_elements, group_by_expr)
+    group_by_call_str = paste0('dplyr::group_by(!!!dplyr::syms(c("', paste0(group_vars_list_bare, collapse='", "'), '")))')
+    pipe_elements = c(pipe_elements, group_by_call_str)
   }
 
   pipe_elements = c(pipe_elements, paste0("dplyr::mutate(", full_mutate_expr, ")"))
@@ -317,5 +317,4 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
-
 

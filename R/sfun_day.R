@@ -13,4 +13,3 @@ sfun_day = function(stata_date_values) {
   return(as.numeric(format(r_dates, "%d")))
 }
 
-

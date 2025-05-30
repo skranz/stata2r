@@ -13,4 +13,3 @@ sfun_normalize_string_nas = function(df) {
   return(df)
 }
 
-

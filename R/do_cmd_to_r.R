@@ -68,4 +68,3 @@ do_cmd_to_r = function(cmd_obj, line, cmd_df) { # Corrected signature: added cmd
   return(r_obj)
 }
 
-

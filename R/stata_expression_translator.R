@@ -186,4 +186,3 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   return(r_expr)
 }
 
-

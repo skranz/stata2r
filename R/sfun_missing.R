@@ -18,4 +18,3 @@ sfun_missing = function(x) {
 # data = data %>% dplyr::mutate(new_var = sfun_missing(old_var))
 # However, direct translation to is.na() is preferred in generated code for simplicity.
 
-

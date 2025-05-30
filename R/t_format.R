@@ -11,4 +11,3 @@ t_format = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   return(paste0("# Stata format command '", cmd_obj$stata_cmd_original, " ", rest_of_cmd, "' ignored for data transformation (already marked as non-data-manipulating)."))
 }
 
-

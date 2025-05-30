@@ -24,4 +24,3 @@ sfun_qofd = function(stata_date_values) {
   return(quarters_of_year)
 }
 
-
