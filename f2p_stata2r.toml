@@ -25,7 +25,7 @@ template = '''
 
 {{R}}
 
-# Example do files
+# Example do log files
 
 {{DO}}
 
@@ -53,6 +53,9 @@ that are used in later commands that modify the data set shall be ignored.
 Sometimes it can depend on the whole Stata code whether or not a command generates,
 a scalar that is later used to modify a data set.
 
+- Comments can be completely ignored in your translation. Also mark command lines that only
+  consist of a comment and ignore them.
+
 - Update the general given functions do_parse, do_cmd_to_r,
  mark_data_manip_cmd
 
@@ -62,6 +65,24 @@ a scalar that is later used to modify a data set.
   specific Stata commands like t_generate for the command generate.
   All such specific translation functions shall start with prefix t_
   followed by the Stata command name.
+
+- Consider this example code:
+
+```do
+regress y_outcome time
+regress y_outcome x_numeric
+keep if e(sample)
+```
+  Only the `keep` command changes the data set, but the e(sample) object is from
+  the last call to regress. In such cases, mark for the regress command which
+  e() or similar objects will be used in later data preparation steps
+  or in if conditions of later regression. The t_regression function shall then
+  only generate the intermediate R objects that will then be required.
+  For example, for the first regression t_regress nothing must be done in R,
+  but for the second regression the `e(sample)` object must be stored in R,
+  so that it can be used in the later `keep` call.
+
+
 
 - Note that Stata allows command abbreviations.
   E.g. 'gen' and 'generate' are the same commands. Just call t_generate
@@ -178,8 +199,7 @@ R/aic_stata_ex.R
 
 [[DO]]
 include_files  = '''
-inst/cases/custom_1/*.do
-inst/cases/custom_2/*.do
+aicoder_work/tests/do4/do4.log
 '''
 
 

@@ -1,0 +1,95 @@
+
+  ___  ____  ____  ____  ____ ®
+ /__    /   ____/   /   ____/      17.0
+___/   /   /___/   /   /___/       SE—Standard Edition
+
+ Statistics and Data Science       Copyright 1985-2021 StataCorp LLC
+                                   StataCorp
+                                   4905 Lakeway Drive
+                                   College Station, Texas 77845 USA
+                                   800-STATA-PC        https://www.stata.com
+                                   979-696-4600        stata@stata.com
+
+Stata license: Single-user  perpetual
+Serial number: 401706320773
+  Licensed to: Sebastian Kranz
+               Ulm University
+
+Notes:
+      1. Stata is running in batch mode.
+      2. Unicode is supported; see help unicode_advice.
+      3. Maximum number of variables is set to 5,000; see help set_maxvar.
+
+. do "temp_do4.do", nostop 
+
+. use "tricky_data.dta", clear
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-1.dta", replac
+> e emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-1.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-1.dta saved
+
+. transform data
+command transform is unrecognized
+r(199);
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-2.dta", replac
+> e emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-2.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-2.dta saved
+
+. quietly regress y_outcome time
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-3.dta", replac
+> e emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-3.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-3.dta saved
+
+. quietly regress y_outcome x_numeric
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-4.dta", replac
+> e emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-4.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-4.dta saved
+
+. summarize x_numeric y_outcome
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+   x_numeric |        245    10.47698    6.066207   4.836289        100
+   y_outcome |        247    6.953379    1.928645   2.439948   12.18495
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-5.dta", replac
+> e emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-5.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-5.dta saved
+
+. keep if e(sample)
+(8 observations deleted)
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-6.dta", replac
+> e emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-6.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-6.dta saved
+
+. summarize x_numeric y_outcome
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+   x_numeric |        242    10.47093    6.102782   4.836289        100
+   y_outcome |        242    6.954693    1.930952   2.439948   12.18495
+
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-7.dta", replac
+> e emptyok
+(file /home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-7.dta not
+    found)
+file /home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-7.dta saved
+
+. 
+end of do-file

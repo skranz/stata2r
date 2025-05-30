@@ -138,8 +138,9 @@ aic_test_stata2r = function(aic) {
 
   aic = aic_stata2r_do_test(aic=aic, test_dir = "~/aicoder/stata2r/aicoder_work/tests/do1", data_dir = "~/aicoder/stata2r/inst/cases/do1/do_data", data_prefix="do1-")
 
-  aic = aic_stata2r_do_test(aic=aic, test_dir = "~/aicoder/stata2r/aicoder_work/tests/do2", data_dir = "~/aicoder/stata2r/inst/cases/do2/do_data", data_prefix="do2-")
+  #aic = aic_stata2r_do_test(aic=aic, test_dir = "~/aicoder/stata2r/aicoder_work/tests/do2", data_dir = "~/aicoder/stata2r/inst/cases/do2/do_data", data_prefix="do2-")
 
+  aic = aic_stata2r_do_test(aic=aic, test_dir = "~/aicoder/stata2r/aicoder_work/tests/do4", data_dir = "~/aicoder/stata2r/inst/cases/do4/do_data", data_prefix="do4-")
 
   aic = aic_tests_finish(aic)
   aic

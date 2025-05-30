@@ -9,6 +9,9 @@ example = function() {
   do_file = normalizePath("~/aicoder/stata2r/inst/cases/do3/do3.do")
   run_do_with_data_save(do_file)
 
+  do_file = normalizePath("~/aicoder/stata2r/inst/cases/do4/do4.do")
+  run_do_with_data_save(do_file)
+
 }
 
 run_do_with_data_save = function(do_file) {
