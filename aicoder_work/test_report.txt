@@ -498,7 +498,7 @@ str(cmd_df)
  $ stata_translation_error: chr  NA NA NA NA ...
  $ e_results_needed       :List of 6
   ..$ : chr 
-  ..$ : chr "e(sample)"
+  ..$ : chr 
   ..$ : chr "e(sample)"
   ..$ : chr 
   ..$ : chr 
@@ -532,39 +532,15 @@ data = haven::read_dta(file.path(stata2r_env$working_dir, "tricky_data.dta")) %>
   dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used
 
  2 do:  quietly regress y_outcome time
- 2 r:  temp_eligible_if_L2 = rep(TRUE, NROW(data))
-temp_complete_cases_L2 = stats::complete.cases(data[, c('y_outcome','time'), drop=FALSE])
-stata_e_sample_L2 = as.integer(temp_eligible_if_L2 & temp_complete_cases_L2)
-rm(temp_eligible_if_L2, temp_complete_cases_L2)
-# Regression model for e(sample): y_outcome ~ time
-# Note: Stata's regress on 'y_outcome x_numeric' used 242 observations out of 250 (due to missing values).
-# The generated e(sample) reflects this. If the test expects 250 rows after 'keep if e(sample)',
-# the reference .dta file for this line may be inconsistent with the Stata log. 
-temp_eligible_if_L2 = rep(TRUE, NROW(data))
-
-temp_complete_cases_L2 = stats::complete.cases(data[, c('y_outcome','time'), drop=FALSE])
-
-stata_e_sample_L2 = as.integer(temp_eligible_if_L2 & temp_complete_cases_L2)
-
-rm(temp_eligible_if_L2, temp_complete_cases_L2)
-
-# Regression model for e(sample): y_outcome ~ time
-
-# Note: Stata's regress on 'y_outcome x_numeric' used 242 observations out of 250 (due to missing values).
-
-# The generated e(sample) reflects this. If the test expects 250 rows after 'keep if e(sample)',
-
-# the reference .dta file for this line may be inconsistent with the Stata log.
+ 2 r:  # regress command at line 2 translated to no-op as e(sample) (or other e() results) not used later. 
+# regress command at line 2 translated to no-op as e(sample) (or other e() results) not used later.
 
  3 do:  quietly regress y_outcome x_numeric
  3 r:  temp_eligible_if_L3 = rep(TRUE, NROW(data))
 temp_complete_cases_L3 = stats::complete.cases(data[, c('y_outcome','x_numeric'), drop=FALSE])
 stata_e_sample_L3 = as.integer(temp_eligible_if_L3 & temp_complete_cases_L3)
 rm(temp_eligible_if_L3, temp_complete_cases_L3)
-# Regression model for e(sample): y_outcome ~ x_numeric
-# Note: Stata's regress on 'y_outcome x_numeric' used 242 observations out of 250 (due to missing values).
-# The generated e(sample) reflects this. If the test expects 250 rows after 'keep if e(sample)',
-# the reference .dta file for this line may be inconsistent with the Stata log. 
+# Regression model for e(sample): y_outcome ~ x_numeric 
 temp_eligible_if_L3 = rep(TRUE, NROW(data))
 
 temp_complete_cases_L3 = stats::complete.cases(data[, c('y_outcome','x_numeric'), drop=FALSE])
@@ -574,12 +550,6 @@ stata_e_sample_L3 = as.integer(temp_eligible_if_L3 & temp_complete_cases_L3)
 rm(temp_eligible_if_L3, temp_complete_cases_L3)
 
 # Regression model for e(sample): y_outcome ~ x_numeric
-
-# Note: Stata's regress on 'y_outcome x_numeric' used 242 observations out of 250 (due to missing values).
-
-# The generated e(sample) reflects this. If the test expects 250 rows after 'keep if e(sample)',
-
-# the reference .dta file for this line may be inconsistent with the Stata log.
 
  4 do:  summarize x_numeric y_outcome 
 
