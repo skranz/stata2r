@@ -113,7 +113,16 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     "sfun_strpos", "sfun_subinstr", "sfun_stata_mdy", "sfun_stata_date", "sfun_day",
     "sfun_month", "sfun_qofd", "sfun_dow", "sfun_normalize_string_nas", "sfun_strip_stata_attributes",
     "sfun_compress_col_type", "sfun_is_stata_expression_string_typed", "as.logical",
-    "sfun_stata_cond", "sfun_year", "e" # Add 'e' as a potentially reserved word if used as function name e()
+    "sfun_stata_cond", "sfun_year", "sfun_stata_date_single", "e", # Add 'e' as a potentially reserved word if used as function name e()
+    "NROW", "length", "unique", "sapply", "vapply", "c", "list", "intersect", "setdiff",
+    "warning", "stop", "paste0", "grepl", "as.logical", "ifelse", "exists", "rm",
+    "is.null", "lapply", "is.na", "is.character", "is.numeric", "is.logical", "is.factor",
+    "attributes", "attr", "names", "order", "unname", "duplicated", "trimws",
+    "suppressWarnings", "as.data.frame", "rownames", "colnames", "head", "tail",
+    "matrix", "data.frame", "vector", "character", "numeric", "integer", "logical",
+    "factor", "double", "`_n`", "`_N`", # These are special, but if they appear directly from a variable name, they should be backticked.
+    # Added specific dplyr/collapse functions that might appear as bare words
+    "cur_group_id", "cur_data_all", "replace", "TRUE", "FALSE" # Re-added TRUE/FALSE for explicit safety
   )
 
   locations_list = stringi::stri_locate_all_regex(r_expr, "\\b([a-zA-Z_][a-zA-Z0-9_.]*)\\b")
@@ -176,4 +185,5 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   return(r_expr)
 }
+
 
