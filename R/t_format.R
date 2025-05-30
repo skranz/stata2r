@@ -7,7 +7,8 @@ t_format = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   # Stata's `format` command only affects how data is displayed, not its underlying values or type.
   # It is now marked as `do_translate = FALSE` in `mark_data_manip_cmd.R`.
   # This function should ideally not be called if `do_translate` is FALSE.
-  # Returning a comment as a fallback, though it should be skipped earlier.
-  return(paste0("# Stata format command '", cmd_obj$stata_cmd_original, " ", rest_of_cmd, "' ignored for data transformation (already marked as non-data-manipulating)."))
+  # Returning an empty string as it should be skipped earlier.
+  return("")
 }
+
 
