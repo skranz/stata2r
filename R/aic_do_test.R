@@ -197,6 +197,11 @@ compare_df = function(df1, df2,
   if (!is.data.frame(df1) || !is.data.frame(df2))
     stop("Both inputs must be data frames.")
 
+  # Always strip Stata attributes from df1 (Stata reference) and df2 (R data)
+  # to ensure clean comparison, as R data is also stripped during translation.
+  df1 = sfun_strip_stata_attributes(df1)
+  df2 = sfun_strip_stata_attributes(df2)
+
   if(identical(df1, df2)) return(list(identical=TRUE))
 
   if (ignore_col_order) {
@@ -206,8 +211,7 @@ compare_df = function(df1, df2,
   if (ignore_row_order) {
     df1 = as.data.frame(df1)
     df2 = as.data.frame(df2)
-    df1 = sfun_strip_stata_attributes(df1)
-    df2 = sfun_strip_stata_attributes(df2)
+    # Attributes already stripped above
     if (NROW(df1) > 0 && NCOL(df1) > 0) {
       df1 = df1[do.call(order, c(as.list(df1), list(na.last = TRUE))), , drop = FALSE]
     }
@@ -321,5 +325,4 @@ compare_df = function(df1, df2,
   }
   out
 }
-
 
