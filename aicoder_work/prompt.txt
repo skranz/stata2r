@@ -430,7 +430,6 @@ do_cmd_to_r = function(cmd_obj, line, cmd_df) { # Corrected signature: added cmd
   return(r_obj)
 }
 
-
 ```
 ### END OF FILE: do_cmd_to_r.R
 
@@ -495,7 +494,6 @@ do_parse = function(do_code) {
   return(cmd_df)
 }
 
-
 ```
 ### END OF FILE: do_parse.R
 
@@ -541,7 +539,6 @@ do_to_r = function(do_code, return_df = FALSE) {
   r_code = paste0(r_df$r_code, collapse="\n")
   return(list(r_df=r_df, r_code=r_code))
 }
-
 
 ```
 ### END OF FILE: main.R
@@ -610,7 +607,7 @@ mark_data_manip_cmd = function(cmd_df) {
     # Estimation commands produce e() results
     if (current_cmd %in% stata_estimation_cmds) {
       # For now, only 'e(sample)' is tracked for regress. Extend as needed.
-      potential_e_results_produced = c("e(sample)") # Add e(b), e(V) etc. if needed
+      potential_e_results_produced = c("e(sample)")
       
       # If any of these potential results are currently needed, then this command is the producer.
       if (any(potential_e_results_produced %in% active_needed_e_results)) {
@@ -716,7 +713,6 @@ sfun_day = function(stata_date_values) {
   # This will result in NA for any invalid date conversions.
   return(as.numeric(format(r_dates, "%d")))
 }
-
 
 ```
 ### END OF FILE: sfun_day.R
@@ -830,7 +826,6 @@ sfun_is_stata_expression_string_typed = function(stata_expr_original) {
   return(FALSE)
 }
 
-
 ```
 ### END OF FILE: sfun_is_stata_expression_string_typed.R
 
@@ -858,7 +853,6 @@ sfun_missing = function(x) {
 # data = data %>% dplyr::mutate(new_var = sfun_missing(old_var))
 # However, direct translation to is.na() is preferred in generated code for simplicity.
 
-
 ```
 ### END OF FILE: sfun_missing.R
 
@@ -881,7 +875,6 @@ sfun_month = function(stata_date_values) {
   return(as.numeric(format(r_dates, "%m")))
 }
 
-
 ```
 ### END OF FILE: sfun_month.R
 
@@ -903,7 +896,6 @@ sfun_normalize_string_nas = function(df) {
   }
   return(df)
 }
-
 
 ```
 ### END OF FILE: sfun_normalize_string_nas.R
@@ -937,7 +929,6 @@ sfun_qofd = function(stata_date_values) {
 
   return(quarters_of_year)
 }
-
 
 ```
 ### END OF FILE: sfun_qofd.R
@@ -1005,7 +996,6 @@ sfun_stata_cond = function(condition_val, true_val, false_val) {
   # which matches Stata's behavior of returning `false_val` when the condition is missing.
   return(dplyr::if_else(is_true_in_stata, true_val, false_val))
 }
-
 
 ```
 ### END OF FILE: sfun_stata_cond.R
@@ -1150,7 +1140,7 @@ sfun_stata_round = function(x, unit = 1) {
 # sfun_stata_round(-2.5)   # Expected: -3
 # sfun_stata_round(2.34, 0.1) # Expected: 2.3
 # sfun_stata_round(2.35, 0.1) # Expected: 2.4
-# sfun_stata_round(c(2.5, -2.5, NA, 5.25), 0.5) # Expected: c(2.5, -2.5, NA, 5.5) # Stata: round(5.25, .5) is 5.5. My formula: sign(5.25)*floor(abs(5.25)/.5 + .5)*.5 = 1*floor(10.5+0.5)*.5 = 1*floor(11)*.5 = 1*11*.5 = 5.5
+# sfun_stata_round(c(2.5, -2.5, NA, 5.25), 0.5) # Expected: c(2.5, -2.5, NA, 5.5) # Stata: round(5.25, .5) is 5.5. My formula: sign(5.25)*floor(abs(5.25)/.5 + .5)*.5 = 1*floor(10.5+0.5)*.5 = 1*11*.5 = 5.5
 
 ```
 ### END OF FILE: sfun_stata_round.R
@@ -1244,7 +1234,6 @@ sfun_stritrim = function(s) {
   s = stringi::stri_replace_all_regex(s, "\\s+", " ")
   return(s)
 }
-
 
 ```
 ### END OF FILE: sfun_stritrim.R
@@ -1856,7 +1845,6 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   return(r_expr)
 }
 
-
 ```
 ### END OF FILE: stata_expression_translator.R
 
@@ -1866,7 +1854,6 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 ```
 # Global environment to store package-wide settings, e.g., data directory
 stata2r_env = new.env(parent=emptyenv())
-
 
 ```
 ### END OF FILE: stata2r_globals.R
@@ -1951,7 +1938,6 @@ t_append = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   return(r_code_str)
 }
-
 
 ```
 ### END OF FILE: t_append.R
@@ -2957,8 +2943,8 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Add grouping and mutate steps
   if (length(group_vars_list_bare) > 0 && !is_row_function) {
-    group_by_expr = paste0('dplyr::group_by(!!!dplyr::syms(c("', paste0(group_vars_list_bare, collapse='", "'), '")))')
-    pipe_elements = c(pipe_elements, group_by_expr)
+    group_by_call_str = paste0('dplyr::group_by(!!!dplyr::syms(c("', paste0(group_vars_list_bare, collapse='", "'), '")))')
+    pipe_elements = c(pipe_elements, group_by_call_str)
   }
 
   pipe_elements = c(pipe_elements, paste0("dplyr::mutate(", full_mutate_expr, ")"))
@@ -2993,7 +2979,6 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
-
 
 ```
 ### END OF FILE: t_egen.R
@@ -3270,7 +3255,6 @@ t_format = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   # Returning a comment as a fallback, though it should be skipped earlier.
   return(paste0("# Stata format command '", cmd_obj$stata_cmd_original, " ", rest_of_cmd, "' ignored for data transformation (already marked as non-data-manipulating)."))
 }
-
 
 ```
 ### END OF FILE: t_format.R
