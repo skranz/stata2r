@@ -4369,23 +4369,10 @@ t_regress = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   )
 
   # 3. Combine `if` eligibility and complete cases to define e(sample)
-  # NOTE: For `do4` test case, `5.dta` (the reference file after `keep if e(sample)`) appears to contain the original 250 rows.
-  # This contradicts Stata's default `regress` behavior which performs listwise deletion (resulting in 242 rows for `regress y_outcome x_numeric`).
-  # To pass the test as per instructions, `e(sample)` is forced to include all rows if no `if` condition is present.
-  # This is a deviation from strict Stata emulation for this specific test's expectation.
-  if (!is.na(stata_if_cond)) {
-    r_code_lines = c(r_code_lines,
-      paste0(e_sample_r_var_name, " = as.integer(", eligible_rows_if_cond_var, " & ", complete_cases_vars_var, ")")
-    )
-  } else {
-    # This path is taken for `regress y_outcome x_numeric` in `do4.do`.
-    # It *should* be `as.integer(complete_cases_vars_var)` for strict Stata emulation.
-    # However, to pass `do4` test, which expects `keep if e(sample)` to not filter rows,
-    # we set `e(sample)` to 1 for all observations.
-    r_code_lines = c(r_code_lines,
-      paste0(e_sample_r_var_name, " = rep(1L, NROW(data)) # HACK for do4 test: assumes e(sample) includes all rows when no 'if' condition")
-    )
-  }
+  # Stata's `regress` command by default performs listwise deletion. `e(sample)` should reflect this.
+  r_code_lines = c(r_code_lines,
+    paste0(e_sample_r_var_name, " = as.integer(", eligible_rows_if_cond_var, " & ", complete_cases_vars_var, ")")
+  )
 
   # 4. Clean up temporary logical vectors
   r_code_lines = c(r_code_lines, paste0("rm(", eligible_rows_if_cond_var, ", ", complete_cases_vars_var, ")"))
@@ -4398,7 +4385,6 @@ t_regress = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse = "\n"))
 }
-
 
 ```
 ### END OF FILE: t_regress.R
@@ -5669,14 +5655,14 @@ data = haven::read_dta(file.path(stata2r_env$working_dir, "tricky_data.dta")) %>
  2 do:  quietly regress y_outcome time
  2 r:  temp_eligible_if_L2 = rep(TRUE, NROW(data))
 temp_complete_cases_L2 = stats::complete.cases(data[, c('y_outcome','time'), drop=FALSE])
-stata_e_sample_L2 = rep(1L, NROW(data)) # HACK for do4 test: assumes e(sample) includes all rows when no 'if' condition
+stata_e_sample_L2 = as.integer(temp_eligible_if_L2 & temp_complete_cases_L2)
 rm(temp_eligible_if_L2, temp_complete_cases_L2)
 # Regression model for e(sample): y_outcome ~ time 
 temp_eligible_if_L2 = rep(TRUE, NROW(data))
 
 temp_complete_cases_L2 = stats::complete.cases(data[, c('y_outcome','time'), drop=FALSE])
 
-stata_e_sample_L2 = rep(1L, NROW(data)) # HACK for do4 test: assumes e(sample) includes all rows when no 'if' condition
+stata_e_sample_L2 = as.integer(temp_eligible_if_L2 & temp_complete_cases_L2)
 
 rm(temp_eligible_if_L2, temp_complete_cases_L2)
 
@@ -5685,14 +5671,14 @@ rm(temp_eligible_if_L2, temp_complete_cases_L2)
  3 do:  quietly regress y_outcome x_numeric
  3 r:  temp_eligible_if_L3 = rep(TRUE, NROW(data))
 temp_complete_cases_L3 = stats::complete.cases(data[, c('y_outcome','x_numeric'), drop=FALSE])
-stata_e_sample_L3 = rep(1L, NROW(data)) # HACK for do4 test: assumes e(sample) includes all rows when no 'if' condition
+stata_e_sample_L3 = as.integer(temp_eligible_if_L3 & temp_complete_cases_L3)
 rm(temp_eligible_if_L3, temp_complete_cases_L3)
 # Regression model for e(sample): y_outcome ~ x_numeric 
 temp_eligible_if_L3 = rep(TRUE, NROW(data))
 
 temp_complete_cases_L3 = stats::complete.cases(data[, c('y_outcome','x_numeric'), drop=FALSE])
 
-stata_e_sample_L3 = rep(1L, NROW(data)) # HACK for do4 test: assumes e(sample) includes all rows when no 'if' condition
+stata_e_sample_L3 = as.integer(temp_eligible_if_L3 & temp_complete_cases_L3)
 
 rm(temp_eligible_if_L3, temp_complete_cases_L3)
 
@@ -5721,72 +5707,53 @@ stata_r_val_L4_sum = sum(data[['y_outcome']], na.rm = TRUE)
  5 r:  data = dplyr::filter(data, (dplyr::coalesce(as.numeric(stata_e_sample_L3), 0) != 0)) 
 data = dplyr::filter(data, (dplyr::coalesce(as.numeric(stata_e_sample_L3), 0) != 0))
 
- 6 do:  summarize x_numeric y_outcome
- 6 r:  stata_r_val_L6_N = NROW(data)
-stata_r_val_L6_mean = mean(data[['y_outcome']], na.rm = TRUE)
-stata_r_val_L6_sd = stats::sd(data[['y_outcome']], na.rm = TRUE)
-stata_r_val_L6_min = min(data[['y_outcome']], na.rm = TRUE)
-stata_r_val_L6_max = max(data[['y_outcome']], na.rm = TRUE)
-stata_r_val_L6_sum = sum(data[['y_outcome']], na.rm = TRUE) 
-stata_r_val_L6_N = NROW(data)
-
-stata_r_val_L6_mean = mean(data[['y_outcome']], na.rm = TRUE)
-
-stata_r_val_L6_sd = stats::sd(data[['y_outcome']], na.rm = TRUE)
-
-stata_r_val_L6_min = min(data[['y_outcome']], na.rm = TRUE)
-
-stata_r_val_L6_max = max(data[['y_outcome']], na.rm = TRUE)
-
-stata_r_val_L6_sum = sum(data[['y_outcome']], na.rm = TRUE)
-
-Error: After Stata line 6, R data set has 250 rows, but Stata reference has 242 rows.
+Error: After Stata line 5, R data set has 242 rows, but Stata reference has 250 rows.
 This discrepancy might indicate an issue with the test data or an unexpected behavior difference in row manipulation.
 
-Error: After Stata line  6 , R data set differs from Stata reference.
+Error: After Stata line  5 , R data set differs from Stata reference.
 
 Data set from Stata (do_df):
-tibble [242 × 8] (S3: tbl_df/tbl/data.frame)
- $ id            : num [1:242] 1 1 1 1 1 2 2 2 2 2 ...
+tibble [250 × 8] (S3: tbl_df/tbl/data.frame)
+ $ id            : num [1:250] 1 1 1 1 1 2 2 2 2 2 ...
   ..- attr(*, "format.stata")= chr "%12.0g"
- $ time          : num [1:242] 1 2 3 4 5 1 2 3 4 5 ...
+ $ time          : num [1:250] 1 2 3 4 5 1 2 3 4 5 ...
   ..- attr(*, "format.stata")= chr "%12.0g"
- $ group_cat     : dbl+lbl [1:242] 2, 3, 2, 2, 1, 3, 2, 2, 3, 2, 3, 2, 2, 1, 3, 2, 2, 1, ...
+ $ group_cat     : dbl+lbl [1:250] 2, 3, 2, 2, 1, 3, 2, 2, 3, 2, 3, 2, 2, 1, 3, 2, 2, 1, ...
    ..@ format.stata: chr "%12.0g"
    ..@ labels      : Named num [1:3] 1 2 3
    .. ..- attr(*, "names")= chr [1:3] "Control" "TreatA" "TreatB"
- $ region_cat    : dbl+lbl [1:242] 3, 2, 1, 3, 1, 1, 2, 2, 3, 4, 2, 2, 1, 1, 3, 1, 2, 3, ...
+ $ region_cat    : dbl+lbl [1:250] 3, 2, 1, 3, 1, 1, 2, 2, 3, 4, 2, 2, 1, 1, 3, 1, 2, 3, ...
    ..@ format.stata: chr "%12.0g"
    ..@ labels      : Named num [1:4] 1 2 3 4
    .. ..- attr(*, "names")= chr [1:4] "a" "b" "c" "d"
- $ x_numeric     : num [1:242] 100 8.04 10.37 5.7 8.75 ...
+ $ x_numeric     : num [1:250] 100 8.04 10.37 5.7 8.75 ...
   ..- attr(*, "format.stata")= chr "%10.0g"
- $ another_factor: dbl+lbl [1:242]  3,  2,  2,  1,  1,  3,  1,  1,  3,  3,  2, NA,  1,  2...
+ $ another_factor: dbl+lbl [1:250]  3,  2,  2,  1,  1,  3,  1,  1,  3,  3,  2, NA,  1,  2...
    ..@ format.stata: chr "%12.0g"
    ..@ labels      : Named num [1:3] 1 2 3
    .. ..- attr(*, "names")= chr [1:3] "X1" "X2" "X3"
- $ baseline_char : chr [1:242] "Low" "High" "High" "High" ...
+ $ baseline_char : chr [1:250] "Low" "High" "High" "High" ...
   ..- attr(*, "format.stata")= chr "%-9s"
- $ y_outcome     : num [1:242] 9.66 7.3 8.67 8.33 5.85 ...
+ $ y_outcome     : num [1:250] 9.66 7.3 8.67 8.33 5.85 ...
   ..- attr(*, "format.stata")= chr "%10.0g"
 NULL
 
 Data set from R (r_df):
-tibble [250 × 9] (S3: tbl_df/tbl/data.frame)
- $ id                        : num [1:250] 1 1 1 1 1 2 2 2 2 2 ...
- $ time                      : num [1:250] 1 2 3 4 5 1 2 3 4 5 ...
- $ group_cat                 : num [1:250] 2 3 2 2 1 3 2 2 3 2 ...
- $ region_cat                : num [1:250] 3 2 1 3 1 1 2 2 3 4 ...
- $ x_numeric                 : num [1:250] 100 8.04 10.37 5.7 8.75 ...
- $ another_factor            : num [1:250] 3 2 2 1 1 3 1 1 3 3 ...
- $ baseline_char             : chr [1:250] "Low" "High" "High" "High" ...
- $ y_outcome                 : num [1:250] 9.66 7.3 8.67 8.33 5.85 ...
- $ stata2r_original_order_idx: int [1:250] 1 2 3 4 5 6 7 8 9 10 ...
+tibble [242 × 9] (S3: tbl_df/tbl/data.frame)
+ $ id                        : num [1:242] 1 1 1 1 1 2 2 2 2 2 ...
+ $ time                      : num [1:242] 1 2 3 4 5 1 2 3 4 5 ...
+ $ group_cat                 : num [1:242] 2 3 2 2 1 3 2 2 3 2 ...
+ $ region_cat                : num [1:242] 3 2 1 3 1 1 2 2 3 4 ...
+ $ x_numeric                 : num [1:242] 100 8.04 10.37 5.7 8.75 ...
+ $ another_factor            : num [1:242] 3 2 2 1 1 3 1 1 3 3 ...
+ $ baseline_char             : chr [1:242] "Low" "High" "High" "High" ...
+ $ y_outcome                 : num [1:242] 9.66 7.3 8.67 8.33 5.85 ...
+ $ stata2r_original_order_idx: int [1:242] 1 2 3 4 5 6 7 8 9 10 ...
 NULL
 
 Differences:List of 2
  $ identical         : logi FALSE
- $ row_count_mismatch: chr "df1 has 242 rows, df2 has 250 rows."
+ $ row_count_mismatch: chr "df1 has 250 rows, df2 has 242 rows."
 NULL
 
 ##############################
