@@ -146,24 +146,24 @@ data = dplyr::slice(data, 1:39)
  6 do:  by group: gen seq = _n
  6 r:  data = data %>% 
   dplyr::group_by(!!!dplyr::syms(c("group"))) %>% 
-  dplyr::mutate(`seq` = dplyr::row_number()) %>% 
+  dplyr::mutate(`seq` = as.numeric(dplyr::row_number())) %>% 
   dplyr::ungroup() 
 data = data %>% 
   dplyr::group_by(!!!dplyr::syms(c("group"))) %>% 
-  dplyr::mutate(`seq` = dplyr::row_number()) %>% 
+  dplyr::mutate(`seq` = as.numeric(dplyr::row_number())) %>% 
   dplyr::ungroup()
 
  7 do:  gen logi = log(i)
  7 r:  data = data %>% 
-  dplyr::mutate(`logi` = log(`i`)) 
+  dplyr::mutate(`logi` = as.numeric(log(`i`))) 
 data = data %>% 
-  dplyr::mutate(`logi` = log(`i`))
+  dplyr::mutate(`logi` = as.numeric(log(`i`)))
 
  8 do:  gen sqrt_i = sqrt(i)
  8 r:  data = data %>% 
-  dplyr::mutate(`sqrt_i` = sqrt(`i`)) 
+  dplyr::mutate(`sqrt_i` = as.numeric(sqrt(`i`))) 
 data = data %>% 
-  dplyr::mutate(`sqrt_i` = sqrt(`i`))
+  dplyr::mutate(`sqrt_i` = as.numeric(sqrt(`i`)))
 
  9 do:  gen group_num = cond(group=="A",1,cond(group=="B",2,3))
  9 r:  data = data %>% 
@@ -205,9 +205,9 @@ data = data %>%
 
  14 do:  replace flag = 0 if missing(flag)
  14 r:  data = data %>% 
-  dplyr::mutate(`flag` = dplyr::if_else((dplyr::coalesce(as.numeric(sfun_missing(`flag`)), 0) != 0), 0, data$`flag`)) 
+  dplyr::mutate(`flag` = dplyr::if_else((dplyr::coalesce(as.numeric(sfun_missing(`flag`)), 0) != 0), as.numeric(0), data$`flag`)) 
 data = data %>% 
-  dplyr::mutate(`flag` = dplyr::if_else((dplyr::coalesce(as.numeric(sfun_missing(`flag`)), 0) != 0), 0, data$`flag`))
+  dplyr::mutate(`flag` = dplyr::if_else((dplyr::coalesce(as.numeric(sfun_missing(`flag`)), 0) != 0), as.numeric(0), data$`flag`))
 
  15 do:  keep if flag==1 | group=="B"
  15 r:  data = dplyr::filter(data, (dplyr::coalesce(as.numeric(`flag`==1 | `group`=="B"), 0) != 0)) 
@@ -410,18 +410,18 @@ rm(stata_tmp_using_data_L28, stata_tmp_master_data_L28)
 
  29 do:  gen id = _n
  29 r:  data = data %>% 
-  dplyr::mutate(`id` = dplyr::row_number()) 
+  dplyr::mutate(`id` = as.numeric(dplyr::row_number())) 
 data = data %>% 
-  dplyr::mutate(`id` = dplyr::row_number())
+  dplyr::mutate(`id` = as.numeric(dplyr::row_number()))
 
  30 do:  bysort group_code (mean_i_overall): gen diff_mean = mean_i_overall - mean_i_overall[_n-1]
  30 r:  data = data %>% 
   dplyr::group_by(!!!dplyr::syms(c("group_code"))) %>% 
-  dplyr::mutate(`diff_mean` = `mean_i_overall` - dplyr::lag(`mean_i_overall`, n = 1)) %>% 
+  dplyr::mutate(`diff_mean` = as.numeric(`mean_i_overall` - dplyr::lag(`mean_i_overall`, n = 1))) %>% 
   dplyr::ungroup() 
 data = data %>% 
   dplyr::group_by(!!!dplyr::syms(c("group_code"))) %>% 
-  dplyr::mutate(`diff_mean` = `mean_i_overall` - dplyr::lag(`mean_i_overall`, n = 1)) %>% 
+  dplyr::mutate(`diff_mean` = as.numeric(`mean_i_overall` - dplyr::lag(`mean_i_overall`, n = 1))) %>% 
   dplyr::ungroup()
 
  31 do:  recode group_code (1=10)(2=20)(3=30)
@@ -462,9 +462,9 @@ data = data %>%
 
  36 do:  gen proportion = sum_mean/total_sum
  36 r:  data = data %>% 
-  dplyr::mutate(`proportion` = `sum_mean`/`total_sum`) 
+  dplyr::mutate(`proportion` = as.numeric(`sum_mean`/`total_sum`)) 
 data = data %>% 
-  dplyr::mutate(`proportion` = `sum_mean`/`total_sum`)
+  dplyr::mutate(`proportion` = as.numeric(`sum_mean`/`total_sum`))
 
  37 do:  sort proportion
  37 r:  data = dplyr::arrange(data, !!!dplyr::syms(c("proportion"))) 
@@ -656,15 +656,15 @@ rm(data_lm_L10, lm_res_L10)
 
  11 do:  gen _temp_eN_reg1 = e(N)
  11 r:  data = data %>% 
-  dplyr::mutate(`_temp_eN_reg1` = stata_e_L10_N) 
+  dplyr::mutate(`_temp_eN_reg1` = as.numeric(stata_e_L10_N)) 
 data = data %>% 
-  dplyr::mutate(`_temp_eN_reg1` = stata_e_L10_N)
+  dplyr::mutate(`_temp_eN_reg1` = as.numeric(stata_e_L10_N))
 
  12 do:  gen obs_from_reg1 = _temp_eN_reg1
  12 r:  data = data %>% 
-  dplyr::mutate(`obs_from_reg1` = `_temp_eN_reg1`) 
+  dplyr::mutate(`obs_from_reg1` = as.numeric(`_temp_eN_reg1`)) 
 data = data %>% 
-  dplyr::mutate(`obs_from_reg1` = `_temp_eN_reg1`)
+  dplyr::mutate(`obs_from_reg1` = as.numeric(`_temp_eN_reg1`))
 
  13 do:  bysort id: replace obs_from_reg1 = cond(_n == 1, obs_from_reg1, .)
  13 r:  data = data %>% 
@@ -676,20 +676,156 @@ data = data %>%
   dplyr::mutate(`obs_from_reg1` = as.numeric(sfun_stata_cond(dplyr::row_number() == 1,  `obs_from_reg1`,  NA_real_))) %>% 
   dplyr::ungroup()
 
-Error: Problem with `mutate()` column `obs_from_reg1`.
-ℹ `obs_from_reg1 = as.numeric(...)`.
-✖ `false` must be an integer vector, not a double vector.
-ℹ The error occurred in group 1: id = 1.
-Caused by error in `glubort()`:
-! `false` must be an integer vector, not a double vector.
-Error executing R code for Stata line  13 :  data = data %>% 
+ 14 do:  gen _temp_df_r_reg1 = e(df_r)
+ 14 r:  data = data %>% 
+  dplyr::mutate(`_temp_df_r_reg1` = as.numeric(stata_e_L10_df_r)) 
+data = data %>% 
+  dplyr::mutate(`_temp_df_r_reg1` = as.numeric(stata_e_L10_df_r))
+
+ 15 do:  gen df_resid_from_reg1 = _temp_df_r_reg1
+ 15 r:  data = data %>% 
+  dplyr::mutate(`df_resid_from_reg1` = as.numeric(`_temp_df_r_reg1`)) 
+data = data %>% 
+  dplyr::mutate(`df_resid_from_reg1` = as.numeric(`_temp_df_r_reg1`))
+
+ 16 do:  bysort id: replace df_resid_from_reg1 = cond(_n == 1, df_resid_from_reg1, .)
+ 16 r:  data = data %>% 
   dplyr::group_by(!!!dplyr::syms(c("id"))) %>% 
-  dplyr::mutate(`obs_from_reg1` = as.numeric(sfun_stata_cond(dplyr::row_number() == 1,  `obs_from_reg1`,  NA_real_))) %>% 
+  dplyr::mutate(`df_resid_from_reg1` = as.numeric(sfun_stata_cond(dplyr::row_number() == 1,  `df_resid_from_reg1`,  NA_real_))) %>% 
+  dplyr::ungroup() 
+data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("id"))) %>% 
+  dplyr::mutate(`df_resid_from_reg1` = as.numeric(sfun_stata_cond(dplyr::row_number() == 1,  `df_resid_from_reg1`,  NA_real_))) %>% 
   dplyr::ungroup()
 
-Error: Problem with `mutate()` column `obs_from_reg1`.
-ℹ `obs_from_reg1 = as.numeric(...)`.
-✖ `false` must be an integer vector, not a double vector.
-ℹ The error occurred in group 1: id = 1.
-Caused by error in `glubort()`:
-! `false` must be an integer vector, not a double vector. 
+ 17 do:  gen in_estimation_sample1 = e(sample)
+ 17 r:  data = data %>% 
+  dplyr::mutate(`in_estimation_sample1` = as.numeric(stata_e_sample_L10)) 
+data = data %>% 
+  dplyr::mutate(`in_estimation_sample1` = as.numeric(stata_e_sample_L10))
+
+ 18 do:  assert in_estimation_sample1 == 1 | in_estimation_sample1 == 0 | missing(in_estimation_sample1) 
+
+ 18 r:  not translated since not flagged as data manipulation
+
+ 19 do:  gen y_mod_by_esample1 = y_outcome
+ 19 r:  data = data %>% 
+  dplyr::mutate(`y_mod_by_esample1` = as.numeric(`y_outcome`)) 
+data = data %>% 
+  dplyr::mutate(`y_mod_by_esample1` = as.numeric(`y_outcome`))
+
+ 20 do:  gen _cond_ymod1 = (in_estimation_sample1 == 1 & group_cat == 2)
+ 20 r:  data = data %>% 
+  dplyr::mutate(`_cond_ymod1` = as.numeric((`in_estimation_sample1` == 1 & `group_cat` == 2))) 
+data = data %>% 
+  dplyr::mutate(`_cond_ymod1` = as.numeric((`in_estimation_sample1` == 1 & `group_cat` == 2)))
+
+ 21 do:  gen _new_val_ymod1 = y_outcome * 1.1
+ 21 r:  data = data %>% 
+  dplyr::mutate(`_new_val_ymod1` = as.numeric(`y_outcome` * 1.1)) 
+data = data %>% 
+  dplyr::mutate(`_new_val_ymod1` = as.numeric(`y_outcome` * 1.1))
+
+ 22 do:  replace y_mod_by_esample1 = cond(_cond_ymod1, _new_val_ymod1, y_mod_by_esample1)
+ 22 r:  data = data %>% 
+  dplyr::mutate(`y_mod_by_esample1` = as.numeric(sfun_stata_cond(`_cond_ymod1`,  `_new_val_ymod1`,  `y_mod_by_esample1`))) 
+data = data %>% 
+  dplyr::mutate(`y_mod_by_esample1` = as.numeric(sfun_stata_cond(`_cond_ymod1`,  `_new_val_ymod1`,  `y_mod_by_esample1`)))
+
+ 23 do:  xi i.group_cat
+ 23 r:  # Stata command 'xi i.group_cat' not yet fully translated. 
+# Stata command 'xi i.group_cat' not yet fully translated.
+
+Error: After Stata line  23 , R data set differs from Stata reference.
+
+Data set from Stata (do_df):
+tibble [250 × 18] (S3: tbl_df/tbl/data.frame)
+ $ id                   : num [1:250] 1 1 1 1 1 2 2 2 2 2 ...
+  ..- attr(*, "label")= chr "Individual ID"
+  ..- attr(*, "format.stata")= chr "%12.0g"
+ $ time                 : num [1:250] 1 2 3 4 5 1 2 3 4 5 ...
+  ..- attr(*, "label")= chr "Time Period"
+  ..- attr(*, "format.stata")= chr "%12.0g"
+ $ group_cat            : dbl+lbl [1:250] 2, 3, 2, 2, 1, 3, 2, 2, 3, 2, 3, 2, 2, 1, 3, 2, 2, 1, ...
+   ..@ label       : chr "Treatment Group"
+   ..@ format.stata: chr "%12.0g"
+   ..@ labels      : Named num [1:3] 1 2 3
+   .. ..- attr(*, "names")= chr [1:3] "Control" "TreatA" "TreatB"
+ $ region_cat           : dbl+lbl [1:250] 3, 2, 1, 3, 1, 1, 2, 2, 3, 4, 2, 2, 1, 1, 3, 1, 2, 3, ...
+   ..@ label       : chr "Geographic Region"
+   ..@ format.stata: chr "%12.0g"
+   ..@ labels      : Named num [1:4] 1 2 3 4
+   .. ..- attr(*, "names")= chr [1:4] "a" "b" "c" "d"
+ $ x_numeric            : num [1:250] 100 8.04 10.37 5.7 8.75 ...
+  ..- attr(*, "label")= chr "Continuous Covariate X"
+  ..- attr(*, "format.stata")= chr "%10.0g"
+ $ another_factor       : dbl+lbl [1:250]  3,  2,  2,  1,  1,  3,  1,  1,  3,  3,  2, NA,  1,  2...
+   ..@ label       : chr "Another Factor for xi"
+   ..@ format.stata: chr "%12.0g"
+   ..@ labels      : Named num [1:3] 1 2 3
+   .. ..- attr(*, "names")= chr [1:3] "X1" "X2" "X3"
+ $ baseline_char        : chr [1:250] "Low" "High" "High" "High" ...
+  ..- attr(*, "label")= chr "Baseline Characteristic"
+  ..- attr(*, "format.stata")= chr "%-9s"
+ $ y_outcome            : num [1:250] 9.66 7.3 8.67 8.33 5.85 ...
+  ..- attr(*, "label")= chr "Outcome Variable Y"
+  ..- attr(*, "format.stata")= chr "%10.0g"
+ $ _temp_eN_reg1        : num [1:250] 242 242 242 242 242 242 242 242 242 242 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ obs_from_reg1        : num [1:250] 242 NA NA NA NA 242 NA NA NA NA ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ _temp_df_r_reg1      : num [1:250] 240 240 240 240 240 240 240 240 240 240 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ df_resid_from_reg1   : num [1:250] 240 NA NA NA NA 240 NA NA NA NA ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ in_estimation_sample1: num [1:250] 1 1 1 1 1 1 1 1 1 1 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ y_mod_by_esample1    : num [1:250] 10.63 7.3 9.54 9.17 5.85 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ _cond_ymod1          : num [1:250] 1 0 1 1 0 0 1 1 0 1 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ _new_val_ymod1       : num [1:250] 10.63 8.03 9.54 9.17 6.43 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ _Igroup_cat_2        : num [1:250] 1 0 1 1 0 0 1 1 0 1 ...
+  ..- attr(*, "label")= chr "group_cat==2"
+  ..- attr(*, "format.stata")= chr "%8.0g"
+ $ _Igroup_cat_3        : num [1:250] 0 1 0 0 0 1 0 0 1 0 ...
+  ..- attr(*, "label")= chr "group_cat==3"
+  ..- attr(*, "format.stata")= chr "%8.0g"
+NULL
+
+Data set from R (r_df):
+tibble [250 × 17] (S3: tbl_df/tbl/data.frame)
+ $ id                        : num [1:250] 1 1 1 1 1 2 2 2 2 2 ...
+  ..- attr(*, "label")= chr "Individual ID"
+ $ time                      : num [1:250] 1 2 3 4 5 1 2 3 4 5 ...
+  ..- attr(*, "label")= chr "Time Period"
+ $ group_cat                 : num [1:250] 2 3 2 2 1 3 2 2 3 2 ...
+  ..- attr(*, "label")= chr "Treatment Group"
+ $ region_cat                : num [1:250] 3 2 1 3 1 1 2 2 3 4 ...
+  ..- attr(*, "label")= chr "Geographic Region"
+ $ x_numeric                 : num [1:250] 100 8.04 10.37 5.7 8.75 ...
+  ..- attr(*, "label")= chr "Continuous Covariate X"
+ $ another_factor            : num [1:250] 3 2 2 1 1 3 1 1 3 3 ...
+  ..- attr(*, "label")= chr "Another Factor for xi"
+ $ baseline_char             : chr [1:250] "Low" "High" "High" "High" ...
+  ..- attr(*, "label")= chr "Baseline Characteristic"
+ $ y_outcome                 : num [1:250] 9.66 7.3 8.67 8.33 5.85 ...
+  ..- attr(*, "label")= chr "Outcome Variable Y"
+ $ stata2r_original_order_idx: int [1:250] 1 2 3 4 5 6 7 8 9 10 ...
+ $ _temp_eN_reg1             : num [1:250] 242 242 242 242 242 242 242 242 242 242 ...
+ $ obs_from_reg1             : num [1:250] 242 NA NA NA NA 242 NA NA NA NA ...
+ $ _temp_df_r_reg1           : num [1:250] 240 240 240 240 240 240 240 240 240 240 ...
+ $ df_resid_from_reg1        : num [1:250] 240 NA NA NA NA 240 NA NA NA NA ...
+ $ in_estimation_sample1     : num [1:250] 1 1 1 1 1 1 1 1 1 1 ...
+ $ y_mod_by_esample1         : num [1:250] 10.63 7.3 9.54 9.17 5.85 ...
+ $ _cond_ymod1               : num [1:250] 1 0 1 1 0 0 1 1 0 1 ...
+ $ _new_val_ymod1            : num [1:250] 10.63 8.03 9.54 9.17 6.43 ...
+NULL
+
+Differences:List of 2
+ $ identical      : logi FALSE
+ $ column_mismatch:List of 2
+  ..$ missing_in_do_df: chr(0) 
+  ..$ missing_in_r_df : chr [1:2] "_Igroup_cat_2" "_Igroup_cat_3"
+NULL
