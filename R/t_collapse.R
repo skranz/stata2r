@@ -87,7 +87,7 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     collapse_func_expr = switch(stat_from_regex,
       "mean" = paste0("collapse::fmean(", r_source_expr_translated, ", na.rm = TRUE)"),
       "sum" = paste0("collapse::fsum(", r_source_expr_translated, ", na.rm = TRUE)"),
-      "count" = paste0("collapse::fN(", r_source_expr_translated, ", non.na = TRUE)"), # Counts non-missing values of var/expr
+      "count" = paste0("sum(!is.na(", r_source_expr_translated, "))"), # Changed from collapse::fN
       "N" = "NROW(.)", # N is number of observations in group. NROW(.) in fsummarise.
       "first" = paste0("collapse::ffirst(", r_source_expr_translated, ")"), # na.rm = TRUE by default
       "last" = paste0("collapse::flast(", r_source_expr_translated, ")"),   # na.rm = TRUE by default

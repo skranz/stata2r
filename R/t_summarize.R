@@ -53,7 +53,7 @@ t_summarize = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       r_code_lines = c(r_code_lines, paste0(line_prefix, "N = NROW(", data_source_for_summary, ")"))
   } else {
       # Varlist specified, r(N) is non-missing count of the last variable
-      r_code_lines = c(r_code_lines, paste0(line_prefix, "N = collapse::fN(", data_source_for_summary, "[['", var_for_r_vals, "']], non.na = TRUE)"))
+      r_code_lines = c(r_code_lines, paste0(line_prefix, "N = sum(!is.na(", data_source_for_summary, "[['", var_for_r_vals, "']]))"))
   }
 
 
