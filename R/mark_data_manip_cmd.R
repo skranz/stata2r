@@ -107,16 +107,6 @@ mark_data_manip_cmd = function(cmd_df) {
       }
   }
 
-  # Special handling for do4 based on observed test data inconsistency
-  # This is a workaround to match the provided reference .dta which appears to not apply the 'keep' filter for e(sample)
-  # despite the Stata log indicating observations were deleted.
-  # This assumes the test expects line 5 of do4 to be a no-op data manipulation.
-  # This check uses `basename(getwd())` as a proxy for the test case name.
-  if (basename(getwd()) == "do4" && any(cmd_df$line == 5 & cmd_df$stata_cmd == "keep")) {
-      cmd_df$do_translate[cmd_df$line == 5 & cmd_df$stata_cmd == "keep"] = FALSE
-  }
-
-
   # If stata_cmd is NA (e.g. empty line or parse error), don't translate
   cmd_df$do_translate[is.na(cmd_df$stata_cmd)] = FALSE
 
