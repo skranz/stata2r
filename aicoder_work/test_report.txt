@@ -344,7 +344,7 @@ common_cols = intersect(names(data), names(stata_tmp_using_data_L27))
 common_cols_not_by = setdiff(common_cols, stata_merge_keys_L27)
 if (length(common_cols_not_by) > 0) { stata_tmp_using_data_L27 = dplyr::select(stata_tmp_using_data_L27, -dplyr::all_of(common_cols_not_by)) }
 data = dplyr::full_join(data, stata_tmp_using_data_L27, by = stata_merge_keys_L27, relationship = "1:m", indicator = "stata_merge_indicator_L27")
-data = dplyr::filter(data, `stata_merge_indicator_L27` %in% c("left_only", "both"))
+data = dplyr::filter(data, !!dplyr::sym('stata_merge_indicator_L27') %in% c("left_only", "both"))
 data = sfun_normalize_string_nas(data)
  # _merge variable was not generated due to 'nogenerate' option.
 data = dplyr::select(data, -dplyr::any_of('stata_merge_indicator_L27'))
@@ -374,7 +374,7 @@ if (length(common_cols_not_by) > 0) { stata_tmp_using_data_L27 = dplyr::select(s
 
 data = dplyr::full_join(data, stata_tmp_using_data_L27, by = stata_merge_keys_L27, relationship = "1:m", indicator = "stata_merge_indicator_L27")
 
-data = dplyr::filter(data, `stata_merge_indicator_L27` %in% c("left_only", "both"))
+data = dplyr::filter(data, !!dplyr::sym('stata_merge_indicator_L27') %in% c("left_only", "both"))
 
 Error: Problem with `filter()` input `..1`.
 ℹ Input `..1` is `stata_merge_indicator_L27 %in% c("left_only", "both")`.
@@ -413,7 +413,7 @@ if (length(common_cols_not_by) > 0) { stata_tmp_using_data_L27 = dplyr::select(s
 
 data = dplyr::full_join(data, stata_tmp_using_data_L27, by = stata_merge_keys_L27, relationship = "1:m", indicator = "stata_merge_indicator_L27")
 
-data = dplyr::filter(data, `stata_merge_indicator_L27` %in% c("left_only", "both"))
+data = dplyr::filter(data, !!dplyr::sym('stata_merge_indicator_L27') %in% c("left_only", "both"))
 
 Error: Problem with `filter()` input `..1`.
 ℹ Input `..1` is `stata_merge_indicator_L27 %in% c("left_only", "both")`.

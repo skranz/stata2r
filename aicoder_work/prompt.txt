@@ -3868,27 +3868,28 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   )
 
   # Apply Stata's `keep()` logic or defaults by filtering the result of the full_join
-  filter_condition = NA_character_
+  filter_condition_r_expr = NA_character_ # This will hold the R expression for filter
   if (!is.na(actual_keep_spec_from_options)) {
       if (stringi::stri_detect_regex(actual_keep_spec_from_options, "\\ball\\b")) {
-          filter_condition = "TRUE" # Keep all, no filter needed after full_join
+          filter_condition_r_expr = "TRUE" # Keep all, no filter needed after full_join
       } else if (stringi::stri_detect_regex(actual_keep_spec_from_options, "\\bmaster\\b")) {
-          filter_condition = paste0("`", indicator_col_name, "` %in% c(\"left_only\", \"both\")")
+          filter_condition_r_expr = paste0("!!dplyr::sym('", indicator_col_name, "') %in% c(\"left_only\", \"both\")")
       } else if (stringi::stri_detect_regex(actual_keep_spec_from_options, "\\busing\\b")) {
-          filter_condition = paste0("`", indicator_col_name, "` %in% c(\"right_only\", \"both\")")
+          filter_condition_r_expr = paste0("!!dplyr::sym('", indicator_col_name, "') %in% c(\"right_only\", \"both\")")
       } else if (stringi::stri_detect_regex(actual_keep_spec_from_options, "\\bmatch\\b")) {
-          filter_condition = paste0("`", indicator_col_name, "` == \"both\"")
+          filter_condition_r_expr = paste0("!!dplyr::sym('", indicator_col_name, "') == \"both\"")
       }
   } else { # No explicit keep() option, use Stata defaults
       if (merge_type %in% c("1:1", "1:m", "m:1")) {
-          filter_condition = paste0("`", indicator_col_name, "` %in% c(\"left_only\", \"both\")") # Stata default is keep(match master)
+          filter_condition_r_expr = paste0("!!dplyr::sym('", indicator_col_name, "') %in% c(\"left_only\", \"both\")") # Stata default is keep(match master)
       } else if (merge_type == "m:m") {
-          filter_condition = "TRUE" # Stata default is keep(match master using) which is equivalent to keep(all)
+          filter_condition_r_expr = "TRUE" # Stata default is keep(match master using) which is equivalent to keep(all)
       }
   }
 
-  if (!is.na(filter_condition) && filter_condition != "TRUE") {
-      r_code_lines = c(r_code_lines, paste0("data = dplyr::filter(data, ", filter_condition, ")"))
+  if (!is.na(filter_condition_r_expr) && filter_condition_r_expr != "TRUE") {
+      # Use the new expression with !!sym()
+      r_code_lines = c(r_code_lines, paste0("data = dplyr::filter(data, ", filter_condition_r_expr, ")"))
   }
 
   r_code_lines = c(r_code_lines, paste0("data = sfun_normalize_string_nas(data)"))
@@ -3898,9 +3899,9 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   if (!has_nogenerate) {
       r_code_lines = c(r_code_lines,
           paste0("data = dplyr::mutate(data, `_merge` = dplyr::case_when("),
-          paste0("  `", indicator_col_name, "` == \"left_only\" ~ 1L,"),
-          paste0("  `", indicator_col_name, "` == \"right_only\" ~ 2L,"),
-          paste0("  `", indicator_col_name, "` == \"both\" ~ 3L,"),
+          paste0("  !!dplyr::sym('", indicator_col_name, "') == \"left_only\" ~ 1L,"),
+          paste0("  !!dplyr::sym('", indicator_col_name, "') == \"right_only\" ~ 2L,"),
+          paste0("  !!dplyr::sym('", indicator_col_name, "') == \"both\" ~ 3L,"),
           paste0("  TRUE ~ NA_integer_"), # Fallback for any unexpected values or NAs
           paste0("))")
       )
@@ -5698,7 +5699,7 @@ common_cols = intersect(names(data), names(stata_tmp_using_data_L27))
 common_cols_not_by = setdiff(common_cols, stata_merge_keys_L27)
 if (length(common_cols_not_by) > 0) { stata_tmp_using_data_L27 = dplyr::select(stata_tmp_using_data_L27, -dplyr::all_of(common_cols_not_by)) }
 data = dplyr::full_join(data, stata_tmp_using_data_L27, by = stata_merge_keys_L27, relationship = "1:m", indicator = "stata_merge_indicator_L27")
-data = dplyr::filter(data, `stata_merge_indicator_L27` %in% c("left_only", "both"))
+data = dplyr::filter(data, !!dplyr::sym('stata_merge_indicator_L27') %in% c("left_only", "both"))
 data = sfun_normalize_string_nas(data)
  # _merge variable was not generated due to 'nogenerate' option.
 data = dplyr::select(data, -dplyr::any_of('stata_merge_indicator_L27'))
@@ -5728,7 +5729,7 @@ if (length(common_cols_not_by) > 0) { stata_tmp_using_data_L27 = dplyr::select(s
 
 data = dplyr::full_join(data, stata_tmp_using_data_L27, by = stata_merge_keys_L27, relationship = "1:m", indicator = "stata_merge_indicator_L27")
 
-data = dplyr::filter(data, `stata_merge_indicator_L27` %in% c("left_only", "both"))
+data = dplyr::filter(data, !!dplyr::sym('stata_merge_indicator_L27') %in% c("left_only", "both"))
 
 Error: Problem with `filter()` input `..1`.
 ℹ Input `..1` is `stata_merge_indicator_L27 %in% c("left_only", "both")`.
@@ -5767,7 +5768,7 @@ if (length(common_cols_not_by) > 0) { stata_tmp_using_data_L27 = dplyr::select(s
 
 data = dplyr::full_join(data, stata_tmp_using_data_L27, by = stata_merge_keys_L27, relationship = "1:m", indicator = "stata_merge_indicator_L27")
 
-data = dplyr::filter(data, `stata_merge_indicator_L27` %in% c("left_only", "both"))
+data = dplyr::filter(data, !!dplyr::sym('stata_merge_indicator_L27') %in% c("left_only", "both"))
 
 Error: Problem with `filter()` input `..1`.
 ℹ Input `..1` is `stata_merge_indicator_L27 %in% c("left_only", "both")`.
