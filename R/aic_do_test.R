@@ -43,16 +43,9 @@ aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="", do_file
   #cat(do_code, sep="\n")
 
 
-  # transforms do_code to a dataframe with
-  # one row for each code line possible
-  # perform some preparsing
-  # the field do_code should contain the original code
   cat("\ncmd_df = do_parse(do_code)")
   cmd_df = do_parse(do_code)
 
-  # will add field "do_translate"
-  # if FALSE the stata command does not modify the data set
-  # and can be ignored
   cat("\ncmd_df = mark_data_manip_cmd(cmd_df)\n")
   cmd_df = mark_data_manip_cmd(cmd_df)
   cat("\nstr(cmd_df)\n")
@@ -326,4 +319,5 @@ compare_df = function(df1, df2,
   }
   out
 }
+
 

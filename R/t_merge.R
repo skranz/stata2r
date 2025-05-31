@@ -54,25 +54,40 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Determine if nogenerate option is present (for comments later)
   has_nogenerate = dplyr::coalesce(stringi::stri_detect_regex(options_str, "\\bno(?:generate|gen)\\b"), FALSE)
   
-  # Determine keep_spec_for_comment based on parsing `options_str` in `t_merge` scope
-  # This variable should be initialized to a default that reflects Stata's behavior for the given merge type.
-  initial_keep_spec = NA_character_
-  if (merge_type %in% c("1:1", "1:m", "m:1")) {
-      initial_keep_spec = "match master"
-  } else if (merge_type == "m:m") {
-      initial_keep_spec = "match master using"
-  }
-
-  keep_spec_for_comment = initial_keep_spec # Default if no keep() specified
-  actual_keep_spec_from_options = NA_character_ # What was explicitly written in options_str
-
+  # Determine keep_spec_for_comment and also the dplyr join function
+  actual_keep_spec_from_options = NA_character_
   if (!is.na(options_str)) {
       keep_opt_match = stringi::stri_match_first_regex(options_str, "\\bkeep\\s*\\(([^)]+)\\)")
       if (!is.na(keep_opt_match[1,1])) {
           actual_keep_spec_from_options = stringi::stri_trim_both(keep_opt_match[1,2])
-          keep_spec_for_comment = actual_keep_spec_from_options # Use actual option for comment
       }
   }
+
+  # Determine the dplyr join function based on the keep() option or Stata's defaults
+  dplyr_join_func = "dplyr::left_join" # Stata default for 1:1, 1:m, m:1
+  keep_spec_for_comment = "match master" # Default comment for these types
+
+  if (merge_type == "m:m") {
+      dplyr_join_func = "dplyr::full_join" # Stata default for m:m
+      keep_spec_for_comment = "match master using" # Default comment for m:m
+  }
+
+  if (!is.na(actual_keep_spec_from_options)) {
+      if (stringi::stri_detect_regex(actual_keep_spec_from_options, "\\ball\\b")) {
+          dplyr_join_func = "dplyr::full_join"
+          keep_spec_for_comment = "all"
+      } else if (stringi::stri_detect_regex(actual_keep_spec_from_options, "\\bmatch\\b")) {
+          dplyr_join_func = "dplyr::inner_join"
+          keep_spec_for_comment = "match"
+      } else if (stringi::stri_detect_regex(actual_keep_spec_from_options, "\\bmaster\\b")) {
+          dplyr_join_func = "dplyr::left_join"
+          keep_spec_for_comment = "master"
+      } else if (stringi::stri_detect_regex(actual_keep_spec_from_options, "\\busing\\b")) {
+          dplyr_join_func = "dplyr::right_join"
+          keep_spec_for_comment = "using"
+      }
+  }
+
 
   # --- Start building R code lines ---
   r_code_lines = c()
@@ -120,35 +135,14 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     paste0("if (length(common_cols_not_by) > 0) { ", temp_using_data_var, " = dplyr::select(", temp_using_data_var, ", -dplyr::all_of(common_cols_not_by)) }")
   )
 
-  # Always perform a full_join to get the merge indicator. This is the base for subsequent filtering.
+  # Perform the chosen join
   r_code_lines = c(r_code_lines,
-    paste0("data = dplyr::full_join(data, ", temp_using_data_var, ", by = ", merge_keys_r_var, ", relationship = \"", merge_type, "\", indicator = \"", indicator_col_name, "\")")
+    paste0("data = ", dplyr_join_func, "(data, ", temp_using_data_var, ", by = ", merge_keys_r_var, ", indicator = \"", indicator_col_name, "\")")
   )
 
-  # Apply Stata's `keep()` logic or defaults by filtering the result of the full_join
-  filter_condition_r_expr = NA_character_ # This will hold the R expression for filter
-  if (!is.na(actual_keep_spec_from_options)) {
-      if (stringi::stri_detect_regex(actual_keep_spec_from_options, "\\ball\\b")) {
-          filter_condition_r_expr = "TRUE" # Keep all, no filter needed after full_join
-      } else if (stringi::stri_detect_regex(actual_keep_spec_from_options, "\\bmaster\\b")) {
-          filter_condition_r_expr = paste0("data[['", indicator_col_name, "']] %in% c(\"left_only\", \"both\")")
-      } else if (stringi::stri_detect_regex(actual_keep_spec_from_options, "\\busing\\b")) {
-          filter_condition_r_expr = paste0("data[['", indicator_col_name, "']] %in% c(\"right_only\", \"both\")")
-      } else if (stringi::stri_detect_regex(actual_keep_spec_from_options, "\\bmatch\\b")) { # Added this branch for keep(match)
-          filter_condition_r_expr = paste0("data[['", indicator_col_name, "']] == \"both\"")
-      }
-  } else { # No explicit keep() option, use Stata defaults
-      if (merge_type %in% c("1:1", "1:m", "m:1")) {
-          filter_condition_r_expr = paste0("data[['", indicator_col_name, "']] %in% c(\"left_only\", \"both\")") # Stata default is keep(match master)
-      } else if (merge_type == "m:m") {
-          filter_condition_r_expr = "TRUE" # Stata default is keep(match master using) which is equivalent to keep(all)
-      }
-  }
-
-  if (!is.na(filter_condition_r_expr) && filter_condition_r_expr != "TRUE") {
-      # Use the new expression with !!sym()
-      r_code_lines = c(r_code_lines, paste0("data = dplyr::filter(data, ", filter_condition_r_expr, ")"))
-  }
+  # No further filter needed based on `keep_spec_for_comment` because the chosen join function
+  # already implements the desired keep logic (e.g., left_join for master, inner_join for match).
+  # The `indicator` column will correctly reflect the join outcome.
 
   r_code_lines = c(r_code_lines, paste0("data = sfun_normalize_string_nas(data)"))
 
@@ -160,7 +154,7 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
           paste0("  data[['", indicator_col_name, "']] == \"left_only\" ~ 1L,"),
           paste0("  data[['", indicator_col_name, "']] == \"right_only\" ~ 2L,"),
           paste0("  data[['", indicator_col_name, "']] == \"both\" ~ 3L,"),
-          paste0("  TRUE ~ NA_integer_"), # Fallback for any unexpected values or NAs
+          paste0("  TRUE ~ NA_integer_"), # Fallback for any unexpected values or NAs (shouldn't happen with indicator)
           paste0("))")
       )
   } else {
@@ -194,4 +188,5 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 
