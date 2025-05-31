@@ -506,7 +506,7 @@ str(cmd_df)
   ..$ : chr 
   ..$ : chr 
   ..$ : chr 
-  ..$ : chr "e(sample)"
+  ..$ : chr  "e(sample)" "e(N)" "e(df_r)"
   ..$ : chr 
   ..$ : chr 
   ..$ : chr 
@@ -592,43 +592,48 @@ data = haven::read_dta(file.path(stata2r_env$working_dir, "tricky_data.dta")) %>
   dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used
 
  2 do:  label var id "Individual ID"
- 2 r:  # Unknown label subcommand: var id "Individual ID" 
-# Unknown label subcommand: var id "Individual ID"
+ 2 r:  attr(data$`id`, "label") = "Individual ID" 
+attr(data$`id`, "label") = "Individual ID"
 
  3 do:  label var time "Time Period"
- 3 r:  # Unknown label subcommand: var time "Time Period" 
-# Unknown label subcommand: var time "Time Period"
+ 3 r:  attr(data$`time`, "label") = "Time Period" 
+attr(data$`time`, "label") = "Time Period"
 
  4 do:  label var group_cat "Treatment Group"
- 4 r:  # Unknown label subcommand: var group_cat "Treatment Group" 
-# Unknown label subcommand: var group_cat "Treatment Group"
+ 4 r:  attr(data$`group_cat`, "label") = "Treatment Group" 
+attr(data$`group_cat`, "label") = "Treatment Group"
 
  5 do:  label var region_cat "Geographic Region"
- 5 r:  # Unknown label subcommand: var region_cat "Geographic Region" 
-# Unknown label subcommand: var region_cat "Geographic Region"
+ 5 r:  attr(data$`region_cat`, "label") = "Geographic Region" 
+attr(data$`region_cat`, "label") = "Geographic Region"
 
  6 do:  label var x_numeric "Continuous Covariate X"
- 6 r:  # Unknown label subcommand: var x_numeric "Continuous Covariate X" 
-# Unknown label subcommand: var x_numeric "Continuous Covariate X"
+ 6 r:  attr(data$`x_numeric`, "label") = "Continuous Covariate X" 
+attr(data$`x_numeric`, "label") = "Continuous Covariate X"
 
  7 do:  label var y_outcome "Outcome Variable Y"
- 7 r:  # Unknown label subcommand: var y_outcome "Outcome Variable Y" 
-# Unknown label subcommand: var y_outcome "Outcome Variable Y"
+ 7 r:  attr(data$`y_outcome`, "label") = "Outcome Variable Y" 
+attr(data$`y_outcome`, "label") = "Outcome Variable Y"
 
  8 do:  label var baseline_char "Baseline Characteristic"
- 8 r:  # Unknown label subcommand: var baseline_char "Baseline Characteristic" 
-# Unknown label subcommand: var baseline_char "Baseline Characteristic"
+ 8 r:  attr(data$`baseline_char`, "label") = "Baseline Characteristic" 
+attr(data$`baseline_char`, "label") = "Baseline Characteristic"
 
  9 do:  label var another_factor "Another Factor for xi"
- 9 r:  # Unknown label subcommand: var another_factor "Another Factor for xi" 
-# Unknown label subcommand: var another_factor "Another Factor for xi"
+ 9 r:  attr(data$`another_factor`, "label") = "Another Factor for xi" 
+attr(data$`another_factor`, "label") = "Another Factor for xi"
 
  10 do:  quietly regress y_outcome x_numeric
  10 r:  temp_eligible_if_L10 = rep(TRUE, NROW(data))
 temp_complete_cases_L10 = stats::complete.cases(data[, c('y_outcome','x_numeric'), drop=FALSE])
 stata_e_sample_L10 = as.integer(temp_eligible_if_L10 & temp_complete_cases_L10)
 rm(temp_eligible_if_L10, temp_complete_cases_L10)
-# Regression model for e(sample): y_outcome ~ x_numeric 
+stata_e_L10_N = sum(stata_e_sample_L10)
+data_lm_L10 = dplyr::filter(data, stata_e_sample_L10 == 1)
+lm_res_L10 = stats::lm(`y_outcome` ~ `x_numeric`, data = data_lm_L10)
+stata_e_L10_df_r = lm_res_L10$df.residual
+rm(data_lm_L10, lm_res_L10)
+# Regression model for e() results: `y_outcome` ~ `x_numeric` 
 temp_eligible_if_L10 = rep(TRUE, NROW(data))
 
 temp_complete_cases_L10 = stats::complete.cases(data[, c('y_outcome','x_numeric'), drop=FALSE])
@@ -637,24 +642,54 @@ stata_e_sample_L10 = as.integer(temp_eligible_if_L10 & temp_complete_cases_L10)
 
 rm(temp_eligible_if_L10, temp_complete_cases_L10)
 
-# Regression model for e(sample): y_outcome ~ x_numeric
+stata_e_L10_N = sum(stata_e_sample_L10)
+
+data_lm_L10 = dplyr::filter(data, stata_e_sample_L10 == 1)
+
+lm_res_L10 = stats::lm(`y_outcome` ~ `x_numeric`, data = data_lm_L10)
+
+stata_e_L10_df_r = lm_res_L10$df.residual
+
+rm(data_lm_L10, lm_res_L10)
+
+# Regression model for e() results: `y_outcome` ~ `x_numeric`
 
  11 do:  gen _temp_eN_reg1 = e(N)
  11 r:  data = data %>% 
-  dplyr::mutate(`_temp_eN_reg1` = e(`N`)) 
+  dplyr::mutate(`_temp_eN_reg1` = stata_e_L10_N) 
 data = data %>% 
-  dplyr::mutate(`_temp_eN_reg1` = e(`N`))
+  dplyr::mutate(`_temp_eN_reg1` = stata_e_L10_N)
 
-Error: Problem with `mutate()` column `_temp_eN_reg1`.
-ℹ `_temp_eN_reg1 = e(N)`.
-✖ could not find function "e"
-Caused by error in `e()`:
-! could not find function "e"
-Error executing R code for Stata line  11 :  data = data %>% 
-  dplyr::mutate(`_temp_eN_reg1` = e(`N`))
+ 12 do:  gen obs_from_reg1 = _temp_eN_reg1
+ 12 r:  data = data %>% 
+  dplyr::mutate(`obs_from_reg1` = `_temp_eN_reg1`) 
+data = data %>% 
+  dplyr::mutate(`obs_from_reg1` = `_temp_eN_reg1`)
 
-Error: Problem with `mutate()` column `_temp_eN_reg1`.
-ℹ `_temp_eN_reg1 = e(N)`.
-✖ could not find function "e"
-Caused by error in `e()`:
-! could not find function "e" 
+ 13 do:  bysort id: replace obs_from_reg1 = cond(_n == 1, obs_from_reg1, .)
+ 13 r:  data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("id"))) %>% 
+  dplyr::mutate(`obs_from_reg1` = as.numeric(sfun_stata_cond(dplyr::row_number() == 1,  `obs_from_reg1`,  NA_real_))) %>% 
+  dplyr::ungroup() 
+data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("id"))) %>% 
+  dplyr::mutate(`obs_from_reg1` = as.numeric(sfun_stata_cond(dplyr::row_number() == 1,  `obs_from_reg1`,  NA_real_))) %>% 
+  dplyr::ungroup()
+
+Error: Problem with `mutate()` column `obs_from_reg1`.
+ℹ `obs_from_reg1 = as.numeric(...)`.
+✖ `false` must be an integer vector, not a double vector.
+ℹ The error occurred in group 1: id = 1.
+Caused by error in `glubort()`:
+! `false` must be an integer vector, not a double vector.
+Error executing R code for Stata line  13 :  data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("id"))) %>% 
+  dplyr::mutate(`obs_from_reg1` = as.numeric(sfun_stata_cond(dplyr::row_number() == 1,  `obs_from_reg1`,  NA_real_))) %>% 
+  dplyr::ungroup()
+
+Error: Problem with `mutate()` column `obs_from_reg1`.
+ℹ `obs_from_reg1 = as.numeric(...)`.
+✖ `false` must be an integer vector, not a double vector.
+ℹ The error occurred in group 1: id = 1.
+Caused by error in `glubort()`:
+! `false` must be an integer vector, not a double vector. 

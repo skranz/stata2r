@@ -599,8 +599,8 @@ mark_data_manip_cmd = function(cmd_df) {
 
     # Estimation commands produce e() results
     if (current_cmd %in% stata_estimation_cmds) {
-      # For now, only 'e(sample)' is tracked for regress. Extend as needed.
-      potential_e_results_produced = c("e(sample)")
+      # List all e() results that regress can produce.
+      potential_e_results_produced = c("e(sample)", "e(N)", "e(r2)", "e(df_r)", "e(rmse)", "e(b)", "e(V)")
       
       # If any of these potential results are currently needed, then this command is the producer.
       if (any(potential_e_results_produced %in% active_needed_e_results)) {
@@ -660,6 +660,7 @@ mark_data_manip_cmd = function(cmd_df) {
   
   return(cmd_df)
 }
+
 
 ```
 ### END OF FILE: mark_data_manip_cmd.R
@@ -3472,7 +3473,9 @@ t_label = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   } else if (stringi::stri_startswith_fixed(rest_of_cmd_trimmed, "values ")) {
     return(t_label_values(rest_of_cmd_trimmed, cmd_obj, cmd_df, line_num))
   } else if (stringi::stri_startswith_fixed(rest_of_cmd_trimmed, "variable ")) {
-    return(t_label_variable(rest_of_cmd_trimmed, cmd_obj, cmd_df, line_num))
+    return(t_label_variable(stringi::stri_sub(rest_of_cmd_trimmed, nchar("variable ")+1), cmd_obj, cmd_df, line_num))
+  } else if (stringi::stri_startswith_fixed(rest_of_cmd_trimmed, "var ")) { # Handle abbreviation for 'variable'
+    return(t_label_variable(stringi::stri_sub(rest_of_cmd_trimmed, nchar("var ")+1), cmd_obj, cmd_df, line_num))
   } else {
     return(paste0("# Unknown label subcommand: ", rest_of_cmd))
   }
@@ -3607,7 +3610,8 @@ t_label_values = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 t_label_variable = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   restore.point("t_label_variable")
   # label variable varname "label"
-  variable_match = stringi::stri_match_first_regex(rest_of_cmd, "^\\s*variable\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s+(?:\"([^\"]*)\"|'([^']*)')$")
+  # rest_of_cmd is now just "varname "label""
+  variable_match = stringi::stri_match_first_regex(rest_of_cmd, "^\\s*([a-zA-Z_][a-zA-Z0-9_]*)\\s+(?:\"([^\"]*)\"|'([^']*)')$")
   if (is.na(variable_match[1,1])) {
       return(paste0("# Failed to parse label variable command: ", rest_of_cmd))
   }
@@ -3625,6 +3629,7 @@ t_label_variable = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   )
   return(paste(r_code_lines, collapse="\n"))
 }
+
 
 ```
 ### END OF FILE: t_label.R
@@ -4271,20 +4276,17 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 t_regress = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   restore.point("t_regress")
 
-  # Check if e(sample) is actually needed by a subsequent command
-  # This check ensures that the function only generates code if its results are utilized later.
-  e_sample_needed = "e(sample)" %in% unlist(cmd_obj$e_results_needed)
+  # Check if any e() results are actually needed by a subsequent command
+  needed_e_results = unlist(cmd_obj$e_results_needed)
 
-  if (!e_sample_needed) {
-    # If e(sample) is not needed, or if it's overwritten by a later estimation command,
-    # then this particular regress command doesn't need to produce any R output for e(sample).
-    return(paste0("# regress command at line ", line_num, " translated to no-op as e(sample) (or other e() results) not used later."))
+  if (length(needed_e_results) == 0) {
+    # If no e() results are needed, this regress command doesn't need to produce any R output.
+    return(paste0("# regress command at line ", line_num, " translated to no-op as no e() results used later."))
   }
 
   # Parse `rest_of_cmd` for depvar, indepvars, and if/in conditions
   # Example: "y_outcome x_numeric if some_condition > 10"
   # Regex to capture: (depvar indepvars_optional) (if_clause_optional) (in_clause_optional) (options_like_robust_optional)
-  # This is complex. A simpler split: find 'if', 'in', ','
 
   # Remove options like robust, vce(), level() as they don't affect e(sample)
   rest_of_cmd_no_opts = stringi::stri_replace_all_regex(rest_of_cmd, ",\\s*\\w+\\(?[^)]*\\)?", "")
@@ -4292,7 +4294,7 @@ t_regress = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   rest_of_cmd_no_opts = stringi::stri_trim_both(rest_of_cmd_no_opts)
 
   stata_if_cond = NA_character_
-  stata_in_range = NA_character_
+  stata_in_range = NA_character_ # Not directly used for e(sample) calculation, but parsed for completeness
   var_part = rest_of_cmd_no_opts
 
   # Extract `if` condition
@@ -4301,10 +4303,6 @@ t_regress = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     stata_if_cond = stringi::stri_trim_both(if_match[1,2])
     var_part = stringi::stri_trim_both(stringi::stri_sub(var_part, 1, if_match[1,1, MRANGE_START=TRUE] - 1))
   }
-
-  # Extract `in` range (not typically used with e(sample) logic directly but parse for completeness)
-  # `in` conditions are usually handled by filtering data *before* regress if they affect the sample.
-  # e(sample) is relative to the data *after* `if` and `in` are applied to `regress`.
 
   vars_str_list = stringi::stri_split_regex(var_part, "\\s+")[[1]]
   vars_str_list = vars_str_list[vars_str_list != ""]
@@ -4315,12 +4313,12 @@ t_regress = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   dep_var = vars_str_list[1]
   indep_vars = if (length(vars_str_list) > 1) vars_str_list[-1] else NULL
 
-  # Construct formula string (for comment purposes)
-  formula_str = dep_var
+  # Construct formula string for R lm (for actual model fitting if needed)
+  formula_r_vars = paste0("`", dep_var, "`")
   if (!is.null(indep_vars) && length(indep_vars) > 0) {
-    formula_str = paste0(dep_var, " ~ ", paste(indep_vars, collapse = " + "))
+    formula_r_vars = paste0(formula_r_vars, " ~ ", paste0("`", indep_vars, "`", collapse = " + "))
   } else {
-    formula_str = paste0(dep_var, " ~ 1") # Regress on constant
+    formula_r_vars = paste0(formula_r_vars, " ~ 1") # Regress on constant
   }
 
   all_vars_in_formula = c(dep_var, indep_vars) # All variables involved in the model
@@ -4329,6 +4327,7 @@ t_regress = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Define the R variable name for e(sample)
   e_sample_r_var_name = paste0("stata_e_sample_L", line_num)
+  line_prefix_e_base = paste0("stata_e_L", line_num, "_") # Base prefix for all e() values
 
   # --- Generate code to calculate e(sample) ---
   # 1. Determine rows satisfying the `if` condition (if any)
@@ -4361,16 +4360,44 @@ t_regress = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # 4. Clean up temporary logical vectors
   r_code_lines = c(r_code_lines, paste0("rm(", eligible_rows_if_cond_var, ", ", complete_cases_vars_var, ")"))
 
+  # Calculate other e() results if they are needed
+  if ("e(N)" %in% needed_e_results) {
+      r_code_lines = c(r_code_lines, paste0(line_prefix_e_base, "N = sum(", e_sample_r_var_name, ")"))
+  }
+
+  # If other model-derived e() results are needed, run the actual linear model.
+  # This avoids running lm if only e(sample) or e(N) are needed.
+  other_model_results_needed = setdiff(needed_e_results, c("e(sample)", "e(N)"))
+  if (length(other_model_results_needed) > 0) {
+    # Filter data to estimation sample before running lm
+    lm_data_var = paste0("data_lm_L", line_num)
+    r_code_lines = c(r_code_lines,
+      paste0(lm_data_var, " = dplyr::filter(data, ", e_sample_r_var_name, " == 1)"),
+      paste0("lm_res_L", line_num, " = stats::lm(", formula_r_vars, ", data = ", lm_data_var, ")")
+    )
+    
+    if ("e(r2)" %in% needed_e_results) {
+        r_code_lines = c(r_code_lines, paste0(line_prefix_e_base, "r2 = summary(lm_res_L", line_num, ")$r.squared"))
+    }
+    if ("e(df_r)" %in% needed_e_results) {
+        r_code_lines = c(r_code_lines, paste0(line_prefix_e_base, "df_r = lm_res_L", line_num, "$df.residual"))
+    }
+    if ("e(rmse)" %in% needed_e_results) {
+        r_code_lines = c(r_code_lines, paste0(line_prefix_e_base, "rmse = summary(lm_res_L", line_num, ")$sigma"))
+    }
+    # Clean up lm related temporary variables
+    r_code_lines = c(r_code_lines, paste0("rm(", lm_data_var, ", lm_res_L", line_num, ")"))
+  }
+
   # Add a comment about the formula
-  r_code_lines = c(r_code_lines, paste0("# Regression model for e(sample): ", formula_str))
+  r_code_lines = c(r_code_lines, paste0("# Regression model for e() results: ", formula_r_vars))
   if (!is.na(stata_if_cond)) {
     r_code_lines = c(r_code_lines, paste0("# Applied if condition: ", stata_if_cond))
   }
-  # The note about discrepancy is removed as the fix to mark_data_manip_cmd should ensure consistency
-  # between Stata log and R output when `e(sample)` is correctly generated and used.
 
   return(paste(r_code_lines, collapse = "\n"))
 }
+
 
 ```
 ### END OF FILE: t_regress.R
@@ -5016,10 +5043,23 @@ translate_stata_expression_with_r_values = function(stata_expr, line_num, cmd_df
 
   if (!is.na(most_recent_e_producer_line_idx)) {
     prev_cmd_obj_e = cmd_df[most_recent_e_producer_line_idx,]
-    line_prefix_e = paste0("stata_e_sample_L", prev_cmd_obj_e$line) # Specific to e(sample) for now
+    line_prefix_e_base = paste0("stata_e_L", prev_cmd_obj_e$line, "_") # Base prefix for all e() values
 
+    # Check for specific e() values that were marked as needed for this command
     if ("e(sample)" %in% unlist(prev_cmd_obj_e$e_results_needed)) {
-      r_value_mappings[["e(sample)"]] = line_prefix_e
+      r_value_mappings[["e(sample)"]] = paste0("stata_e_sample_L", prev_cmd_obj_e$line) # Special name for sample
+    }
+    if ("e(N)" %in% unlist(prev_cmd_obj_e$e_results_needed)) {
+      r_value_mappings[["e(N)"]] = paste0(line_prefix_e_base, "N")
+    }
+    if ("e(r2)" %in% unlist(prev_cmd_obj_e$e_results_needed)) {
+      r_value_mappings[["e(r2)"]] = paste0(line_prefix_e_base, "r2")
+    }
+    if ("e(df_r)" %in% unlist(prev_cmd_obj_e$e_results_needed)) {
+      r_value_mappings[["e(df_r)"]] = paste0(line_prefix_e_base, "df_r")
+    }
+    if ("e(rmse)" %in% unlist(prev_cmd_obj_e$e_results_needed)) {
+      r_value_mappings[["e(rmse)"]] = paste0(line_prefix_e_base, "rmse")
     }
     # Add mappings for other e() results like e(b), e(V) if t_regress etc. implement them
   }
@@ -5613,7 +5653,7 @@ str(cmd_df)
   ..$ : chr 
   ..$ : chr 
   ..$ : chr 
-  ..$ : chr "e(sample)"
+  ..$ : chr  "e(sample)" "e(N)" "e(df_r)"
   ..$ : chr 
   ..$ : chr 
   ..$ : chr 
@@ -5699,43 +5739,48 @@ data = haven::read_dta(file.path(stata2r_env$working_dir, "tricky_data.dta")) %>
   dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used
 
  2 do:  label var id "Individual ID"
- 2 r:  # Unknown label subcommand: var id "Individual ID" 
-# Unknown label subcommand: var id "Individual ID"
+ 2 r:  attr(data$`id`, "label") = "Individual ID" 
+attr(data$`id`, "label") = "Individual ID"
 
  3 do:  label var time "Time Period"
- 3 r:  # Unknown label subcommand: var time "Time Period" 
-# Unknown label subcommand: var time "Time Period"
+ 3 r:  attr(data$`time`, "label") = "Time Period" 
+attr(data$`time`, "label") = "Time Period"
 
  4 do:  label var group_cat "Treatment Group"
- 4 r:  # Unknown label subcommand: var group_cat "Treatment Group" 
-# Unknown label subcommand: var group_cat "Treatment Group"
+ 4 r:  attr(data$`group_cat`, "label") = "Treatment Group" 
+attr(data$`group_cat`, "label") = "Treatment Group"
 
  5 do:  label var region_cat "Geographic Region"
- 5 r:  # Unknown label subcommand: var region_cat "Geographic Region" 
-# Unknown label subcommand: var region_cat "Geographic Region"
+ 5 r:  attr(data$`region_cat`, "label") = "Geographic Region" 
+attr(data$`region_cat`, "label") = "Geographic Region"
 
  6 do:  label var x_numeric "Continuous Covariate X"
- 6 r:  # Unknown label subcommand: var x_numeric "Continuous Covariate X" 
-# Unknown label subcommand: var x_numeric "Continuous Covariate X"
+ 6 r:  attr(data$`x_numeric`, "label") = "Continuous Covariate X" 
+attr(data$`x_numeric`, "label") = "Continuous Covariate X"
 
  7 do:  label var y_outcome "Outcome Variable Y"
- 7 r:  # Unknown label subcommand: var y_outcome "Outcome Variable Y" 
-# Unknown label subcommand: var y_outcome "Outcome Variable Y"
+ 7 r:  attr(data$`y_outcome`, "label") = "Outcome Variable Y" 
+attr(data$`y_outcome`, "label") = "Outcome Variable Y"
 
  8 do:  label var baseline_char "Baseline Characteristic"
- 8 r:  # Unknown label subcommand: var baseline_char "Baseline Characteristic" 
-# Unknown label subcommand: var baseline_char "Baseline Characteristic"
+ 8 r:  attr(data$`baseline_char`, "label") = "Baseline Characteristic" 
+attr(data$`baseline_char`, "label") = "Baseline Characteristic"
 
  9 do:  label var another_factor "Another Factor for xi"
- 9 r:  # Unknown label subcommand: var another_factor "Another Factor for xi" 
-# Unknown label subcommand: var another_factor "Another Factor for xi"
+ 9 r:  attr(data$`another_factor`, "label") = "Another Factor for xi" 
+attr(data$`another_factor`, "label") = "Another Factor for xi"
 
  10 do:  quietly regress y_outcome x_numeric
  10 r:  temp_eligible_if_L10 = rep(TRUE, NROW(data))
 temp_complete_cases_L10 = stats::complete.cases(data[, c('y_outcome','x_numeric'), drop=FALSE])
 stata_e_sample_L10 = as.integer(temp_eligible_if_L10 & temp_complete_cases_L10)
 rm(temp_eligible_if_L10, temp_complete_cases_L10)
-# Regression model for e(sample): y_outcome ~ x_numeric 
+stata_e_L10_N = sum(stata_e_sample_L10)
+data_lm_L10 = dplyr::filter(data, stata_e_sample_L10 == 1)
+lm_res_L10 = stats::lm(`y_outcome` ~ `x_numeric`, data = data_lm_L10)
+stata_e_L10_df_r = lm_res_L10$df.residual
+rm(data_lm_L10, lm_res_L10)
+# Regression model for e() results: `y_outcome` ~ `x_numeric` 
 temp_eligible_if_L10 = rep(TRUE, NROW(data))
 
 temp_complete_cases_L10 = stats::complete.cases(data[, c('y_outcome','x_numeric'), drop=FALSE])
@@ -5744,27 +5789,57 @@ stata_e_sample_L10 = as.integer(temp_eligible_if_L10 & temp_complete_cases_L10)
 
 rm(temp_eligible_if_L10, temp_complete_cases_L10)
 
-# Regression model for e(sample): y_outcome ~ x_numeric
+stata_e_L10_N = sum(stata_e_sample_L10)
+
+data_lm_L10 = dplyr::filter(data, stata_e_sample_L10 == 1)
+
+lm_res_L10 = stats::lm(`y_outcome` ~ `x_numeric`, data = data_lm_L10)
+
+stata_e_L10_df_r = lm_res_L10$df.residual
+
+rm(data_lm_L10, lm_res_L10)
+
+# Regression model for e() results: `y_outcome` ~ `x_numeric`
 
  11 do:  gen _temp_eN_reg1 = e(N)
  11 r:  data = data %>% 
-  dplyr::mutate(`_temp_eN_reg1` = e(`N`)) 
+  dplyr::mutate(`_temp_eN_reg1` = stata_e_L10_N) 
 data = data %>% 
-  dplyr::mutate(`_temp_eN_reg1` = e(`N`))
+  dplyr::mutate(`_temp_eN_reg1` = stata_e_L10_N)
 
-Error: Problem with `mutate()` column `_temp_eN_reg1`.
-ℹ `_temp_eN_reg1 = e(N)`.
-✖ could not find function "e"
-Caused by error in `e()`:
-! could not find function "e"
-Error executing R code for Stata line  11 :  data = data %>% 
-  dplyr::mutate(`_temp_eN_reg1` = e(`N`))
+ 12 do:  gen obs_from_reg1 = _temp_eN_reg1
+ 12 r:  data = data %>% 
+  dplyr::mutate(`obs_from_reg1` = `_temp_eN_reg1`) 
+data = data %>% 
+  dplyr::mutate(`obs_from_reg1` = `_temp_eN_reg1`)
 
-Error: Problem with `mutate()` column `_temp_eN_reg1`.
-ℹ `_temp_eN_reg1 = e(N)`.
-✖ could not find function "e"
-Caused by error in `e()`:
-! could not find function "e" 
+ 13 do:  bysort id: replace obs_from_reg1 = cond(_n == 1, obs_from_reg1, .)
+ 13 r:  data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("id"))) %>% 
+  dplyr::mutate(`obs_from_reg1` = as.numeric(sfun_stata_cond(dplyr::row_number() == 1,  `obs_from_reg1`,  NA_real_))) %>% 
+  dplyr::ungroup() 
+data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("id"))) %>% 
+  dplyr::mutate(`obs_from_reg1` = as.numeric(sfun_stata_cond(dplyr::row_number() == 1,  `obs_from_reg1`,  NA_real_))) %>% 
+  dplyr::ungroup()
+
+Error: Problem with `mutate()` column `obs_from_reg1`.
+ℹ `obs_from_reg1 = as.numeric(...)`.
+✖ `false` must be an integer vector, not a double vector.
+ℹ The error occurred in group 1: id = 1.
+Caused by error in `glubort()`:
+! `false` must be an integer vector, not a double vector.
+Error executing R code for Stata line  13 :  data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("id"))) %>% 
+  dplyr::mutate(`obs_from_reg1` = as.numeric(sfun_stata_cond(dplyr::row_number() == 1,  `obs_from_reg1`,  NA_real_))) %>% 
+  dplyr::ungroup()
+
+Error: Problem with `mutate()` column `obs_from_reg1`.
+ℹ `obs_from_reg1 = as.numeric(...)`.
+✖ `false` must be an integer vector, not a double vector.
+ℹ The error occurred in group 1: id = 1.
+Caused by error in `glubort()`:
+! `false` must be an integer vector, not a double vector. 
 
 ##############################
 # YOUR TASK
