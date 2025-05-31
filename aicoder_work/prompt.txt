@@ -691,6 +691,24 @@ sfun_compress_col_type = function(x) {
 
 -----------------------------------------------------------
 
+### FILE: sfun_date_utils.R
+```
+# Custom R implementation for utility functions related to Stata date formats.
+
+is_stata_fmt_allowing_2_digit_year = function(fmt) {
+  # Stata formats that allow 2-digit years (YY) implicitly or explicitly.
+  # This function checks for common daily date formats where Stata's `date()`
+  # function might apply century logic even if the input string contains a 4-digit year.
+  # These are the formats that typically have a 'Y' or 'y' component for the year.
+  tolower(fmt) %in% c("ymd", "mdy", "dmy", "dy", "my", "yd", "yw", "wq", "wm", "wd")
+}
+
+
+```
+### END OF FILE: sfun_date_utils.R
+
+-----------------------------------------------------------
+
 ### FILE: sfun_day.R
 ```
 # Custom R implementation for Stata's day() behavior
@@ -6298,7 +6316,7 @@ tibble [50 × 31] (S3: tbl_df/tbl/data.frame)
  $ value2_squared            : num [1:50] 16 9 NA 100 9 4 9 36 36 64 ...
  $ int_value1                : num [1:50] 73 NA 52 29 44 NA 41 20 31 70 ...
  $ rounded_value1            : num [1:50] 73.9 NA 52.8 29.8 44.2 NA 41.7 20 31.9 70.1 ...
- $ random_uniform_draw       : num [1:50] 0.2 0.9167 0.334 0.0569 0.7908 ...
+ $ random_uniform_draw       : num [1:50] 0.284 0.776 0.128 0.393 0.201 ...
  $ id_plus_value2            : num [1:50] 5 5 NA NA 8 8 10 14 15 NA ...
  $ group_clean               : chr [1:50] "gamma" "gamma" "beta" "beta" ...
  $ group_abbr                : chr [1:50] "gam" "gam" "bet" "bet" ...
