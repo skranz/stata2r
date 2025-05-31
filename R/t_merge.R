@@ -134,7 +134,8 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
           filter_condition_r_expr = paste0("data[['", indicator_col_name, "']] %in% c(\"left_only\", \"both\")")
       } else if (stringi::stri_detect_regex(actual_keep_spec_from_options, "\\busing\\b")) {
           filter_condition_r_expr = paste0("data[['", indicator_col_name, "']] %in% c(\"right_only\", \"both\")")
-      _data[['", indicator_col_name, "']] == \"both\"")
+      } else if (stringi::stri_detect_regex(actual_keep_spec_from_options, "\\bmatch\\b")) { # Added this branch for keep(match)
+          filter_condition_r_expr = paste0("data[['", indicator_col_name, "']] == \"both\"")
       }
   } else { # No explicit keep() option, use Stata defaults
       if (merge_type %in% c("1:1", "1:m", "m:1")) {
