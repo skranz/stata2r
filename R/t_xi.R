@@ -20,44 +20,61 @@ t_xi = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   r_code_lines = c()
 
-  # Temporary variable names for generated R code
-  temp_matrix_var = paste0("stata_tmp_xi_matrix_L", line_num)
-  temp_col_names_raw = paste0("stata_tmp_xi_col_names_raw_L", line_num)
-  temp_j_values_from_names = paste0("stata_tmp_xi_j_values_L", line_num)
-  temp_new_col_names_final = paste0("stata_tmp_xi_new_col_names_L", line_num)
+  # 1. Get unique non-missing values of the variable to expand.
+  # Use an intermediate temp var to ensure `data` is not modified if values are fetched.
+  temp_var_col_name = paste0("stata_tmp_xi_var_L", line_num)
+  temp_unique_values_name = paste0("stata_tmp_xi_unique_L", line_num)
 
-  # 1. Generate the model matrix by converting the variable to a factor first.
-  # This ensures `model.matrix` creates dummy variables from numeric or string categories.
-  # `haven::as_factor` handles labelled numerics correctly.
-  r_code_lines = c(r_code_lines, paste0(temp_matrix_var, " = model.matrix(~ haven::as_factor(`", var_to_expand, "`), data = data, na.action = stats::na.pass)"))
+  # `haven::as_factor` ensures numeric labelled values are treated as categories,
+  # and also handles unlabelled numerics or strings.
+  # We then convert to character to ensure consistency for string comparison.
+  r_code_lines = c(r_code_lines,
+    paste0(temp_var_col_name, " = as.character(haven::as_factor(data[['", var_to_expand, "']]))"),
+    paste0(temp_unique_values_name, " = base::sort(base::unique(", temp_var_col_name, "[!is.na(", temp_var_col_name, ")]))")
+  )
 
-  # 2. Remove the intercept column, as Stata's `xi` does not generate it.
-  r_code_lines = c(r_code_lines, paste0(temp_matrix_var, " = ", temp_matrix_var, "[, !colnames(", temp_matrix_var, ") %in% c(\"(Intercept)\"), drop = FALSE]"))
+  # 2. Determine which levels to create dummy variables for.
+  # Stata's `xi i.varname` by default drops the first category alphabetically.
+  r_code_lines = c(r_code_lines,
+    paste0("if (length(", temp_unique_values_name, ") > 0) {")
+  )
+  r_code_lines = c(r_code_lines,
+    paste0("  base_level = ", temp_unique_values_name, "[1]"),
+    paste0("  levels_to_dummy = setdiff(", temp_unique_values_name, ", base_level)")
+  )
 
-  # 3. Rename columns to Stata's `_Ivarname_value` format.
-  # The column names from `model.matrix` for `haven::as_factor(var)` are typically `haven::as_factor(var)Level`.
-  # We need to extract `Level`.
-  r_code_lines = c(r_code_lines, paste0(temp_col_names_raw, " = colnames(", temp_matrix_var, ")"))
-  # Extract the category value by removing the `haven::as_factor(var)` prefix.
-  # Corrected: Embed `var_to_expand` as a literal string in the pattern, by evaluating inner paste0 during translation.
-  r_code_lines = c(r_code_lines, paste0(temp_j_values_from_names, " = stringi::stri_replace_first_fixed(", temp_col_names_raw, ", \"", paste0("haven::as_factor(", var_to_expand, ")"), "\", \"\")"))
-  r_code_lines = c(r_code_lines, paste0(temp_new_col_names_final, " = paste0(\"_I", var_to_expand, "_\", ", temp_j_values_from_names, ")"))
-  r_code_lines = c(r_code_lines, paste0("colnames(", temp_matrix_var, ") = ", temp_new_col_names_final))
+  # Create a list of mutate expressions
+  loop_code_lines = c()
+  
+  # Loop over levels_to_dummy to create dummy variables
+  loop_code_lines = c(loop_code_lines, paste0("for (level in levels_to_dummy) {"))
+  
+  # Construct the new column name, e.g., _Igroup_cat_B
+  loop_code_lines = c(loop_code_lines, paste0("  new_col_name = paste0(\"_I\", '", var_to_expand, "', \"_\", level)"))
 
-  # 4. Add generated columns to the main data frame.
-  # Convert the matrix to a tibble before binding to ensure consistent data types and attributes.
-  r_code_lines = c(r_code_lines, paste0("data = dplyr::bind_cols(data, dplyr::as_tibble(", temp_matrix_var, "))"))
+  # Construct the dummy variable logic:
+  # 1 if `var_to_expand` == `level`
+  # 0 if `var_to_expand` != `level` AND `var_to_expand` is not missing
+  # NA if `var_to_expand` is missing
+  # Stata's `xi` implies that if `var_to_expand` is missing, the dummy is missing.
+  loop_code_lines = c(loop_code_lines, paste0("  dummy_expr = dplyr::if_else(!is.na(", temp_var_col_name, ") & ", temp_var_col_name, " == level, 1L, dplyr::if_else(!is.na(", temp_var_col_name, ") & ", temp_var_col_name, " != level, 0L, NA_integer_))"))
+  
+  # Assign the new column using data[[new_col_name]] = dummy_expr
+  loop_code_lines = c(loop_code_lines, paste0("  data[[new_col_name]] = dummy_expr"))
 
-  # 5. Set variable labels for the new columns.
+  # Set variable labels for the new columns.
   # Stata labels `_Ivarname_value` as `varname==value` (e.g., `group_cat==2`).
-  r_code_lines = c(r_code_lines, paste0("for (col_name in ", temp_new_col_names_final, ") {"))
-  r_code_lines = c(r_code_lines, paste0("  val_part = stringi::stri_replace_first_regex(col_name, paste0(\"^_I\", '", var_to_expand, "', \"_\"), \"\")"))
-  r_code_lines = c(r_code_lines, paste0("  attr(data[[col_name]], \"label\") = paste0(\"", var_to_expand, "==\", val_part)"))
-  r_code_lines = c(r_code_lines, paste0("}"))
+  loop_code_lines = c(loop_code_lines, paste0("  attr(data[[new_col_name]], \"label\") = paste0(\"", var_to_expand, "==\", level)"))
+  loop_code_lines = c(loop_code_lines, paste0("} # End for (level in levels_to_dummy)"))
+  
+  r_code_lines = c(r_code_lines, loop_code_lines)
+  r_code_lines = c(r_code_lines, paste0("} # End if (length(temp_unique_values_name) > 0)"))
 
-  # 6. Clean up temporary variables.
-  r_code_lines = c(r_code_lines, paste0("rm(", temp_matrix_var, ", ", temp_col_names_raw, ", ", temp_j_values_from_names, ", ", temp_new_col_names_final, ")"))
+
+  # Clean up temporary variables.
+  r_code_lines = c(r_code_lines, paste0("rm(", temp_var_col_name, ", ", temp_unique_values_name, ")"))
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 
