@@ -8,9 +8,9 @@
 
 sfun_qofd = function(stata_date_values) {
   restore.point("sfun_qofd")
-  # Convert Stata date (numeric days since 1970-01-01 for consistency with R's internal Date representation) to R Date object.
+  # Convert Stata date (numeric days since 1960-01-01) to R Date object.
   # as.Date handles NA values correctly.
-  r_dates = as.Date(stata_date_values, origin = "1970-01-01")
+  r_dates = as.Date(stata_date_values, origin = "1960-01-01")
 
   # Extract month from the R Date object
   months = as.numeric(format(r_dates, "%m"))
@@ -23,4 +23,5 @@ sfun_qofd = function(stata_date_values) {
 
   return(quarters_of_year)
 }
+
 

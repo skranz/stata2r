@@ -59,10 +59,10 @@ sfun_stata_date_single = function(s, fmt, century_pivot = NULL) {
     parsed_date = as.Date(paste(corrected_year, format(parsed_date, "%m-%d"), sep="-"))
   }
 
-  # Return numeric value as days since 1970-01-01, consistent with haven::read_dta's interpretation
-  # of Stata date variables and observed Stata `date()` function behavior in test logs.
-  stata_date = as.numeric(parsed_date)
+  # Return numeric value as days since 1960-01-01 (Stata's epoch)
+  stata_date = as.numeric(parsed_date - as.Date("1960-01-01"))
 
   return(stata_date)
 }
+
 
