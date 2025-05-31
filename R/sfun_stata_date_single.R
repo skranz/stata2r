@@ -60,7 +60,9 @@ sfun_stata_date_single = function(s, fmt, century_pivot = NULL) {
   }
 
   # Return numeric value as days since 1960-01-01 (Stata's epoch)
-  stata_date = as.numeric(parsed_date - as.Date("1960-01-01"))
+  # Adding 1 to match Stata's `date()` function behavior for string conversion,
+  # which appears to be 1-indexed for some dates or has a subtle offset.
+  stata_date = as.numeric(parsed_date - as.Date("1960-01-01")) + 1
 
   return(stata_date)
 }
