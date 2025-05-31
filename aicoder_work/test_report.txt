@@ -733,38 +733,35 @@ data = data %>%
   dplyr::mutate(`y_mod_by_esample1` = as.numeric(sfun_stata_cond(`_cond_ymod1`,  `_new_val_ymod1`,  `y_mod_by_esample1`)))
 
  23 do:  xi i.group_cat
- 23 r:  stata_tmp_xi_matrix_L23 = model.matrix(~ haven::as_factor(`group_cat`), data = data, na.action = stats::na.pass)
-stata_tmp_xi_matrix_L23 = stata_tmp_xi_matrix_L23[, !colnames(stata_tmp_xi_matrix_L23) %in% c("(Intercept)"), drop = FALSE]
-stata_tmp_xi_col_names_raw_L23 = colnames(stata_tmp_xi_matrix_L23)
-stata_tmp_xi_j_values_L23 = stringi::stri_replace_first_fixed(stata_tmp_xi_col_names_raw_L23, "haven::as_factor(group_cat)", "")
-stata_tmp_xi_new_col_names_L23 = paste0("_Igroup_cat_", stata_tmp_xi_j_values_L23)
-colnames(stata_tmp_xi_matrix_L23) = stata_tmp_xi_new_col_names_L23
-data = dplyr::bind_cols(data, dplyr::as_tibble(stata_tmp_xi_matrix_L23))
-for (col_name in stata_tmp_xi_new_col_names_L23) {
-  val_part = stringi::stri_replace_first_regex(col_name, paste0("^_I", 'group_cat', "_"), "")
-  attr(data[[col_name]], "label") = paste0("group_cat==", val_part)
-}
-rm(stata_tmp_xi_matrix_L23, stata_tmp_xi_col_names_raw_L23, stata_tmp_xi_j_values_L23, stata_tmp_xi_new_col_names_L23) 
-stata_tmp_xi_matrix_L23 = model.matrix(~ haven::as_factor(`group_cat`), data = data, na.action = stats::na.pass)
+ 23 r:  stata_tmp_xi_var_L23 = as.character(haven::as_factor(data[['group_cat']]))
+stata_tmp_xi_unique_L23 = base::sort(base::unique(stata_tmp_xi_var_L23[!is.na(stata_tmp_xi_var_L23)]))
+if (length(stata_tmp_xi_unique_L23) > 0) {
+  base_level = stata_tmp_xi_unique_L23[1]
+  levels_to_dummy = setdiff(stata_tmp_xi_unique_L23, base_level)
+for (level in levels_to_dummy) {
+  new_col_name = paste0("_I", 'group_cat', "_", level)
+  dummy_expr = dplyr::if_else(!is.na(stata_tmp_xi_var_L23) & stata_tmp_xi_var_L23 == level, 1L, dplyr::if_else(!is.na(stata_tmp_xi_var_L23) & stata_tmp_xi_var_L23 != level, 0L, NA_integer_))
+  data[[new_col_name]] = dummy_expr
+  attr(data[[new_col_name]], "label") = paste0("group_cat==", level)
+} # End for (level in levels_to_dummy)
+} # End if (length(temp_unique_values_name) > 0)
+rm(stata_tmp_xi_var_L23, stata_tmp_xi_unique_L23) 
+stata_tmp_xi_var_L23 = as.character(haven::as_factor(data[['group_cat']]))
 
-stata_tmp_xi_matrix_L23 = stata_tmp_xi_matrix_L23[, !colnames(stata_tmp_xi_matrix_L23) %in% c("(Intercept)"), drop = FALSE]
+stata_tmp_xi_unique_L23 = base::sort(base::unique(stata_tmp_xi_var_L23[!is.na(stata_tmp_xi_var_L23)]))
 
-stata_tmp_xi_col_names_raw_L23 = colnames(stata_tmp_xi_matrix_L23)
+if (length(stata_tmp_xi_unique_L23) > 0) {
+  base_level = stata_tmp_xi_unique_L23[1]
+  levels_to_dummy = setdiff(stata_tmp_xi_unique_L23, base_level)
+for (level in levels_to_dummy) {
+  new_col_name = paste0("_I", 'group_cat', "_", level)
+  dummy_expr = dplyr::if_else(!is.na(stata_tmp_xi_var_L23) & stata_tmp_xi_var_L23 == level, 1L, dplyr::if_else(!is.na(stata_tmp_xi_var_L23) & stata_tmp_xi_var_L23 != level, 0L, NA_integer_))
+  data[[new_col_name]] = dummy_expr
+  attr(data[[new_col_name]], "label") = paste0("group_cat==", level)
+} # End for (level in levels_to_dummy)
+} # End if (length(temp_unique_values_name) > 0)
 
-stata_tmp_xi_j_values_L23 = stringi::stri_replace_first_fixed(stata_tmp_xi_col_names_raw_L23, "haven::as_factor(group_cat)", "")
-
-stata_tmp_xi_new_col_names_L23 = paste0("_Igroup_cat_", stata_tmp_xi_j_values_L23)
-
-colnames(stata_tmp_xi_matrix_L23) = stata_tmp_xi_new_col_names_L23
-
-data = dplyr::bind_cols(data, dplyr::as_tibble(stata_tmp_xi_matrix_L23))
-
-for (col_name in stata_tmp_xi_new_col_names_L23) {
-  val_part = stringi::stri_replace_first_regex(col_name, paste0("^_I", 'group_cat', "_"), "")
-  attr(data[[col_name]], "label") = paste0("group_cat==", val_part)
-}
-
-rm(stata_tmp_xi_matrix_L23, stata_tmp_xi_col_names_raw_L23, stata_tmp_xi_j_values_L23, stata_tmp_xi_new_col_names_L23)
+rm(stata_tmp_xi_var_L23, stata_tmp_xi_unique_L23)
 
  24 do:  summarize _Igroup_cat_2 _Igroup_cat_3 
 
@@ -787,61 +784,132 @@ data = data %>%
 data = dplyr::select(data, -c(dplyr::matches('^_Igroup_cat.*$')))
 
  28 do:  xi i.another_factor
- 28 r:  stata_tmp_xi_matrix_L28 = model.matrix(~ haven::as_factor(`another_factor`), data = data, na.action = stats::na.pass)
-stata_tmp_xi_matrix_L28 = stata_tmp_xi_matrix_L28[, !colnames(stata_tmp_xi_matrix_L28) %in% c("(Intercept)"), drop = FALSE]
-stata_tmp_xi_col_names_raw_L28 = colnames(stata_tmp_xi_matrix_L28)
-stata_tmp_xi_j_values_L28 = stringi::stri_replace_first_fixed(stata_tmp_xi_col_names_raw_L28, "haven::as_factor(another_factor)", "")
-stata_tmp_xi_new_col_names_L28 = paste0("_Ianother_factor_", stata_tmp_xi_j_values_L28)
-colnames(stata_tmp_xi_matrix_L28) = stata_tmp_xi_new_col_names_L28
-data = dplyr::bind_cols(data, dplyr::as_tibble(stata_tmp_xi_matrix_L28))
-for (col_name in stata_tmp_xi_new_col_names_L28) {
-  val_part = stringi::stri_replace_first_regex(col_name, paste0("^_I", 'another_factor', "_"), "")
-  attr(data[[col_name]], "label") = paste0("another_factor==", val_part)
-}
-rm(stata_tmp_xi_matrix_L28, stata_tmp_xi_col_names_raw_L28, stata_tmp_xi_j_values_L28, stata_tmp_xi_new_col_names_L28) 
-stata_tmp_xi_matrix_L28 = model.matrix(~ haven::as_factor(`another_factor`), data = data, na.action = stats::na.pass)
+ 28 r:  stata_tmp_xi_var_L28 = as.character(haven::as_factor(data[['another_factor']]))
+stata_tmp_xi_unique_L28 = base::sort(base::unique(stata_tmp_xi_var_L28[!is.na(stata_tmp_xi_var_L28)]))
+if (length(stata_tmp_xi_unique_L28) > 0) {
+  base_level = stata_tmp_xi_unique_L28[1]
+  levels_to_dummy = setdiff(stata_tmp_xi_unique_L28, base_level)
+for (level in levels_to_dummy) {
+  new_col_name = paste0("_I", 'another_factor', "_", level)
+  dummy_expr = dplyr::if_else(!is.na(stata_tmp_xi_var_L28) & stata_tmp_xi_var_L28 == level, 1L, dplyr::if_else(!is.na(stata_tmp_xi_var_L28) & stata_tmp_xi_var_L28 != level, 0L, NA_integer_))
+  data[[new_col_name]] = dummy_expr
+  attr(data[[new_col_name]], "label") = paste0("another_factor==", level)
+} # End for (level in levels_to_dummy)
+} # End if (length(temp_unique_values_name) > 0)
+rm(stata_tmp_xi_var_L28, stata_tmp_xi_unique_L28) 
+stata_tmp_xi_var_L28 = as.character(haven::as_factor(data[['another_factor']]))
 
-stata_tmp_xi_matrix_L28 = stata_tmp_xi_matrix_L28[, !colnames(stata_tmp_xi_matrix_L28) %in% c("(Intercept)"), drop = FALSE]
+stata_tmp_xi_unique_L28 = base::sort(base::unique(stata_tmp_xi_var_L28[!is.na(stata_tmp_xi_var_L28)]))
 
-stata_tmp_xi_col_names_raw_L28 = colnames(stata_tmp_xi_matrix_L28)
+if (length(stata_tmp_xi_unique_L28) > 0) {
+  base_level = stata_tmp_xi_unique_L28[1]
+  levels_to_dummy = setdiff(stata_tmp_xi_unique_L28, base_level)
+for (level in levels_to_dummy) {
+  new_col_name = paste0("_I", 'another_factor', "_", level)
+  dummy_expr = dplyr::if_else(!is.na(stata_tmp_xi_var_L28) & stata_tmp_xi_var_L28 == level, 1L, dplyr::if_else(!is.na(stata_tmp_xi_var_L28) & stata_tmp_xi_var_L28 != level, 0L, NA_integer_))
+  data[[new_col_name]] = dummy_expr
+  attr(data[[new_col_name]], "label") = paste0("another_factor==", level)
+} # End for (level in levels_to_dummy)
+} # End if (length(temp_unique_values_name) > 0)
 
-stata_tmp_xi_j_values_L28 = stringi::stri_replace_first_fixed(stata_tmp_xi_col_names_raw_L28, "haven::as_factor(another_factor)", "")
+rm(stata_tmp_xi_var_L28, stata_tmp_xi_unique_L28)
 
-stata_tmp_xi_new_col_names_L28 = paste0("_Ianother_factor_", stata_tmp_xi_j_values_L28)
+Error: After Stata line  28 , R data set differs from Stata reference.
 
-colnames(stata_tmp_xi_matrix_L28) = stata_tmp_xi_new_col_names_L28
+Data set from Stata (do_df):
+tibble [250 × 20] (S3: tbl_df/tbl/data.frame)
+ $ id                   : num [1:250] 1 1 1 1 1 2 2 2 2 2 ...
+  ..- attr(*, "label")= chr "Individual ID"
+  ..- attr(*, "format.stata")= chr "%12.0g"
+ $ time                 : num [1:250] 1 2 3 4 5 1 2 3 4 5 ...
+  ..- attr(*, "label")= chr "Time Period"
+  ..- attr(*, "format.stata")= chr "%12.0g"
+ $ group_cat            : dbl+lbl [1:250] 2, 3, 2, 2, 1, 3, 2, 2, 3, 2, 3, 2, 2, 1, 3, 2, 2, 1, ...
+   ..@ label       : chr "Treatment Group"
+   ..@ format.stata: chr "%12.0g"
+   ..@ labels      : Named num [1:3] 1 2 3
+   .. ..- attr(*, "names")= chr [1:3] "Control" "TreatA" "TreatB"
+ $ region_cat           : dbl+lbl [1:250] 3, 2, 1, 3, 1, 1, 2, 2, 3, 4, 2, 2, 1, 1, 3, 1, 2, 3, ...
+   ..@ label       : chr "Geographic Region"
+   ..@ format.stata: chr "%12.0g"
+   ..@ labels      : Named num [1:4] 1 2 3 4
+   .. ..- attr(*, "names")= chr [1:4] "a" "b" "c" "d"
+ $ x_numeric            : num [1:250] 100 8.04 10.37 5.7 8.75 ...
+  ..- attr(*, "label")= chr "Continuous Covariate X"
+  ..- attr(*, "format.stata")= chr "%10.0g"
+ $ another_factor       : dbl+lbl [1:250]  3,  2,  2,  1,  1,  3,  1,  1,  3,  3,  2, NA,  1,  2...
+   ..@ label       : chr "Another Factor for xi"
+   ..@ format.stata: chr "%12.0g"
+   ..@ labels      : Named num [1:3] 1 2 3
+   .. ..- attr(*, "names")= chr [1:3] "X1" "X2" "X3"
+ $ baseline_char        : chr [1:250] "Low" "High" "High" "High" ...
+  ..- attr(*, "label")= chr "Baseline Characteristic"
+  ..- attr(*, "format.stata")= chr "%-9s"
+ $ y_outcome            : num [1:250] 9.66 7.3 8.67 8.33 5.85 ...
+  ..- attr(*, "label")= chr "Outcome Variable Y"
+  ..- attr(*, "format.stata")= chr "%10.0g"
+ $ _temp_eN_reg1        : num [1:250] 242 242 242 242 242 242 242 242 242 242 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ obs_from_reg1        : num [1:250] 242 NA NA NA NA 242 NA NA NA NA ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ _temp_df_r_reg1      : num [1:250] 240 240 240 240 240 240 240 240 240 240 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ df_resid_from_reg1   : num [1:250] 240 NA NA NA NA 240 NA NA NA NA ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ in_estimation_sample1: num [1:250] 1 1 1 1 1 1 1 1 1 1 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ y_mod_by_esample1    : num [1:250] 10.63 7.3 9.54 9.17 5.85 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ _cond_ymod1          : num [1:250] 1 0 1 1 0 0 1 1 0 1 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ _new_val_ymod1       : num [1:250] 10.63 8.03 9.54 9.17 6.43 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ _cond_xw             : num [1:250] 1 0 1 1 0 0 1 1 0 1 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ x_weighted_by_Igroup2: num [1:250] 100 NA 10.4 5.7 NA ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ _Ianother_f_2        : num [1:250] 0 1 1 0 0 0 0 0 0 0 ...
+  ..- attr(*, "label")= chr "another_factor==2"
+  ..- attr(*, "format.stata")= chr "%8.0g"
+ $ _Ianother_f_3        : num [1:250] 1 0 0 0 0 1 0 0 1 1 ...
+  ..- attr(*, "label")= chr "another_factor==3"
+  ..- attr(*, "format.stata")= chr "%8.0g"
+NULL
 
-data = dplyr::bind_cols(data, dplyr::as_tibble(stata_tmp_xi_matrix_L28))
+Data set from R (r_df):
+tibble [250 × 19] (S3: tbl_df/tbl/data.frame)
+ $ id                        : num [1:250] 1 1 1 1 1 2 2 2 2 2 ...
+  ..- attr(*, "label")= chr "Individual ID"
+ $ time                      : num [1:250] 1 2 3 4 5 1 2 3 4 5 ...
+  ..- attr(*, "label")= chr "Time Period"
+ $ group_cat                 : num [1:250] 2 3 2 2 1 3 2 2 3 2 ...
+  ..- attr(*, "label")= chr "Treatment Group"
+ $ region_cat                : num [1:250] 3 2 1 3 1 1 2 2 3 4 ...
+  ..- attr(*, "label")= chr "Geographic Region"
+ $ x_numeric                 : num [1:250] 100 8.04 10.37 5.7 8.75 ...
+  ..- attr(*, "label")= chr "Continuous Covariate X"
+ $ another_factor            : num [1:250] 3 2 2 1 1 3 1 1 3 3 ...
+  ..- attr(*, "label")= chr "Another Factor for xi"
+ $ baseline_char             : chr [1:250] "Low" "High" "High" "High" ...
+  ..- attr(*, "label")= chr "Baseline Characteristic"
+ $ y_outcome                 : num [1:250] 9.66 7.3 8.67 8.33 5.85 ...
+  ..- attr(*, "label")= chr "Outcome Variable Y"
+ $ stata2r_original_order_idx: int [1:250] 1 2 3 4 5 6 7 8 9 10 ...
+ $ _temp_eN_reg1             : num [1:250] 242 242 242 242 242 242 242 242 242 242 ...
+ $ obs_from_reg1             : num [1:250] 242 NA NA NA NA 242 NA NA NA NA ...
+ $ _temp_df_r_reg1           : num [1:250] 240 240 240 240 240 240 240 240 240 240 ...
+ $ df_resid_from_reg1        : num [1:250] 240 NA NA NA NA 240 NA NA NA NA ...
+ $ in_estimation_sample1     : num [1:250] 1 1 1 1 1 1 1 1 1 1 ...
+ $ y_mod_by_esample1         : num [1:250] 10.63 7.3 9.54 9.17 5.85 ...
+ $ _cond_ymod1               : num [1:250] 1 0 1 1 0 0 1 1 0 1 ...
+ $ _new_val_ymod1            : num [1:250] 10.63 8.03 9.54 9.17 6.43 ...
+ $ _cond_xw                  : num [1:250] 1 0 1 1 0 0 1 1 0 1 ...
+ $ x_weighted_by_Igroup2     : num [1:250] 100 NA 10.4 5.7 NA ...
+NULL
 
-Error: Can't recycle `..1` (size 250) to match `..2` (size 246).
-for (col_name in stata_tmp_xi_new_col_names_L28) {
-  val_part = stringi::stri_replace_first_regex(col_name, paste0("^_I", 'another_factor', "_"), "")
-  attr(data[[col_name]], "label") = paste0("another_factor==", val_part)
-}
-
-Error: attempt to set an attribute on NULL
-rm(stata_tmp_xi_matrix_L28, stata_tmp_xi_col_names_raw_L28, stata_tmp_xi_j_values_L28, stata_tmp_xi_new_col_names_L28)
-
-Error executing R code for Stata line  28 :  stata_tmp_xi_matrix_L28 = model.matrix(~ haven::as_factor(`another_factor`), data = data, na.action = stats::na.pass)
-
-stata_tmp_xi_matrix_L28 = stata_tmp_xi_matrix_L28[, !colnames(stata_tmp_xi_matrix_L28) %in% c("(Intercept)"), drop = FALSE]
-
-stata_tmp_xi_col_names_raw_L28 = colnames(stata_tmp_xi_matrix_L28)
-
-stata_tmp_xi_j_values_L28 = stringi::stri_replace_first_fixed(stata_tmp_xi_col_names_raw_L28, "haven::as_factor(another_factor)", "")
-
-stata_tmp_xi_new_col_names_L28 = paste0("_Ianother_factor_", stata_tmp_xi_j_values_L28)
-
-colnames(stata_tmp_xi_matrix_L28) = stata_tmp_xi_new_col_names_L28
-
-data = dplyr::bind_cols(data, dplyr::as_tibble(stata_tmp_xi_matrix_L28))
-
-Error: Can't recycle `..1` (size 250) to match `..2` (size 246).
-for (col_name in stata_tmp_xi_new_col_names_L28) {
-  val_part = stringi::stri_replace_first_regex(col_name, paste0("^_I", 'another_factor', "_"), "")
-  attr(data[[col_name]], "label") = paste0("another_factor==", val_part)
-}
-
-Error: attempt to set an attribute on NULL
-rm(stata_tmp_xi_matrix_L28, stata_tmp_xi_col_names_raw_L28, stata_tmp_xi_j_values_L28, stata_tmp_xi_new_col_names_L28)
- 
+Differences:List of 2
+ $ identical      : logi FALSE
+ $ column_mismatch:List of 2
+  ..$ missing_in_do_df: chr(0) 
+  ..$ missing_in_r_df : chr [1:2] "_Ianother_f_2" "_Ianother_f_3"
+NULL
