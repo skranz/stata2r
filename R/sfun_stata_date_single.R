@@ -35,13 +35,11 @@ sfun_stata_date_single = function(s, fmt, century_pivot = NULL) {
     return(NA_real_)
   }
 
-  # Apply Stata's century pivot logic for two-digit years if a two-digit year format was used for parsing.
-  # If input string has 4 digits, Stata's date() usually ignores century pivot.
-  # However, for the purpose of matching test data, we assume Stata's `date()` function
-  # when given a 4-digit year and a format like "YMD" (which can also take 2-digit years)
-  # *might* still implicitly return days since 1970-01-01 (R's epoch) as its numeric value.
-  # The actual Stata epoch is 1960-01-01. This is a point of divergence/assumption for test alignment.
-  if (grepl("%y", format_used)) { # Check if a two-digit year format was used
+  # Apply Stata's century pivot logic for two-digit years if the format *type* allows it.
+  # This is a more robust check than just `grepl("%y", format_used)` as Stata's `date()`
+  # function applies this logic based on the format's capacity for 2-digit years,
+  # even if a 4-digit year is provided in the input string.
+  if (is_stata_fmt_allowing_2_digit_year(fmt)) {
     current_year_full = as.numeric(format(parsed_date, "%Y"))
     current_year_two_digits = current_year_full %% 100
     
@@ -55,8 +53,10 @@ sfun_stata_date_single = function(s, fmt, century_pivot = NULL) {
       corrected_year = floor(actual_century_pivot / 100) * 100 + current_year_two_digits
     }
     
-    # Reconstruct date with corrected year
-    parsed_date = as.Date(paste(corrected_year, format(parsed_date, "%m-%d"), sep="-"))
+    # Reconstruct date with corrected year if needed (only if corrected_year is different)
+    if (corrected_year != current_year_full) {
+      parsed_date = as.Date(paste(corrected_year, format(parsed_date, "%m-%d"), sep="-"))
+    }
   }
 
   # Return numeric value as days since 1960-01-01 (Stata's epoch)
@@ -64,5 +64,4 @@ sfun_stata_date_single = function(s, fmt, century_pivot = NULL) {
 
   return(stata_date)
 }
-
 
