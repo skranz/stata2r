@@ -20,10 +20,15 @@ t_xi = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   r_code_lines = c()
 
+  # Temporary variable names for generated R code
+  temp_matrix_var = paste0("stata_tmp_xi_matrix_L", line_num)
+  temp_col_names_raw = paste0("stata_tmp_xi_col_names_raw_L", line_num)
+  temp_j_values_from_names = paste0("stata_tmp_xi_j_values_L", line_num)
+  temp_new_col_names_final = paste0("stata_tmp_xi_new_col_names_L", line_num)
+
   # 1. Generate the model matrix by converting the variable to a factor first.
   # This ensures `model.matrix` creates dummy variables from numeric or string categories.
   # `haven::as_factor` handles labelled numerics correctly.
-  temp_matrix_var = paste0("stata_tmp_xi_matrix_L", line_num)
   r_code_lines = c(r_code_lines, paste0(temp_matrix_var, " = model.matrix(~ haven::as_factor(`", var_to_expand, "`), data = data, na.action = stats::na.pass)"))
 
   # 2. Remove the intercept column, as Stata's `xi` does not generate it.
@@ -32,12 +37,12 @@ t_xi = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # 3. Rename columns to Stata's `_Ivarname_value` format.
   # The column names from `model.matrix` for `haven::as_factor(var)` are typically `haven::as_factor(var)Level`.
   # We need to extract `Level`.
-  r_code_lines = c(r_code_lines, paste0("col_names_raw = colnames(", temp_matrix_var, ")"))
+  r_code_lines = c(r_code_lines, paste0(temp_col_names_raw, " = colnames(", temp_matrix_var, ")"))
   # Extract the category value by removing the `haven::as_factor(var)` prefix.
-  # Note: `model.matrix` does not backtick variable names within the `haven::as_factor()` part of the column name.
-  r_code_lines = c(r_code_lines, paste0("j_values_from_names = stringi::stri_replace_first_fixed(col_names_raw, paste0(\"haven::as_factor(\", var_to_expand, \")\"), \"\")"))
-  r_code_lines = c(r_code_lines, paste0("new_col_names_final = paste0(\"_I", var_to_expand, "_\", j_values_from_names)"))
-  r_code_lines = c(r_code_lines, paste0("colnames(", temp_matrix_var, ") = new_col_names_final"))
+  # Corrected: Embed `var_to_expand` as a literal string in the pattern, by evaluating inner paste0 during translation.
+  r_code_lines = c(r_code_lines, paste0(temp_j_values_from_names, " = stringi::stri_replace_first_fixed(", temp_col_names_raw, ", \"", paste0("haven::as_factor(", var_to_expand, ")"), "\", \"\")"))
+  r_code_lines = c(r_code_lines, paste0(temp_new_col_names_final, " = paste0(\"_I", var_to_expand, "_\", ", temp_j_values_from_names, ")"))
+  r_code_lines = c(r_code_lines, paste0("colnames(", temp_matrix_var, ") = ", temp_new_col_names_final))
 
   # 4. Add generated columns to the main data frame.
   # Convert the matrix to a tibble before binding to ensure consistent data types and attributes.
@@ -45,13 +50,13 @@ t_xi = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # 5. Set variable labels for the new columns.
   # Stata labels `_Ivarname_value` as `varname==value` (e.g., `group_cat==2`).
-  r_code_lines = c(r_code_lines, paste0("for (col_name in new_col_names_final) {"))
+  r_code_lines = c(r_code_lines, paste0("for (col_name in ", temp_new_col_names_final, ") {"))
   r_code_lines = c(r_code_lines, paste0("  val_part = stringi::stri_replace_first_regex(col_name, paste0(\"^_I\", '", var_to_expand, "', \"_\"), \"\")"))
   r_code_lines = c(r_code_lines, paste0("  attr(data[[col_name]], \"label\") = paste0(\"", var_to_expand, "==\", val_part)"))
   r_code_lines = c(r_code_lines, paste0("}"))
 
   # 6. Clean up temporary variables.
-  r_code_lines = c(r_code_lines, paste0("rm(", temp_matrix_var, ", col_names_raw, j_values_from_names, new_col_names_final)"))
+  r_code_lines = c(r_code_lines, paste0("rm(", temp_matrix_var, ", ", temp_col_names_raw, ", ", temp_j_values_from_names, ", ", temp_new_col_names_final, ")"))
 
   return(paste(r_code_lines, collapse="\n"))
 }
