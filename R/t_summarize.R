@@ -22,20 +22,13 @@ t_summarize = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   vars_to_summarize = stringi::stri_split_regex(varlist_str, "\\s+")[[1]]
   vars_to_summarize = vars_to_summarize[vars_to_summarize != ""]
 
-  # For r() values, Stata's summarize without a varlist summarizes all variables,
-  # but r() values like r(mean) refer to the mean of the *last* variable in the dataset.
-  # If a varlist is specified, r() values refer to the *last* variable in the varlist.
-  # This makes it hard to perfectly emulate without knowing data column order.
-  # For now, if varlist is empty, we only set r(N). If not empty, we use the last variable.
+  # Determine the variable for r() values.
+  # If varlist is empty, r(N) is total observations in the sample. Other r() are usually for the first variable.
+  # If varlist is present, r(N), r(mean), etc. are for the *last* variable in the varlist.
   var_for_r_vals = NA_character_
   if (length(vars_to_summarize) > 0) {
       var_for_r_vals = vars_to_summarize[length(vars_to_summarize)] # Last variable in varlist
-  } else {
-      # If no varlist, r(N) is total observations. Other r() values are for the last variable.
-      # We cannot reliably determine the "last variable" in R without knowing the dataframe's current state and order.
-      # For now, if no varlist, we only define r(N).
   }
-
 
   is_meanonly = dplyr::coalesce(stringi::stri_detect_fixed(options_str, "meanonly"), FALSE)
   is_detail = dplyr::coalesce(stringi::stri_detect_fixed(options_str, "detail"), FALSE)
@@ -52,11 +45,22 @@ t_summarize = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     data_source_for_summary = data_subset_varname
   }
 
-  # Always set r(N) as it's for the number of observations processed.
-  r_code_lines = c(r_code_lines, paste0(line_prefix, "N = collapse::fN(", data_source_for_summary, ")")) # Used fN
+  # Calculate r(N)
+  # If varlist is empty, r(N) is the number of rows.
+  # If varlist is not empty, r(N) is the count of non-missing values for the *last* variable in the varlist.
+  if (is.na(var_for_r_vals)) {
+      # No varlist specified, r(N) is total observations in the (possibly filtered) dataset
+      r_code_lines = c(r_code_lines, paste0(line_prefix, "N = NROW(", data_source_for_summary, ")"))
+  } else {
+      # Varlist specified, r(N) is non-missing count of the last variable
+      r_code_lines = c(r_code_lines, paste0(line_prefix, "N = collapse::fN(", data_source_for_summary, "[['", var_for_r_vals, "']], non.na = TRUE)"))
+  }
+
 
   if (!is.na(var_for_r_vals)) {
       # Use collapse functions for summaries
+      # Stata's summarize without detail implies mean, std. dev., min, max, count.
+      # meanonly implies only mean.
       if (is_meanonly) {
         r_code_lines = c(
           r_code_lines,
