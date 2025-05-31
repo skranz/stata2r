@@ -272,7 +272,7 @@ compare_df = function(df1, df2,
   main_class = function(x) {
     class_val = last(class(x))
     if (class_val=="double") class_val="numeric"
-    if (inherits(x, "Date")) class_val = "numeric_date_type"
+    if (inherits(x, "Date")) class_val = "numeric_date_type" # Keep Date class for comparison
     class_val
   }
 
@@ -295,11 +295,15 @@ compare_df = function(df1, df2,
     v1 = df1[[cl]]
     v2 = df2[[cl]]
 
-    if (inherits(v1, "Date") && is.numeric(v2)) {
-      v1 = as.numeric(v1) + as.numeric(as.Date("1970-01-01") - as.Date("1960-01-01"))
-    } else if (is.numeric(v1) && inherits(v2, "Date")) {
-      v2 = as.numeric(v2) + as.numeric(as.Date("1970-01-01") - as.Date("1960-01-01"))
+    # Convert to Stata numeric date representation (days since 1960-01-01) for comparison
+    if (inherits(v1, "Date")) {
+      v1 = as.numeric(v1 - as.Date("1960-01-01"))
     }
+    if (inherits(v2, "Date")) {
+      v2 = as.numeric(v2 - as.Date("1960-01-01"))
+    }
+    # If one is numeric (Stata date) and other is R Date (already converted above), no further action.
+
 
     if (is.numeric(v1) && is.numeric(v2)) {
       neq = rep(FALSE, length(v1))
@@ -345,6 +349,7 @@ compare_df = function(df1, df2,
   }
   out
 }
+
 
 ```
 ### END OF FILE: aic_do_test.R
@@ -1225,6 +1230,16 @@ sfun_strip_stata_attributes = function(x) {
       x = haven::zap_labels(x)
       x = haven::zap_formats(x)
       x = haven::zap_missing(x)
+    }
+    
+    # Preserve Date class, just strip other attributes.
+    # This must come before is.numeric(x) check as Date objects are also numeric.
+    if (inherits(x, "Date")) {
+      attr_names_to_remove = setdiff(names(attributes(x)), c("names", "class")) # Keep class for Date
+      if (length(attr_names_to_remove) > 0) {
+        attributes(x)[attr_names_to_remove] = NULL
+      }
+      return(x)
     }
     
     # Explicitly cast to base R types to ensure no problematic attributes remain
@@ -6235,10 +6250,28 @@ data = data %>%
 data = data %>% 
   dplyr::mutate(`obs_year` = dplyr::if_else((dplyr::coalesce(as.numeric(!sfun_missing(`obs_date`)), 0) != 0), as.numeric(sfun_year(`obs_date`)), NA_real_))
 
-Error: After Stata line  31 , R data set differs from Stata reference.
+ 32 do:  gen obs_month = month(obs_date) if !missing(obs_date)
+ 32 r:  data = data %>% 
+  dplyr::mutate(`obs_month` = dplyr::if_else((dplyr::coalesce(as.numeric(!sfun_missing(`obs_date`)), 0) != 0), as.numeric(sfun_month(`obs_date`)), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`obs_month` = dplyr::if_else((dplyr::coalesce(as.numeric(!sfun_missing(`obs_date`)), 0) != 0), as.numeric(sfun_month(`obs_date`)), NA_real_))
+
+ 33 do:  gen obs_day = day(obs_date) if !missing(obs_date)
+ 33 r:  data = data %>% 
+  dplyr::mutate(`obs_day` = dplyr::if_else((dplyr::coalesce(as.numeric(!sfun_missing(`obs_date`)), 0) != 0), as.numeric(sfun_day(`obs_date`)), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`obs_day` = dplyr::if_else((dplyr::coalesce(as.numeric(!sfun_missing(`obs_date`)), 0) != 0), as.numeric(sfun_day(`obs_date`)), NA_real_))
+
+ 34 do:  gen obs_quarter = qofd(obs_date) if !missing(obs_date)
+ 34 r:  data = data %>% 
+  dplyr::mutate(`obs_quarter` = dplyr::if_else((dplyr::coalesce(as.numeric(!sfun_missing(`obs_date`)), 0) != 0), as.numeric(sfun_qofd(`obs_date`)), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`obs_quarter` = dplyr::if_else((dplyr::coalesce(as.numeric(!sfun_missing(`obs_date`)), 0) != 0), as.numeric(sfun_qofd(`obs_date`)), NA_real_))
+
+Error: After Stata line  34 , R data set differs from Stata reference.
 
 Data set from Stata (do_df):
-tibble [50 × 30] (S3: tbl_df/tbl/data.frame)
+tibble [50 × 33] (S3: tbl_df/tbl/data.frame)
  $ id                    : num [1:50] 1 2 3 4 5 6 7 8 9 10 ...
   ..- attr(*, "label")= chr "id"
   ..- attr(*, "format.stata")= chr "%9.0g"
@@ -6307,11 +6340,17 @@ tibble [50 × 30] (S3: tbl_df/tbl/data.frame)
  $ obs_date              : Date[1:50], format: "2020-09-21" "2022-08-26" ...
  $ obs_year              : num [1:50] 2020 2022 2022 2021 2020 ...
   ..- attr(*, "format.stata")= chr "%9.0g"
+ $ obs_month             : num [1:50] 9 8 2 5 9 7 7 10 12 10 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ obs_day               : num [1:50] 21 26 9 20 6 18 17 5 25 20 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ obs_quarter           : num [1:50] 242 250 248 245 242 250 242 251 247 247 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
  - attr(*, "label")= chr "Written by R."
 NULL
 
 Data set from R (r_df):
-tibble [50 × 31] (S3: tbl_df/tbl/data.frame)
+tibble [50 × 34] (S3: tbl_df/tbl/data.frame)
  $ id                        : num [1:50] 1 2 3 4 5 6 7 8 9 10 ...
  $ group_orig                : chr [1:50] " Gamma" " Gamma" "Beta" "Beta" ...
  $ value1                    : num [1:50] 73.9 NA 52.8 29.8 44.2 ...
@@ -6324,7 +6363,7 @@ tibble [50 × 31] (S3: tbl_df/tbl/data.frame)
  $ value2_squared            : num [1:50] 16 9 NA 100 9 4 9 36 36 64 ...
  $ int_value1                : num [1:50] 73 NA 52 29 44 NA 41 20 31 70 ...
  $ rounded_value1            : num [1:50] 73.9 NA 52.8 29.8 44.2 NA 41.7 20 31.9 70.1 ...
- $ random_uniform_draw       : num [1:50] 0.90425 0.69097 0.00637 0.93628 0.13448 ...
+ $ random_uniform_draw       : num [1:50] 0.213 0.728 0.381 0.685 0.714 ...
  $ id_plus_value2            : num [1:50] 5 5 NA NA 8 8 10 14 15 NA ...
  $ group_clean               : chr [1:50] "gamma" "gamma" "beta" "beta" ...
  $ group_abbr                : chr [1:50] "gam" "gam" "bet" "bet" ...
@@ -6343,15 +6382,18 @@ tibble [50 × 31] (S3: tbl_df/tbl/data.frame)
  $ value2_dev_from_mean      : num [1:50] -0.667 -1.667 NA 5.333 -1.667 ...
  $ obs_date                  : num [1:50] 22179 22883 22685 22420 22164 ...
  $ obs_year                  : num [1:50] 2020 2022 2022 2021 2020 ...
+ $ obs_month                 : num [1:50] 9 8 2 5 9 7 7 10 12 10 ...
+ $ obs_day                   : num [1:50] 21 26 9 20 6 18 17 5 25 20 ...
+ $ obs_quarter               : num [1:50] 3 3 1 2 3 3 3 4 4 4 ...
 NULL
 
 Differences:List of 2
  $ identical     : logi FALSE
  $ value_mismatch:'data.frame':	5 obs. of  4 variables:
   ..$ row      : int [1:5] 1 2 3 4 5
-  ..$ column   : chr [1:5] "obs_date" "obs_date" "obs_date" "obs_date" ...
-  ..$ df1_value: chr [1:5] "18526" "19230" "19032" "18767" ...
-  ..$ df2_value: chr [1:5] "22179" "22883" "22685" "22420" ...
+  ..$ column   : chr [1:5] "obs_quarter" "obs_quarter" "obs_quarter" "obs_quarter" ...
+  ..$ df1_value: chr [1:5] "242" "250" "248" "245" ...
+  ..$ df2_value: chr [1:5] "3" "3" "1" "2" ...
 NULL
 
 ##############################
