@@ -11,8 +11,9 @@ sfun_stata_mdy = function(M, D, Y) {
   r_date = suppressWarnings(as.Date(date_str, format = "%Y-%m-%d"))
   
   # Return numeric value as days since 1960-01-01 (Stata's epoch)
-  # Adding 1 to match Stata's `mdy()` function behavior, which appears to be 1-indexed.
-  stata_date_value = as.numeric(r_date - as.Date("1960-01-01")) + 1
+  # Stata's `date()` and `mdy()` functions define 01jan1960 as 0.
+  # R's `as.numeric(as.Date("1960-01-01") - as.Date("1960-01-01"))` correctly yields 0.
+  stata_date_value = as.numeric(r_date - as.Date("1960-01-01"))
   
   return(stata_date_value)
 }

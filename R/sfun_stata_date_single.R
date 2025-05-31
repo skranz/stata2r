@@ -60,9 +60,9 @@ sfun_stata_date_single = function(s, fmt, century_pivot = NULL) {
   }
 
   # Return numeric value as days since 1960-01-01 (Stata's epoch)
-  # Adding 1 to match Stata's `date()` function behavior for string conversion,
-  # which appears to be 1-indexed for some dates or has a subtle offset.
-  stata_date = as.numeric(parsed_date - as.Date("1960-01-01")) + 1
+  # Stata's `date()` and `mdy()` functions define 01jan1960 as 0.
+  # R's `as.numeric(as.Date("1960-01-01") - as.Date("1960-01-01"))` correctly yields 0.
+  stata_date = as.numeric(parsed_date - as.Date("1960-01-01"))
 
   return(stata_date)
 }
