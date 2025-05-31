@@ -733,35 +733,35 @@ data = data %>%
   dplyr::mutate(`y_mod_by_esample1` = as.numeric(sfun_stata_cond(`_cond_ymod1`,  `_new_val_ymod1`,  `y_mod_by_esample1`)))
 
  23 do:  xi i.group_cat
- 23 r:  stata_tmp_xi_var_L23 = as.character(haven::as_factor(data[['group_cat']]))
-stata_tmp_xi_unique_L23 = base::sort(base::unique(stata_tmp_xi_var_L23[!is.na(stata_tmp_xi_var_L23)]))
+ 23 r:  stata_tmp_xi_orig_num_L23 = haven::zap_labels(data[['group_cat']])
+stata_tmp_xi_unique_L23 = base::sort(base::unique(stata_tmp_xi_orig_num_L23[!is.na(stata_tmp_xi_orig_num_L23)]))
 if (length(stata_tmp_xi_unique_L23) > 0) {
   base_level = stata_tmp_xi_unique_L23[1]
   levels_to_dummy = setdiff(stata_tmp_xi_unique_L23, base_level)
 for (level in levels_to_dummy) {
   new_col_name = paste0("_I", 'group_cat', "_", level)
-  dummy_expr = dplyr::if_else(!is.na(stata_tmp_xi_var_L23) & stata_tmp_xi_var_L23 == level, 1L, dplyr::if_else(!is.na(stata_tmp_xi_var_L23) & stata_tmp_xi_var_L23 != level, 0L, NA_integer_))
+  dummy_expr = dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L23) & stata_tmp_xi_orig_num_L23 == level, 1L, dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L23) & stata_tmp_xi_orig_num_L23 != level, 0L, NA_integer_))
   data[[new_col_name]] = dummy_expr
   attr(data[[new_col_name]], "label") = paste0("group_cat==", level)
 } # End for (level in levels_to_dummy)
 } # End if (length(temp_unique_values_name) > 0)
-rm(stata_tmp_xi_var_L23, stata_tmp_xi_unique_L23) 
-stata_tmp_xi_var_L23 = as.character(haven::as_factor(data[['group_cat']]))
+rm(stata_tmp_xi_orig_num_L23, stata_tmp_xi_unique_L23) 
+stata_tmp_xi_orig_num_L23 = haven::zap_labels(data[['group_cat']])
 
-stata_tmp_xi_unique_L23 = base::sort(base::unique(stata_tmp_xi_var_L23[!is.na(stata_tmp_xi_var_L23)]))
+stata_tmp_xi_unique_L23 = base::sort(base::unique(stata_tmp_xi_orig_num_L23[!is.na(stata_tmp_xi_orig_num_L23)]))
 
 if (length(stata_tmp_xi_unique_L23) > 0) {
   base_level = stata_tmp_xi_unique_L23[1]
   levels_to_dummy = setdiff(stata_tmp_xi_unique_L23, base_level)
 for (level in levels_to_dummy) {
   new_col_name = paste0("_I", 'group_cat', "_", level)
-  dummy_expr = dplyr::if_else(!is.na(stata_tmp_xi_var_L23) & stata_tmp_xi_var_L23 == level, 1L, dplyr::if_else(!is.na(stata_tmp_xi_var_L23) & stata_tmp_xi_var_L23 != level, 0L, NA_integer_))
+  dummy_expr = dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L23) & stata_tmp_xi_orig_num_L23 == level, 1L, dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L23) & stata_tmp_xi_orig_num_L23 != level, 0L, NA_integer_))
   data[[new_col_name]] = dummy_expr
   attr(data[[new_col_name]], "label") = paste0("group_cat==", level)
 } # End for (level in levels_to_dummy)
 } # End if (length(temp_unique_values_name) > 0)
 
-rm(stata_tmp_xi_var_L23, stata_tmp_xi_unique_L23)
+rm(stata_tmp_xi_orig_num_L23, stata_tmp_xi_unique_L23)
 
  24 do:  summarize _Igroup_cat_2 _Igroup_cat_3 
 
@@ -784,35 +784,35 @@ data = data %>%
 data = dplyr::select(data, -c(dplyr::matches('^_Igroup_cat.*$')))
 
  28 do:  xi i.another_factor
- 28 r:  stata_tmp_xi_var_L28 = as.character(haven::as_factor(data[['another_factor']]))
-stata_tmp_xi_unique_L28 = base::sort(base::unique(stata_tmp_xi_var_L28[!is.na(stata_tmp_xi_var_L28)]))
+ 28 r:  stata_tmp_xi_orig_num_L28 = haven::zap_labels(data[['another_factor']])
+stata_tmp_xi_unique_L28 = base::sort(base::unique(stata_tmp_xi_orig_num_L28[!is.na(stata_tmp_xi_orig_num_L28)]))
 if (length(stata_tmp_xi_unique_L28) > 0) {
   base_level = stata_tmp_xi_unique_L28[1]
   levels_to_dummy = setdiff(stata_tmp_xi_unique_L28, base_level)
 for (level in levels_to_dummy) {
   new_col_name = paste0("_I", 'another_factor', "_", level)
-  dummy_expr = dplyr::if_else(!is.na(stata_tmp_xi_var_L28) & stata_tmp_xi_var_L28 == level, 1L, dplyr::if_else(!is.na(stata_tmp_xi_var_L28) & stata_tmp_xi_var_L28 != level, 0L, NA_integer_))
+  dummy_expr = dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L28) & stata_tmp_xi_orig_num_L28 == level, 1L, dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L28) & stata_tmp_xi_orig_num_L28 != level, 0L, NA_integer_))
   data[[new_col_name]] = dummy_expr
   attr(data[[new_col_name]], "label") = paste0("another_factor==", level)
 } # End for (level in levels_to_dummy)
 } # End if (length(temp_unique_values_name) > 0)
-rm(stata_tmp_xi_var_L28, stata_tmp_xi_unique_L28) 
-stata_tmp_xi_var_L28 = as.character(haven::as_factor(data[['another_factor']]))
+rm(stata_tmp_xi_orig_num_L28, stata_tmp_xi_unique_L28) 
+stata_tmp_xi_orig_num_L28 = haven::zap_labels(data[['another_factor']])
 
-stata_tmp_xi_unique_L28 = base::sort(base::unique(stata_tmp_xi_var_L28[!is.na(stata_tmp_xi_var_L28)]))
+stata_tmp_xi_unique_L28 = base::sort(base::unique(stata_tmp_xi_orig_num_L28[!is.na(stata_tmp_xi_orig_num_L28)]))
 
 if (length(stata_tmp_xi_unique_L28) > 0) {
   base_level = stata_tmp_xi_unique_L28[1]
   levels_to_dummy = setdiff(stata_tmp_xi_unique_L28, base_level)
 for (level in levels_to_dummy) {
   new_col_name = paste0("_I", 'another_factor', "_", level)
-  dummy_expr = dplyr::if_else(!is.na(stata_tmp_xi_var_L28) & stata_tmp_xi_var_L28 == level, 1L, dplyr::if_else(!is.na(stata_tmp_xi_var_L28) & stata_tmp_xi_var_L28 != level, 0L, NA_integer_))
+  dummy_expr = dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L28) & stata_tmp_xi_orig_num_L28 == level, 1L, dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L28) & stata_tmp_xi_orig_num_L28 != level, 0L, NA_integer_))
   data[[new_col_name]] = dummy_expr
   attr(data[[new_col_name]], "label") = paste0("another_factor==", level)
 } # End for (level in levels_to_dummy)
 } # End if (length(temp_unique_values_name) > 0)
 
-rm(stata_tmp_xi_var_L28, stata_tmp_xi_unique_L28)
+rm(stata_tmp_xi_orig_num_L28, stata_tmp_xi_unique_L28)
 
 Error: After Stata line  28 , R data set differs from Stata reference.
 
