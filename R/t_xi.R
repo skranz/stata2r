@@ -20,24 +20,17 @@ t_xi = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   r_code_lines = c()
 
-  # 1. Prepare the source variable for `model.matrix`.
-  # `model.matrix` works well with factors. If the Stata variable is numeric with value labels,
-  # we need to ensure its numeric values are used as levels for the dummy variable names.
-  # So, convert to a factor using the *numeric values* as levels.
-  temp_numeric_factor_var = paste0("stata_tmp_xi_numeric_factor_L", line_num, "_", var_to_expand)
-  r_code_lines = c(r_code_lines, paste0(temp_numeric_factor_var, " = factor(as.numeric(data[['", var_to_expand, "']]))"))
-
-  # 2. Generate the model matrix. `model.matrix(~ factor_var)` omits the first level by default.
+  # 1. Generate the model matrix by directly referencing the variable within `data`.
+  # `model.matrix(~ varname, data = data, na.action = stats::na.pass)` ensures that
+  # rows with NA values in `varname` are retained in the output matrix, with NAs in dummy variables.
   temp_matrix_var = paste0("stata_tmp_xi_matrix_L", line_num)
-  # FIX: Add na.action = stats::na.pass to retain NA rows in model.matrix output.
-  # This ensures the number of rows matches the original data for dplyr::bind_cols.
-  r_code_lines = c(r_code_lines, paste0(temp_matrix_var, " = model.matrix(~ ", temp_numeric_factor_var, ", na.action = stats::na.pass)"))
+  r_code_lines = c(r_code_lines, paste0(temp_matrix_var, " = model.matrix(~ `", var_to_expand, "`, data = data, na.action = stats::na.pass)"))
 
-  # 3. Remove the intercept column, as Stata's `xi` does not generate it.
+  # 2. Remove the intercept column, as Stata's `xi` does not generate it.
   r_code_lines = c(r_code_lines, paste0(temp_matrix_var, " = ", temp_matrix_var, "[, !colnames(", temp_matrix_var, ") %in% c(\"(Intercept)\"), drop = FALSE]"))
 
-  # 4. Rename columns to Stata's `_Ivarname_value` format.
-  # The column names from `model.matrix` will look like `stata_tmp_xi_numeric_factor_L10_group_cat2` (if 2 is a level).
+  # 3. Rename columns to Stata's `_Ivarname_value` format.
+  # The column names from `model.matrix` will look like `var_to_expand2`, `var_to_expand3` etc.
   # We need to extract the actual numeric level and construct the Stata-style name.
   r_code_lines = c(r_code_lines, paste0("col_names_raw = colnames(", temp_matrix_var, ")"))
   # Extract the last numeric sequence (the category value) from the generated column names.
@@ -45,20 +38,21 @@ t_xi = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   r_code_lines = c(r_code_lines, paste0("new_col_names_final = paste0(\"_I", var_to_expand, "_\", j_values_from_names)"))
   r_code_lines = c(r_code_lines, paste0("colnames(", temp_matrix_var, ") = new_col_names_final"))
 
-  # 5. Add generated columns to the main data frame.
+  # 4. Add generated columns to the main data frame.
   # Convert the matrix to a tibble before binding to ensure consistent data types and attributes.
   r_code_lines = c(r_code_lines, paste0("data = dplyr::bind_cols(data, dplyr::as_tibble(", temp_matrix_var, "))"))
 
-  # 6. Set variable labels for the new columns.
+  # 5. Set variable labels for the new columns.
   # Stata labels `_Ivarname_value` as `varname==value` (e.g., `group_cat==2`).
   r_code_lines = c(r_code_lines, paste0("for (col_name in new_col_names_final) {"))
-  r_code_lines = c(r_code_lines, paste0("  val_part = stringi::stri_replace_first_regex(col_name, \"^_I", var_to_expand, "_\", \"\")"))
+  r_code_lines = c(r_code_lines, paste0("  val_part = stringi::stri_replace_first_regex(col_name, paste0(\"^_I\", '", var_to_expand, "', \"_\"), \"\")"))
   r_code_lines = c(r_code_lines, paste0("  attr(data[[col_name]], \"label\") = paste0(\"", var_to_expand, "==\", val_part)"))
   r_code_lines = c(r_code_lines, paste0("}"))
 
-  # 7. Clean up temporary variables.
-  r_code_lines = c(r_code_lines, paste0("rm(", temp_numeric_factor_var, ", ", temp_matrix_var, ", col_names_raw, j_values_from_names, new_col_names_final)"))
+  # 6. Clean up temporary variables.
+  r_code_lines = c(r_code_lines, paste0("rm(", temp_matrix_var, ", col_names_raw, j_values_from_names, new_col_names_final)"))
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 
