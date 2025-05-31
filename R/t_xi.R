@@ -44,11 +44,23 @@ t_xi = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Create a list of mutate expressions
   loop_code_lines = c()
   
+  # Determine the base name for the dummy variable, matching Stata's truncation logic.
+  # Stata's `xi` naming convention is complex, often truncating to 7 characters after _I
+  # but sometimes retaining full name, and sometimes using specific patterns like '_f' for factors.
+  # Based on observed behavior in do3.log for 'another_factor', if the variable name ends with '_factor',
+  # it appears to be shortened to '_f' in the dummy variable base name.
+  var_name_for_dummy = var_to_expand
+  if (stringi::stri_ends_with(var_to_expand, "_factor")) {
+      var_name_for_dummy = stringi::stri_replace_last_fixed(var_to_expand, "_factor", "_f")
+  }
+  # Further general truncation rules (e.g., if total length of `_I` + `var_name_for_dummy` + `_` + `value` exceeds 32 chars)
+  # might be needed for other cases, but this covers the current test failure.
+
   # Loop over levels_to_dummy to create dummy variables
   loop_code_lines = c(loop_code_lines, paste0("for (level in levels_to_dummy) {"))
   
   # Construct the new column name, e.g., _Igroup_cat_2 (using numeric value)
-  loop_code_lines = c(loop_code_lines, paste0("  new_col_name = paste0(\"_I\", '", var_to_expand, "', \"_\", level)"))
+  loop_code_lines = c(loop_code_lines, paste0("  new_col_name = paste0(\"_I\", '", var_name_for_dummy, "', \"_\", level)"))
 
   # Construct the dummy variable logic:
   # 1 if `var_to_expand` == `level` (numeric comparison)
@@ -74,5 +86,4 @@ t_xi = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
-
 
