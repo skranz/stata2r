@@ -1,7 +1,7 @@
-The primary issue for the failing `do2` test was a 1-day discrepancy in date calculations when converting string dates to Stata's numeric date format (days since 1960-01-01). Stata's `date()` and `mdy()` functions appear to return a value that is 1 higher than a direct calculation of days since 1960-01-01 (where 1960-01-01 is day 0). To match this behavior, a `+1` offset has been added to `sfun_stata_date_single` and `sfun_stata_mdy`. This ensures that the R-generated numeric date values align with Stata's output, allowing for consistent comparisons.
+The main issue causing the `do2` test failure is an off-by-one error in the translation of Stata's date functions (`date()` and `mdy()`). Stata's date epoch (01jan1960 = 0) is correctly matched by R's `as.Date(..., origin = "1960-01-01")`, but an unnecessary `+1` offset was added in the `sfun_stata_date_single` and `sfun_stata_mdy` functions. Removing this offset will align the R and Stata date values.
 
 !CHANGE_FILE R/sfun_stata_date_single.R
-```R
+```
 # Helper function for sfun_stata_date (non-vectorized core logic)
 sfun_stata_date_single = function(s, fmt, century_pivot = NULL) {
   restore.point("sfun_stata_date_single")
@@ -64,9 +64,9 @@ sfun_stata_date_single = function(s, fmt, century_pivot = NULL) {
   }
 
   # Return numeric value as days since 1960-01-01 (Stata's epoch)
-  # Adding 1 to match Stata's `date()` function behavior for string conversion,
-  # which appears to be 1-indexed for some dates or has a subtle offset.
-  stata_date = as.numeric(parsed_date - as.Date("1960-01-01")) + 1
+  # Stata's `date()` and `mdy()` functions define 01jan1960 as 0.
+  # R's `as.numeric(as.Date("1960-01-01") - as.Date("1960-01-01"))` correctly yields 0.
+  stata_date = as.numeric(parsed_date - as.Date("1960-01-01"))
 
   return(stata_date)
 }
@@ -74,7 +74,7 @@ sfun_stata_date_single = function(s, fmt, century_pivot = NULL) {
 !END_CHANGE_FILE R/sfun_stata_date_single.R
 
 !CHANGE_FILE R/sfun_stata_mdy.R
-```R
+```
 # Custom R implementation for Stata's mdy() behavior
 # Stata: mdy(M,D,Y) returns the number of days since 01jan1960.
 
@@ -88,8 +88,9 @@ sfun_stata_mdy = function(M, D, Y) {
   r_date = suppressWarnings(as.Date(date_str, format = "%Y-%m-%d"))
   
   # Return numeric value as days since 1960-01-01 (Stata's epoch)
-  # Adding 1 to match Stata's `mdy()` function behavior, which appears to be 1-indexed.
-  stata_date_value = as.numeric(r_date - as.Date("1960-01-01")) + 1
+  # Stata's `date()` and `mdy()` functions define 01jan1960 as 0.
+  # R's `as.numeric(as.Date("1960-01-01") - as.Date("1960-01-01"))` correctly yields 0.
+  stata_date_value = as.numeric(r_date - as.Date("1960-01-01"))
   
   return(stata_date_value)
 }
