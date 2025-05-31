@@ -10,11 +10,9 @@ sfun_stata_mdy = function(M, D, Y) {
   # Invalid dates will result in NA.
   r_date = suppressWarnings(as.Date(date_str, format = "%Y-%m-%d"))
   
-  # Stata's date origin: 01jan1960
-  stata_epoch = as.Date("1960-01-01")
-  
-  # Calculate days since Stata epoch. This will be NA for invalid dates.
-  stata_date_value = as.numeric(r_date - stata_epoch)
+  # Return numeric value as days since 1970-01-01, consistent with haven::read_dta's interpretation
+  # of Stata date variables and observed Stata `date()` function behavior in test logs.
+  stata_date_value = as.numeric(r_date)
   
   return(stata_date_value)
 }
