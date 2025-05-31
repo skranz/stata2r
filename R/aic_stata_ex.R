@@ -1,15 +1,15 @@
 # Tools to make Stata example
 
 example = function() {
-  do_file = normalizePath("~/aicoder/stata2r/inst/cases/do1/do1.do")
+  do_file = normalizePath("~/aicoder/stata2r/aicoder_work/tests/do1/do1.do")
   run_do_with_data_save(do_file)
-  do_file = normalizePath("~/aicoder/stata2r/inst/cases/do2/do2.do")
-  run_do_with_data_save(do_file)
-
-  do_file = normalizePath("~/aicoder/stata2r/inst/cases/do3/do3.do")
+  do_file = normalizePath("~/aicoder/stata2r/aicoder_work/tests/do2/do2.do")
   run_do_with_data_save(do_file)
 
-  do_file = normalizePath("~/aicoder/stata2r/inst/cases/do4/do4.do")
+  do_file = normalizePath("~/aicoder/stata2r/aicoder_work/tests/do3/do3.do")
+  run_do_with_data_save(do_file)
+
+  do_file = normalizePath("~/aicoder/stata2r/aicoder_work/tests/do4/do4.do")
   run_do_with_data_save(do_file)
 
 }

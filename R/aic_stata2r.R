@@ -26,7 +26,7 @@ example = function() {
     rgemini::set_gemini_api_key(file="~/aicoder/gemini_key.txt")
     aic = aic_new_stata2r(main_dir)
     aic = aic_test_stata2r(aic)
-    if (isTRUE(aic$last_test_ok)) {
+    if (isTRUE(aic$num_tests_failed==0)) {
       cat("\nAll tests ok!")
       break
     }
@@ -136,12 +136,16 @@ aic_test_stata2r = function(aic) {
 
   tests_dir = file.path(aic$repo_dir,"aicoder_work", "tests")
 
-  aic = aic_stata2r_do_test(aic=aic, test_dir = "~/aicoder/stata2r/aicoder_work/tests/do1", data_dir = "~/aicoder/stata2r/inst/cases/do1/do_data", data_prefix="do1-")
+  tests = c("do1","do3", "do4")
 
-  #aic = aic_stata2r_do_test(aic=aic, test_dir = "~/aicoder/stata2r/aicoder_work/tests/do2", data_dir = "~/aicoder/stata2r/inst/cases/do2/do_data", data_prefix="do2-")
-
-  aic = aic_stata2r_do_test(aic=aic, test_dir = "~/aicoder/stata2r/aicoder_work/tests/do4", data_dir = "~/aicoder/stata2r/inst/cases/do4/do_data", data_prefix="do4-")
-
+  test = "do3"
+  for (test in tests) {
+    aic = aic_stata2r_do_test(aic=aic, test_dir = paste0("~/aicoder/stata2r/aicoder_work/tests/", test))
+    if (!aic$last_test_ok) {
+      aic = aic_tests_finish(aic)
+      return(aic)
+    }
+  }
   aic = aic_tests_finish(aic)
   aic
 }

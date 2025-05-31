@@ -3,7 +3,7 @@ examples = function() {
   aic_stata2r_do_test(aic=NULL, test_dir = "~/aicoder/stata2r/aicoder_work/tests/do1", data_dir = "~/aicoder/stata2r/inst/cases/do1/do_data")
 }
 
-aic_stata2r_do_test = function(aic, test_dir, data_dir, data_prefix="") {
+aic_stata2r_do_test = function(aic, test_dir, data_dir=file.path(test_dir, "do_data"), data_prefix=paste0(basename(test_dir),"-")) {
   restore.point("aic_stata2r_do_test")
   txt = capture.output(err<-try(aic_stata2r_do_test_inner(test_dir, data_dir, data_prefix), silent=TRUE))
   log = out_and_err_txt(txt, err)
