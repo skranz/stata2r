@@ -20,21 +20,22 @@ t_xi = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   r_code_lines = c()
 
-  # 1. Generate the model matrix by directly referencing the variable within `data`.
-  # `model.matrix(~ varname, data = data, na.action = stats::na.pass)` ensures that
-  # rows with NA values in `varname` are retained in the output matrix, with NAs in dummy variables.
+  # 1. Generate the model matrix by converting the variable to a factor first.
+  # This ensures `model.matrix` creates dummy variables from numeric or string categories.
+  # `haven::as_factor` handles labelled numerics correctly.
   temp_matrix_var = paste0("stata_tmp_xi_matrix_L", line_num)
-  r_code_lines = c(r_code_lines, paste0(temp_matrix_var, " = model.matrix(~ `", var_to_expand, "`, data = data, na.action = stats::na.pass)"))
+  r_code_lines = c(r_code_lines, paste0(temp_matrix_var, " = model.matrix(~ haven::as_factor(`", var_to_expand, "`), data = data, na.action = stats::na.pass)"))
 
   # 2. Remove the intercept column, as Stata's `xi` does not generate it.
   r_code_lines = c(r_code_lines, paste0(temp_matrix_var, " = ", temp_matrix_var, "[, !colnames(", temp_matrix_var, ") %in% c(\"(Intercept)\"), drop = FALSE]"))
 
   # 3. Rename columns to Stata's `_Ivarname_value` format.
-  # The column names from `model.matrix` will look like `var_to_expand2`, `var_to_expand3` etc.
-  # We need to extract the actual numeric level and construct the Stata-style name.
+  # The column names from `model.matrix` for `haven::as_factor(var)` are typically `haven::as_factor(var)Level`.
+  # We need to extract `Level`.
   r_code_lines = c(r_code_lines, paste0("col_names_raw = colnames(", temp_matrix_var, ")"))
-  # Extract the last numeric sequence (the category value) from the generated column names.
-  r_code_lines = c(r_code_lines, paste0("j_values_from_names = stringi::stri_extract_last_regex(col_names_raw, \"[0-9]+$\")"))
+  # Extract the category value by removing the `haven::as_factor(var)` prefix.
+  # Note: `model.matrix` does not backtick variable names within the `haven::as_factor()` part of the column name.
+  r_code_lines = c(r_code_lines, paste0("j_values_from_names = stringi::stri_replace_first_fixed(col_names_raw, paste0(\"haven::as_factor(\", var_to_expand, \")\"), \"\")"))
   r_code_lines = c(r_code_lines, paste0("new_col_names_final = paste0(\"_I", var_to_expand, "_\", j_values_from_names)"))
   r_code_lines = c(r_code_lines, paste0("colnames(", temp_matrix_var, ") = new_col_names_final"))
 
@@ -54,5 +55,4 @@ t_xi = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
-
 
