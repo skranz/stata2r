@@ -80,7 +80,8 @@ stata_cmd_abbreviations = list(
   "ty" = "type", # list content of a file
   "u" = "use",
   "v" = "version", # version control
-  "w" = "which" # find file
+  "w" = "which", # find file
+  "xi" = "xi" # For indicator variable generation
   # "x" = "xtile" # egen function typically
 )
 
@@ -112,8 +113,9 @@ stata_data_manip_cmds = c(
   "svar", "sysuse",
   "tempfile", "tempvar", "tempname",
   "total", # total can generate new variables
-  "use", "xtile" # xtile often part of egen
-  ,"replace", "clear" # clear (all data), replace
+  "use", "xtile", # xtile often part of egen
+  "replace", "clear", # clear (all data), replace
+  "xi" # xi generates new indicator variables
 )
 # Commands that primarily display info or control program flow, not direct data manip usually
 stata_non_data_manip_cmds = c( # This list is for marking FALSE explicitly if needed

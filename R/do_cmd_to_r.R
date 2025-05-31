@@ -50,7 +50,8 @@ do_cmd_to_r = function(cmd_obj, line, cmd_df) { # Corrected signature: added cmd
       "format" = t_format(rest_of_cmd_clean, cmd_obj, cmd_df, line),
       "label" = t_label(rest_of_cmd_clean, cmd_obj, cmd_df, line),
       "compress" = t_compress(rest_of_cmd_clean, cmd_obj, cmd_df, line),
-      "regress" = t_regress(rest_of_cmd_clean, cmd_obj, cmd_df, line, translation_context), # Added regress
+      "regress" = t_regress(rest_of_cmd_clean, cmd_obj, cmd_df, line, translation_context),
+      "xi" = t_xi(rest_of_cmd_clean, cmd_obj, cmd_df, line, translation_context), # Added xi
       # Add more commands here...
       paste0("# Stata command '", cmd_obj$stata_cmd_original, " ", rest_of_cmd_clean, "' not yet fully translated.")
     )
