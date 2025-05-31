@@ -20,17 +20,15 @@ t_xi = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   r_code_lines = c()
 
-  # 1. Get unique non-missing values of the variable to expand.
-  # Use an intermediate temp var to ensure `data` is not modified if values are fetched.
-  temp_var_col_name = paste0("stata_tmp_xi_var_L", line_num)
+  # 1. Get unique non-missing *numeric values* of the variable to expand.
+  # Stata xi uses numeric values for dummy variable names, even if they have labels.
+  # Use haven::zap_labels to get the underlying numeric values.
+  temp_original_numeric_var = paste0("stata_tmp_xi_orig_num_L", line_num)
   temp_unique_values_name = paste0("stata_tmp_xi_unique_L", line_num)
 
-  # `haven::as_factor` ensures numeric labelled values are treated as categories,
-  # and also handles unlabelled numerics or strings.
-  # We then convert to character to ensure consistency for string comparison.
   r_code_lines = c(r_code_lines,
-    paste0(temp_var_col_name, " = as.character(haven::as_factor(data[['", var_to_expand, "']]))"),
-    paste0(temp_unique_values_name, " = base::sort(base::unique(", temp_var_col_name, "[!is.na(", temp_var_col_name, ")]))")
+    paste0(temp_original_numeric_var, " = haven::zap_labels(data[['", var_to_expand, "']])"),
+    paste0(temp_unique_values_name, " = base::sort(base::unique(", temp_original_numeric_var, "[!is.na(", temp_original_numeric_var, ")]))")
   )
 
   # 2. Determine which levels to create dummy variables for.
@@ -49,15 +47,15 @@ t_xi = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Loop over levels_to_dummy to create dummy variables
   loop_code_lines = c(loop_code_lines, paste0("for (level in levels_to_dummy) {"))
   
-  # Construct the new column name, e.g., _Igroup_cat_B
+  # Construct the new column name, e.g., _Igroup_cat_2 (using numeric value)
   loop_code_lines = c(loop_code_lines, paste0("  new_col_name = paste0(\"_I\", '", var_to_expand, "', \"_\", level)"))
 
   # Construct the dummy variable logic:
-  # 1 if `var_to_expand` == `level`
+  # 1 if `var_to_expand` == `level` (numeric comparison)
   # 0 if `var_to_expand` != `level` AND `var_to_expand` is not missing
   # NA if `var_to_expand` is missing
   # Stata's `xi` implies that if `var_to_expand` is missing, the dummy is missing.
-  loop_code_lines = c(loop_code_lines, paste0("  dummy_expr = dplyr::if_else(!is.na(", temp_var_col_name, ") & ", temp_var_col_name, " == level, 1L, dplyr::if_else(!is.na(", temp_var_col_name, ") & ", temp_var_col_name, " != level, 0L, NA_integer_))"))
+  loop_code_lines = c(loop_code_lines, paste0("  dummy_expr = dplyr::if_else(!is.na(", temp_original_numeric_var, ") & ", temp_original_numeric_var, " == level, 1L, dplyr::if_else(!is.na(", temp_original_numeric_var, ") & ", temp_original_numeric_var, " != level, 0L, NA_integer_))"))
   
   # Assign the new column using data[[new_col_name]] = dummy_expr
   loop_code_lines = c(loop_code_lines, paste0("  data[[new_col_name]] = dummy_expr"))
@@ -72,7 +70,7 @@ t_xi = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
 
   # Clean up temporary variables.
-  r_code_lines = c(r_code_lines, paste0("rm(", temp_var_col_name, ", ", temp_unique_values_name, ")"))
+  r_code_lines = c(r_code_lines, paste0("rm(", temp_original_numeric_var, ", ", temp_unique_values_name, ")"))
 
   return(paste(r_code_lines, collapse="\n"))
 }
