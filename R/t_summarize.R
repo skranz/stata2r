@@ -48,33 +48,33 @@ t_summarize = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   if (!is.na(stata_if_cond_expr)) {
     r_subset_cond = translate_stata_expression_with_r_values(stata_if_cond_expr, cmd_obj$line, cmd_df, context = list(is_by_group = FALSE))
     data_subset_varname = paste0("data_subset_L", cmd_obj$line)
-    r_code_lines = c(r_code_lines, paste0(data_subset_varname, " = dplyr::filter(data, (dplyr::coalesce(as.numeric(", r_subset_cond, "), 0) != 0))"))
+    r_code_lines = c(r_code_lines, paste0(data_subset_varname, " = collapse::fsubset(data, (dplyr::coalesce(as.numeric(", r_subset_cond, "), 0) != 0))")) # Used fsubset
     data_source_for_summary = data_subset_varname
   }
 
   # Always set r(N) as it's for the number of observations processed.
-  r_code_lines = c(r_code_lines, paste0(line_prefix, "N = NROW(", data_source_for_summary, ")"))
+  r_code_lines = c(r_code_lines, paste0(line_prefix, "N = collapse::fN(", data_source_for_summary, ")")) # Used fN
 
   if (!is.na(var_for_r_vals)) {
-      # Use base R / dplyr functions for summaries
+      # Use collapse functions for summaries
       if (is_meanonly) {
         r_code_lines = c(
           r_code_lines,
-          paste0(line_prefix, "mean = mean(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)")
+          paste0(line_prefix, "mean = collapse::fmean(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)")
         )
       } else { # Default summarize or with other options (detail implies more)
         r_code_lines = c(
           r_code_lines,
-          paste0(line_prefix, "mean = mean(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)"), # Corrected variable name here
-          paste0(line_prefix, "sd = stats::sd(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)"),
-          paste0(line_prefix, "min = min(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)"),
-          paste0(line_prefix, "max = max(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)"),
-          paste0(line_prefix, "sum = sum(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)")
+          paste0(line_prefix, "mean = collapse::fmean(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)"),
+          paste0(line_prefix, "sd = collapse::fsd(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)"),
+          paste0(line_prefix, "min = collapse::fmin(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)"),
+          paste0(line_prefix, "max = collapse::fmax(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)"),
+          paste0(line_prefix, "sum = collapse::fsum(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)")
         )
         if (is_detail) {
           r_code_lines = c(
             r_code_lines,
-            paste0(line_prefix, "p50 = stats::median(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)")
+            paste0(line_prefix, "p50 = collapse::fmedian(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)")
             # Further percentiles (p1, p5, etc.), variance, skewness, kurtosis for detail are not yet implemented.
           )
         }

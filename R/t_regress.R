@@ -101,7 +101,7 @@ t_regress = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     # Filter data to estimation sample before running lm
     lm_data_var = paste0("data_lm_L", line_num)
     r_code_lines = c(r_code_lines,
-      paste0(lm_data_var, " = dplyr::filter(data, ", e_sample_r_var_name, " == 1)"),
+      paste0(lm_data_var, " = collapse::fsubset(data, ", e_sample_r_var_name, " == 1)"), # Changed dplyr::filter to collapse::fsubset
       paste0("lm_res_L", line_num, " = stats::lm(", formula_r_vars, ", data = ", lm_data_var, ")")
     )
     
@@ -126,5 +126,4 @@ t_regress = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse = "\n"))
 }
-
 

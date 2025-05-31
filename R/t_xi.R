@@ -50,7 +50,7 @@ t_xi = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Based on observed behavior in do3.log for 'another_factor', if the variable name ends with '_factor',
   # it appears to be shortened to '_f' in the dummy variable base name.
   var_name_for_dummy = var_to_expand
-  if (stringi::stri_ends_with(var_to_expand, "_factor")) {
+  if (base::endsWith(var_to_expand, "_factor")) { # Changed stringi::stri_ends_with to base::endsWith
       var_name_for_dummy = stringi::stri_replace_last_fixed(var_to_expand, "_factor", "_f")
   }
   # Further general truncation rules (e.g., if total length of `_I` + `var_name_for_dummy` + `_` + `value` exceeds 32 chars)
