@@ -14,6 +14,16 @@ sfun_strip_stata_attributes = function(x) {
       x = haven::zap_missing(x)
     }
     
+    # Preserve Date class, just strip other attributes.
+    # This must come before is.numeric(x) check as Date objects are also numeric.
+    if (inherits(x, "Date")) {
+      attr_names_to_remove = setdiff(names(attributes(x)), c("names", "class")) # Keep class for Date
+      if (length(attr_names_to_remove) > 0) {
+        attributes(x)[attr_names_to_remove] = NULL
+      }
+      return(x)
+    }
+    
     # Explicitly cast to base R types to ensure no problematic attributes remain
     # This also handles cases where a variable might have been an R factor or other
     # specific class that Stata doesn't have a direct equivalent for.

@@ -245,7 +245,7 @@ compare_df = function(df1, df2,
   main_class = function(x) {
     class_val = last(class(x))
     if (class_val=="double") class_val="numeric"
-    if (inherits(x, "Date")) class_val = "numeric_date_type"
+    if (inherits(x, "Date")) class_val = "numeric_date_type" # Keep Date class for comparison
     class_val
   }
 
@@ -268,11 +268,15 @@ compare_df = function(df1, df2,
     v1 = df1[[cl]]
     v2 = df2[[cl]]
 
-    if (inherits(v1, "Date") && is.numeric(v2)) {
-      v1 = as.numeric(v1) + as.numeric(as.Date("1970-01-01") - as.Date("1960-01-01"))
-    } else if (is.numeric(v1) && inherits(v2, "Date")) {
-      v2 = as.numeric(v2) + as.numeric(as.Date("1970-01-01") - as.Date("1960-01-01"))
+    # Convert to Stata numeric date representation (days since 1960-01-01) for comparison
+    if (inherits(v1, "Date")) {
+      v1 = as.numeric(v1 - as.Date("1960-01-01"))
     }
+    if (inherits(v2, "Date")) {
+      v2 = as.numeric(v2 - as.Date("1960-01-01"))
+    }
+    # If one is numeric (Stata date) and other is R Date (already converted above), no further action.
+
 
     if (is.numeric(v1) && is.numeric(v2)) {
       neq = rep(FALSE, length(v1))
@@ -318,4 +322,5 @@ compare_df = function(df1, df2,
   }
   out
 }
+
 
