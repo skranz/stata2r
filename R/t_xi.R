@@ -20,10 +20,6 @@ t_xi = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   r_code_lines = c()
 
-  # Stata `xi` by default creates dummy variables named `_Ivarname_value`,
-  # where `value` is the numeric value of the category, and the first category is omitted.
-  # Example: `group_cat` with values 1, 2, 3 -> `_Igroup_cat_2`, `_Igroup_cat_3`.
-
   # 1. Prepare the source variable for `model.matrix`.
   # `model.matrix` works well with factors. If the Stata variable is numeric with value labels,
   # we need to ensure its numeric values are used as levels for the dummy variable names.
@@ -33,7 +29,9 @@ t_xi = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # 2. Generate the model matrix. `model.matrix(~ factor_var)` omits the first level by default.
   temp_matrix_var = paste0("stata_tmp_xi_matrix_L", line_num)
-  r_code_lines = c(r_code_lines, paste0(temp_matrix_var, " = model.matrix(~ ", temp_numeric_factor_var, ")"))
+  # FIX: Add na.action = stats::na.pass to retain NA rows in model.matrix output.
+  # This ensures the number of rows matches the original data for dplyr::bind_cols.
+  r_code_lines = c(r_code_lines, paste0(temp_matrix_var, " = model.matrix(~ ", temp_numeric_factor_var, ", na.action = stats::na.pass)"))
 
   # 3. Remove the intercept column, as Stata's `xi` does not generate it.
   r_code_lines = c(r_code_lines, paste0(temp_matrix_var, " = ", temp_matrix_var, "[, !colnames(", temp_matrix_var, ") %in% c(\"(Intercept)\"), drop = FALSE]"))

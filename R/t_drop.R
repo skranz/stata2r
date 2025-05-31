@@ -33,14 +33,35 @@ t_drop = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     }
   } else {
     # drop varlist
-    vars_to_drop = stringi::stri_split_regex(rest_of_cmd_trimmed, "\\s+")[[1]]
-    vars_to_drop = vars_to_drop[vars_to_drop != ""]
+    vars_to_drop_raw = stringi::stri_split_regex(rest_of_cmd_trimmed, "\\s+")[[1]]
+    vars_to_drop_raw = vars_to_drop_raw[vars_to_drop_raw != ""]
 
-    if (length(vars_to_drop) == 0) {
+    if (length(vars_to_drop_raw) == 0) {
       return("# drop command with no variables specified.")
     }
-    # Using dplyr::select
-    r_code_str = paste0("data = dplyr::select(data, -dplyr::any_of(c('", paste(vars_to_drop, collapse="','"), "')))")
+
+    # Check for wildcards in any of the variable names
+    has_wildcard = any(stringi::stri_detect_fixed(vars_to_drop_raw, "*") | stringi::stri_detect_fixed(vars_to_drop_raw, "?"))
+
+    if (has_wildcard) {
+        # Construct expressions for dplyr::select using matches() and all_of()
+        select_exprs = character(0)
+        for (var_pattern in vars_to_drop_raw) {
+            if (stringi::stri_detect_fixed(var_pattern, "*") || stringi::stri_detect_fixed(var_pattern, "?")) {
+                # Convert Stata wildcards to regex
+                regex_pattern = stringi::stri_replace_all_fixed(var_pattern, "*", ".*")
+                regex_pattern = stringi::stri_replace_all_fixed(regex_pattern, "?", ".")
+                # Ensure it matches whole variable names by adding anchors
+                select_exprs = c(select_exprs, paste0("dplyr::matches('^", regex_pattern, "$')"))
+            } else {
+                select_exprs = c(select_exprs, paste0("dplyr::all_of('", var_pattern, "')"))
+            }
+        }
+        r_code_str = paste0("data = dplyr::select(data, -c(", paste(select_exprs, collapse=", "), "))")
+    } else {
+        # No wildcards, use all_of directly for efficiency and clarity
+        r_code_str = paste0("data = dplyr::select(data, -dplyr::all_of(c('", paste(vars_to_drop_raw, collapse="','"), "')))")
+    }
   }
 
   return(r_code_str)
