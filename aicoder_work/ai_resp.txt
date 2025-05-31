@@ -1,80 +1,4 @@
-A very brief description of your main changes.
-
-1.  In `t_xi`, added `na.action = stats::na.pass` to the `model.matrix` call to ensure that generated dummy variables retain the original number of rows, including `NA`s where appropriate, thus resolving the `dplyr::bind_cols` dimension mismatch error.
-2.  In `t_drop`, updated the variable selection logic to correctly handle Stata-style wildcards (`*` and `?`) in the `varlist` by translating them to `dplyr::matches` expressions, ensuring proper column removal.
-
-!CHANGE_FILE R/t_drop.R
-```R
-# Translate Stata 'drop' command
-# Can be `drop varlist` or `drop if condition` or `drop in range`
-
-t_drop = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
-  restore.point("t_drop") # Added restore.point
-  rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
-
-  is_if_drop = stringi::stri_startswith_fixed(rest_of_cmd_trimmed, "if ")
-  is_in_drop = stringi::stri_startswith_fixed(rest_of_cmd_trimmed, "in ")
-
-  if (is_if_drop) {
-    # drop if condition
-    stata_if_cond = stringi::stri_sub(rest_of_cmd_trimmed, from = 4)
-    r_if_cond = translate_stata_expression_with_r_values(stata_if_cond, line_num, cmd_df, context)
-    # Using dplyr::filter, treating NA in condition as FALSE (Stata behavior)
-    r_code_str = paste0("data = dplyr::filter(data, !(dplyr::coalesce(as.numeric(", r_if_cond, "), 0) != 0))")
-  } else if (is_in_drop) {
-    # drop in range
-    range_str = stringi::stri_sub(rest_of_cmd_trimmed, from = 4)
-    range_match = stringi::stri_match_first_regex(range_str, "^(\\d+)(?:/(\\d+))?$")
-    if (!is.na(range_match[1,1])) {
-      start_row = as.integer(range_match[1,2])
-      end_row = range_match[1,3]
-      if (is.na(end_row)) {
-        slice_expr = paste0("-",start_row) # Drop single row
-      } else {
-        slice_expr = paste0("-(", start_row, ":", as.integer(end_row), ")") # Drop range
-      }
-      # Using dplyr::slice
-      r_code_str = paste0("data = dplyr::slice(data, ", slice_expr, ")")
-    } else {
-      r_code_str = paste0("# drop in range '", range_str, "' not fully translated (f/l specifiers).")
-    }
-  } else {
-    # drop varlist
-    vars_to_drop_raw = stringi::stri_split_regex(rest_of_cmd_trimmed, "\\s+")[[1]]
-    vars_to_drop_raw = vars_to_drop_raw[vars_to_drop_raw != ""]
-
-    if (length(vars_to_drop_raw) == 0) {
-      return("# drop command with no variables specified.")
-    }
-
-    # Check for wildcards in any of the variable names
-    has_wildcard = any(stringi::stri_detect_fixed(vars_to_drop_raw, "*") | stringi::stri_detect_fixed(vars_to_drop_raw, "?"))
-
-    if (has_wildcard) {
-        # Construct expressions for dplyr::select using matches() and all_of()
-        select_exprs = character(0)
-        for (var_pattern in vars_to_drop_raw) {
-            if (stringi::stri_detect_fixed(var_pattern, "*") || stringi::stri_detect_fixed(var_pattern, "?")) {
-                # Convert Stata wildcards to regex
-                regex_pattern = stringi::stri_replace_all_fixed(var_pattern, "*", ".*")
-                regex_pattern = stringi::stri_replace_all_fixed(regex_pattern, "?", ".")
-                # Ensure it matches whole variable names by adding anchors
-                select_exprs = c(select_exprs, paste0("dplyr::matches('^", regex_pattern, "$')"))
-            } else {
-                select_exprs = c(select_exprs, paste0("dplyr::all_of('", var_pattern, "')"))
-            }
-        }
-        r_code_str = paste0("data = dplyr::select(data, -c(", paste(select_exprs, collapse=", "), "))")
-    } else {
-        # No wildcards, use all_of directly for efficiency and clarity
-        r_code_str = paste0("data = dplyr::select(data, -dplyr::all_of(c('", paste(vars_to_drop_raw, collapse="','"), "')))")
-    }
-  }
-
-  return(r_code_str)
-}
-```
-!END_CHANGE_FILE R/t_drop.R
+The `do3` test failed due to a row count mismatch during `dplyr::bind_cols` when translating the `xi` command. This was caused by `model.matrix` dropping rows with `NA` values in the variable being expanded, even when `na.action = stats::na.pass` was specified. The fix involves passing the column name directly to `model.matrix` (e.g., `~ `varname``) along with the `data` argument, which allows `model.matrix` to correctly handle `NA`s by preserving row count and inserting `NA`s in the dummy variables.
 
 !CHANGE_FILE R/t_xi.R
 ```R
@@ -100,24 +24,17 @@ t_xi = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   r_code_lines = c()
 
-  # 1. Prepare the source variable for `model.matrix`.
-  # `model.matrix` works well with factors. If the Stata variable is numeric with value labels,
-  # we need to ensure its numeric values are used as levels for the dummy variable names.
-  # So, convert to a factor using the *numeric values* as levels.
-  temp_numeric_factor_var = paste0("stata_tmp_xi_numeric_factor_L", line_num, "_", var_to_expand)
-  r_code_lines = c(r_code_lines, paste0(temp_numeric_factor_var, " = factor(as.numeric(data[['", var_to_expand, "']]))"))
-
-  # 2. Generate the model matrix. `model.matrix(~ factor_var)` omits the first level by default.
+  # 1. Generate the model matrix by directly referencing the variable within `data`.
+  # `model.matrix(~ varname, data = data, na.action = stats::na.pass)` ensures that
+  # rows with NA values in `varname` are retained in the output matrix, with NAs in dummy variables.
   temp_matrix_var = paste0("stata_tmp_xi_matrix_L", line_num)
-  # FIX: Add na.action = stats::na.pass to retain NA rows in model.matrix output.
-  # This ensures the number of rows matches the original data for dplyr::bind_cols.
-  r_code_lines = c(r_code_lines, paste0(temp_matrix_var, " = model.matrix(~ ", temp_numeric_factor_var, ", na.action = stats::na.pass)"))
+  r_code_lines = c(r_code_lines, paste0(temp_matrix_var, " = model.matrix(~ `", var_to_expand, "`, data = data, na.action = stats::na.pass)"))
 
-  # 3. Remove the intercept column, as Stata's `xi` does not generate it.
+  # 2. Remove the intercept column, as Stata's `xi` does not generate it.
   r_code_lines = c(r_code_lines, paste0(temp_matrix_var, " = ", temp_matrix_var, "[, !colnames(", temp_matrix_var, ") %in% c(\"(Intercept)\"), drop = FALSE]"))
 
-  # 4. Rename columns to Stata's `_Ivarname_value` format.
-  # The column names from `model.matrix` will look like `stata_tmp_xi_numeric_factor_L10_group_cat2` (if 2 is a level).
+  # 3. Rename columns to Stata's `_Ivarname_value` format.
+  # The column names from `model.matrix` will look like `var_to_expand2`, `var_to_expand3` etc.
   # We need to extract the actual numeric level and construct the Stata-style name.
   r_code_lines = c(r_code_lines, paste0("col_names_raw = colnames(", temp_matrix_var, ")"))
   # Extract the last numeric sequence (the category value) from the generated column names.
@@ -125,21 +42,22 @@ t_xi = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   r_code_lines = c(r_code_lines, paste0("new_col_names_final = paste0(\"_I", var_to_expand, "_\", j_values_from_names)"))
   r_code_lines = c(r_code_lines, paste0("colnames(", temp_matrix_var, ") = new_col_names_final"))
 
-  # 5. Add generated columns to the main data frame.
+  # 4. Add generated columns to the main data frame.
   # Convert the matrix to a tibble before binding to ensure consistent data types and attributes.
   r_code_lines = c(r_code_lines, paste0("data = dplyr::bind_cols(data, dplyr::as_tibble(", temp_matrix_var, "))"))
 
-  # 6. Set variable labels for the new columns.
+  # 5. Set variable labels for the new columns.
   # Stata labels `_Ivarname_value` as `varname==value` (e.g., `group_cat==2`).
   r_code_lines = c(r_code_lines, paste0("for (col_name in new_col_names_final) {"))
-  r_code_lines = c(r_code_lines, paste0("  val_part = stringi::stri_replace_first_regex(col_name, \"^_I", var_to_expand, "_\", \"\")"))
+  r_code_lines = c(r_code_lines, paste0("  val_part = stringi::stri_replace_first_regex(col_name, paste0(\"^_I\", '", var_to_expand, "', \"_\"), \"\")"))
   r_code_lines = c(r_code_lines, paste0("  attr(data[[col_name]], \"label\") = paste0(\"", var_to_expand, "==\", val_part)"))
   r_code_lines = c(r_code_lines, paste0("}"))
 
-  # 7. Clean up temporary variables.
-  r_code_lines = c(r_code_lines, paste0("rm(", temp_numeric_factor_var, ", ", temp_matrix_var, ", col_names_raw, j_values_from_names, new_col_names_final)"))
+  # 6. Clean up temporary variables.
+  r_code_lines = c(r_code_lines, paste0("rm(", temp_matrix_var, ", col_names_raw, j_values_from_names, new_col_names_final)"))
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 ```
 !END_CHANGE_FILE R/t_xi.R

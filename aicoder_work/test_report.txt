@@ -734,7 +734,7 @@ data = data %>%
 
  23 do:  xi i.group_cat
  23 r:  stata_tmp_xi_numeric_factor_L23_group_cat = factor(as.numeric(data[['group_cat']]))
-stata_tmp_xi_matrix_L23 = model.matrix(~ stata_tmp_xi_numeric_factor_L23_group_cat)
+stata_tmp_xi_matrix_L23 = model.matrix(~ stata_tmp_xi_numeric_factor_L23_group_cat, na.action = stats::na.pass)
 stata_tmp_xi_matrix_L23 = stata_tmp_xi_matrix_L23[, !colnames(stata_tmp_xi_matrix_L23) %in% c("(Intercept)"), drop = FALSE]
 col_names_raw = colnames(stata_tmp_xi_matrix_L23)
 j_values_from_names = stringi::stri_extract_last_regex(col_names_raw, "[0-9]+$")
@@ -748,7 +748,7 @@ for (col_name in new_col_names_final) {
 rm(stata_tmp_xi_numeric_factor_L23_group_cat, stata_tmp_xi_matrix_L23, col_names_raw, j_values_from_names, new_col_names_final) 
 stata_tmp_xi_numeric_factor_L23_group_cat = factor(as.numeric(data[['group_cat']]))
 
-stata_tmp_xi_matrix_L23 = model.matrix(~ stata_tmp_xi_numeric_factor_L23_group_cat)
+stata_tmp_xi_matrix_L23 = model.matrix(~ stata_tmp_xi_numeric_factor_L23_group_cat, na.action = stats::na.pass)
 
 stata_tmp_xi_matrix_L23 = stata_tmp_xi_matrix_L23[, !colnames(stata_tmp_xi_matrix_L23) %in% c("(Intercept)"), drop = FALSE]
 
@@ -786,12 +786,12 @@ data = data %>%
   dplyr::mutate(`x_weighted_by_Igroup2` = as.numeric(sfun_stata_cond(`_cond_xw`,  `x_numeric` * `_Igroup_cat_2`,  NA_real_)))
 
  27 do:  drop _Igroup_cat*
- 27 r:  data = dplyr::select(data, -dplyr::any_of(c('_Igroup_cat*'))) 
-data = dplyr::select(data, -dplyr::any_of(c('_Igroup_cat*')))
+ 27 r:  data = dplyr::select(data, -c(dplyr::matches('^_Igroup_cat.*$'))) 
+data = dplyr::select(data, -c(dplyr::matches('^_Igroup_cat.*$')))
 
  28 do:  xi i.another_factor
  28 r:  stata_tmp_xi_numeric_factor_L28_another_factor = factor(as.numeric(data[['another_factor']]))
-stata_tmp_xi_matrix_L28 = model.matrix(~ stata_tmp_xi_numeric_factor_L28_another_factor)
+stata_tmp_xi_matrix_L28 = model.matrix(~ stata_tmp_xi_numeric_factor_L28_another_factor, na.action = stats::na.pass)
 stata_tmp_xi_matrix_L28 = stata_tmp_xi_matrix_L28[, !colnames(stata_tmp_xi_matrix_L28) %in% c("(Intercept)"), drop = FALSE]
 col_names_raw = colnames(stata_tmp_xi_matrix_L28)
 j_values_from_names = stringi::stri_extract_last_regex(col_names_raw, "[0-9]+$")
@@ -805,7 +805,7 @@ for (col_name in new_col_names_final) {
 rm(stata_tmp_xi_numeric_factor_L28_another_factor, stata_tmp_xi_matrix_L28, col_names_raw, j_values_from_names, new_col_names_final) 
 stata_tmp_xi_numeric_factor_L28_another_factor = factor(as.numeric(data[['another_factor']]))
 
-stata_tmp_xi_matrix_L28 = model.matrix(~ stata_tmp_xi_numeric_factor_L28_another_factor)
+stata_tmp_xi_matrix_L28 = model.matrix(~ stata_tmp_xi_numeric_factor_L28_another_factor, na.action = stats::na.pass)
 
 stata_tmp_xi_matrix_L28 = stata_tmp_xi_matrix_L28[, !colnames(stata_tmp_xi_matrix_L28) %in% c("(Intercept)"), drop = FALSE]
 
@@ -830,7 +830,7 @@ rm(stata_tmp_xi_numeric_factor_L28_another_factor, stata_tmp_xi_matrix_L28, col_
 
 Error executing R code for Stata line  28 :  stata_tmp_xi_numeric_factor_L28_another_factor = factor(as.numeric(data[['another_factor']]))
 
-stata_tmp_xi_matrix_L28 = model.matrix(~ stata_tmp_xi_numeric_factor_L28_another_factor)
+stata_tmp_xi_matrix_L28 = model.matrix(~ stata_tmp_xi_numeric_factor_L28_another_factor, na.action = stats::na.pass)
 
 stata_tmp_xi_matrix_L28 = stata_tmp_xi_matrix_L28[, !colnames(stata_tmp_xi_matrix_L28) %in% c("(Intercept)"), drop = FALSE]
 
