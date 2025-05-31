@@ -42,10 +42,23 @@ translate_stata_expression_with_r_values = function(stata_expr, line_num, cmd_df
 
   if (!is.na(most_recent_e_producer_line_idx)) {
     prev_cmd_obj_e = cmd_df[most_recent_e_producer_line_idx,]
-    line_prefix_e = paste0("stata_e_sample_L", prev_cmd_obj_e$line) # Specific to e(sample) for now
+    line_prefix_e_base = paste0("stata_e_L", prev_cmd_obj_e$line, "_") # Base prefix for all e() values
 
+    # Check for specific e() values that were marked as needed for this command
     if ("e(sample)" %in% unlist(prev_cmd_obj_e$e_results_needed)) {
-      r_value_mappings[["e(sample)"]] = line_prefix_e
+      r_value_mappings[["e(sample)"]] = paste0("stata_e_sample_L", prev_cmd_obj_e$line) # Special name for sample
+    }
+    if ("e(N)" %in% unlist(prev_cmd_obj_e$e_results_needed)) {
+      r_value_mappings[["e(N)"]] = paste0(line_prefix_e_base, "N")
+    }
+    if ("e(r2)" %in% unlist(prev_cmd_obj_e$e_results_needed)) {
+      r_value_mappings[["e(r2)"]] = paste0(line_prefix_e_base, "r2")
+    }
+    if ("e(df_r)" %in% unlist(prev_cmd_obj_e$e_results_needed)) {
+      r_value_mappings[["e(df_r)"]] = paste0(line_prefix_e_base, "df_r")
+    }
+    if ("e(rmse)" %in% unlist(prev_cmd_obj_e$e_results_needed)) {
+      r_value_mappings[["e(rmse)"]] = paste0(line_prefix_e_base, "rmse")
     }
     # Add mappings for other e() results like e(b), e(V) if t_regress etc. implement them
   }

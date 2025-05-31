@@ -5,20 +5,17 @@
 t_regress = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   restore.point("t_regress")
 
-  # Check if e(sample) is actually needed by a subsequent command
-  # This check ensures that the function only generates code if its results are utilized later.
-  e_sample_needed = "e(sample)" %in% unlist(cmd_obj$e_results_needed)
+  # Check if any e() results are actually needed by a subsequent command
+  needed_e_results = unlist(cmd_obj$e_results_needed)
 
-  if (!e_sample_needed) {
-    # If e(sample) is not needed, or if it's overwritten by a later estimation command,
-    # then this particular regress command doesn't need to produce any R output for e(sample).
-    return(paste0("# regress command at line ", line_num, " translated to no-op as e(sample) (or other e() results) not used later."))
+  if (length(needed_e_results) == 0) {
+    # If no e() results are needed, this regress command doesn't need to produce any R output.
+    return(paste0("# regress command at line ", line_num, " translated to no-op as no e() results used later."))
   }
 
   # Parse `rest_of_cmd` for depvar, indepvars, and if/in conditions
   # Example: "y_outcome x_numeric if some_condition > 10"
   # Regex to capture: (depvar indepvars_optional) (if_clause_optional) (in_clause_optional) (options_like_robust_optional)
-  # This is complex. A simpler split: find 'if', 'in', ','
 
   # Remove options like robust, vce(), level() as they don't affect e(sample)
   rest_of_cmd_no_opts = stringi::stri_replace_all_regex(rest_of_cmd, ",\\s*\\w+\\(?[^)]*\\)?", "")
@@ -26,7 +23,7 @@ t_regress = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   rest_of_cmd_no_opts = stringi::stri_trim_both(rest_of_cmd_no_opts)
 
   stata_if_cond = NA_character_
-  stata_in_range = NA_character_
+  stata_in_range = NA_character_ # Not directly used for e(sample) calculation, but parsed for completeness
   var_part = rest_of_cmd_no_opts
 
   # Extract `if` condition
@@ -35,10 +32,6 @@ t_regress = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     stata_if_cond = stringi::stri_trim_both(if_match[1,2])
     var_part = stringi::stri_trim_both(stringi::stri_sub(var_part, 1, if_match[1,1, MRANGE_START=TRUE] - 1))
   }
-
-  # Extract `in` range (not typically used with e(sample) logic directly but parse for completeness)
-  # `in` conditions are usually handled by filtering data *before* regress if they affect the sample.
-  # e(sample) is relative to the data *after* `if` and `in` are applied to `regress`.
 
   vars_str_list = stringi::stri_split_regex(var_part, "\\s+")[[1]]
   vars_str_list = vars_str_list[vars_str_list != ""]
@@ -49,12 +42,12 @@ t_regress = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   dep_var = vars_str_list[1]
   indep_vars = if (length(vars_str_list) > 1) vars_str_list[-1] else NULL
 
-  # Construct formula string (for comment purposes)
-  formula_str = dep_var
+  # Construct formula string for R lm (for actual model fitting if needed)
+  formula_r_vars = paste0("`", dep_var, "`")
   if (!is.null(indep_vars) && length(indep_vars) > 0) {
-    formula_str = paste0(dep_var, " ~ ", paste(indep_vars, collapse = " + "))
+    formula_r_vars = paste0(formula_r_vars, " ~ ", paste0("`", indep_vars, "`", collapse = " + "))
   } else {
-    formula_str = paste0(dep_var, " ~ 1") # Regress on constant
+    formula_r_vars = paste0(formula_r_vars, " ~ 1") # Regress on constant
   }
 
   all_vars_in_formula = c(dep_var, indep_vars) # All variables involved in the model
@@ -63,6 +56,7 @@ t_regress = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Define the R variable name for e(sample)
   e_sample_r_var_name = paste0("stata_e_sample_L", line_num)
+  line_prefix_e_base = paste0("stata_e_L", line_num, "_") # Base prefix for all e() values
 
   # --- Generate code to calculate e(sample) ---
   # 1. Determine rows satisfying the `if` condition (if any)
@@ -95,14 +89,42 @@ t_regress = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # 4. Clean up temporary logical vectors
   r_code_lines = c(r_code_lines, paste0("rm(", eligible_rows_if_cond_var, ", ", complete_cases_vars_var, ")"))
 
+  # Calculate other e() results if they are needed
+  if ("e(N)" %in% needed_e_results) {
+      r_code_lines = c(r_code_lines, paste0(line_prefix_e_base, "N = sum(", e_sample_r_var_name, ")"))
+  }
+
+  # If other model-derived e() results are needed, run the actual linear model.
+  # This avoids running lm if only e(sample) or e(N) are needed.
+  other_model_results_needed = setdiff(needed_e_results, c("e(sample)", "e(N)"))
+  if (length(other_model_results_needed) > 0) {
+    # Filter data to estimation sample before running lm
+    lm_data_var = paste0("data_lm_L", line_num)
+    r_code_lines = c(r_code_lines,
+      paste0(lm_data_var, " = dplyr::filter(data, ", e_sample_r_var_name, " == 1)"),
+      paste0("lm_res_L", line_num, " = stats::lm(", formula_r_vars, ", data = ", lm_data_var, ")")
+    )
+    
+    if ("e(r2)" %in% needed_e_results) {
+        r_code_lines = c(r_code_lines, paste0(line_prefix_e_base, "r2 = summary(lm_res_L", line_num, ")$r.squared"))
+    }
+    if ("e(df_r)" %in% needed_e_results) {
+        r_code_lines = c(r_code_lines, paste0(line_prefix_e_base, "df_r = lm_res_L", line_num, "$df.residual"))
+    }
+    if ("e(rmse)" %in% needed_e_results) {
+        r_code_lines = c(r_code_lines, paste0(line_prefix_e_base, "rmse = summary(lm_res_L", line_num, ")$sigma"))
+    }
+    # Clean up lm related temporary variables
+    r_code_lines = c(r_code_lines, paste0("rm(", lm_data_var, ", lm_res_L", line_num, ")"))
+  }
+
   # Add a comment about the formula
-  r_code_lines = c(r_code_lines, paste0("# Regression model for e(sample): ", formula_str))
+  r_code_lines = c(r_code_lines, paste0("# Regression model for e() results: ", formula_r_vars))
   if (!is.na(stata_if_cond)) {
     r_code_lines = c(r_code_lines, paste0("# Applied if condition: ", stata_if_cond))
   }
-  # The note about discrepancy is removed as the fix to mark_data_manip_cmd should ensure consistency
-  # between Stata log and R output when `e(sample)` is correctly generated and used.
 
   return(paste(r_code_lines, collapse = "\n"))
 }
+
 

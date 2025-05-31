@@ -13,7 +13,9 @@ t_label = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   } else if (stringi::stri_startswith_fixed(rest_of_cmd_trimmed, "values ")) {
     return(t_label_values(rest_of_cmd_trimmed, cmd_obj, cmd_df, line_num))
   } else if (stringi::stri_startswith_fixed(rest_of_cmd_trimmed, "variable ")) {
-    return(t_label_variable(rest_of_cmd_trimmed, cmd_obj, cmd_df, line_num))
+    return(t_label_variable(stringi::stri_sub(rest_of_cmd_trimmed, nchar("variable ")+1), cmd_obj, cmd_df, line_num))
+  } else if (stringi::stri_startswith_fixed(rest_of_cmd_trimmed, "var ")) { # Handle abbreviation for 'variable'
+    return(t_label_variable(stringi::stri_sub(rest_of_cmd_trimmed, nchar("var ")+1), cmd_obj, cmd_df, line_num))
   } else {
     return(paste0("# Unknown label subcommand: ", rest_of_cmd))
   }
@@ -148,7 +150,8 @@ t_label_values = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 t_label_variable = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   restore.point("t_label_variable")
   # label variable varname "label"
-  variable_match = stringi::stri_match_first_regex(rest_of_cmd, "^\\s*variable\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s+(?:\"([^\"]*)\"|'([^']*)')$")
+  # rest_of_cmd is now just "varname "label""
+  variable_match = stringi::stri_match_first_regex(rest_of_cmd, "^\\s*([a-zA-Z_][a-zA-Z0-9_]*)\\s+(?:\"([^\"]*)\"|'([^']*)')$")
   if (is.na(variable_match[1,1])) {
       return(paste0("# Failed to parse label variable command: ", rest_of_cmd))
   }
@@ -166,4 +169,5 @@ t_label_variable = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   )
   return(paste(r_code_lines, collapse="\n"))
 }
+
 

@@ -57,8 +57,8 @@ mark_data_manip_cmd = function(cmd_df) {
 
     # Estimation commands produce e() results
     if (current_cmd %in% stata_estimation_cmds) {
-      # For now, only 'e(sample)' is tracked for regress. Extend as needed.
-      potential_e_results_produced = c("e(sample)")
+      # List all e() results that regress can produce.
+      potential_e_results_produced = c("e(sample)", "e(N)", "e(r2)", "e(df_r)", "e(rmse)", "e(b)", "e(V)")
       
       # If any of these potential results are currently needed, then this command is the producer.
       if (any(potential_e_results_produced %in% active_needed_e_results)) {
@@ -118,4 +118,5 @@ mark_data_manip_cmd = function(cmd_df) {
   
   return(cmd_df)
 }
+
 
