@@ -576,9 +576,391 @@ str(cmd_df)
 NULL
 
 ---
-#Translate Stata to R commands... 
-Error when creating translated code in for line 23
+#Translate Stata to R commands... ... translation done.
+---
+# Run translated R commands and compare results
 
-do:  xi i.group_cat 
-R:  <translation error>
-Translation error message:  'stri_ends_with' is not an exported object from 'namespace:stringi' 
+
+ 1 do:  use "tricky_data.dta", clear
+ 1 r:  data = haven::read_dta(file.path(stata2r_env$working_dir, "tricky_data.dta")) %>% 
+  sfun_strip_stata_attributes() %>% 
+  sfun_normalize_string_nas() %>%
+  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used 
+data = haven::read_dta(file.path(stata2r_env$working_dir, "tricky_data.dta")) %>% 
+  sfun_strip_stata_attributes() %>% 
+  sfun_normalize_string_nas() %>%
+  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used
+
+ 2 do:  label var id "Individual ID"
+ 2 r:  attr(data$`id`, "label") = "Individual ID" 
+attr(data$`id`, "label") = "Individual ID"
+
+ 3 do:  label var time "Time Period"
+ 3 r:  attr(data$`time`, "label") = "Time Period" 
+attr(data$`time`, "label") = "Time Period"
+
+ 4 do:  label var group_cat "Treatment Group"
+ 4 r:  attr(data$`group_cat`, "label") = "Treatment Group" 
+attr(data$`group_cat`, "label") = "Treatment Group"
+
+ 5 do:  label var region_cat "Geographic Region"
+ 5 r:  attr(data$`region_cat`, "label") = "Geographic Region" 
+attr(data$`region_cat`, "label") = "Geographic Region"
+
+ 6 do:  label var x_numeric "Continuous Covariate X"
+ 6 r:  attr(data$`x_numeric`, "label") = "Continuous Covariate X" 
+attr(data$`x_numeric`, "label") = "Continuous Covariate X"
+
+ 7 do:  label var y_outcome "Outcome Variable Y"
+ 7 r:  attr(data$`y_outcome`, "label") = "Outcome Variable Y" 
+attr(data$`y_outcome`, "label") = "Outcome Variable Y"
+
+ 8 do:  label var baseline_char "Baseline Characteristic"
+ 8 r:  attr(data$`baseline_char`, "label") = "Baseline Characteristic" 
+attr(data$`baseline_char`, "label") = "Baseline Characteristic"
+
+ 9 do:  label var another_factor "Another Factor for xi"
+ 9 r:  attr(data$`another_factor`, "label") = "Another Factor for xi" 
+attr(data$`another_factor`, "label") = "Another Factor for xi"
+
+ 10 do:  quietly regress y_outcome x_numeric
+ 10 r:  temp_eligible_if_L10 = rep(TRUE, NROW(data))
+temp_complete_cases_L10 = stats::complete.cases(data[, c('y_outcome','x_numeric'), drop=FALSE])
+stata_e_sample_L10 = as.integer(temp_eligible_if_L10 & temp_complete_cases_L10)
+rm(temp_eligible_if_L10, temp_complete_cases_L10)
+stata_e_L10_N = sum(stata_e_sample_L10)
+data_lm_L10 = collapse::fsubset(data, stata_e_sample_L10 == 1)
+lm_res_L10 = stats::lm(`y_outcome` ~ `x_numeric`, data = data_lm_L10)
+stata_e_L10_df_r = lm_res_L10$df.residual
+rm(data_lm_L10, lm_res_L10)
+# Regression model for e() results: `y_outcome` ~ `x_numeric` 
+temp_eligible_if_L10 = rep(TRUE, NROW(data))
+
+temp_complete_cases_L10 = stats::complete.cases(data[, c('y_outcome','x_numeric'), drop=FALSE])
+
+stata_e_sample_L10 = as.integer(temp_eligible_if_L10 & temp_complete_cases_L10)
+
+rm(temp_eligible_if_L10, temp_complete_cases_L10)
+
+stata_e_L10_N = sum(stata_e_sample_L10)
+
+data_lm_L10 = collapse::fsubset(data, stata_e_sample_L10 == 1)
+
+lm_res_L10 = stats::lm(`y_outcome` ~ `x_numeric`, data = data_lm_L10)
+
+stata_e_L10_df_r = lm_res_L10$df.residual
+
+rm(data_lm_L10, lm_res_L10)
+
+# Regression model for e() results: `y_outcome` ~ `x_numeric`
+
+ 11 do:  gen _temp_eN_reg1 = e(N)
+ 11 r:  data = data %>% 
+  dplyr::mutate(`_temp_eN_reg1` = as.numeric(stata_e_L10_N)) 
+data = data %>% 
+  dplyr::mutate(`_temp_eN_reg1` = as.numeric(stata_e_L10_N))
+
+ 12 do:  gen obs_from_reg1 = _temp_eN_reg1
+ 12 r:  data = data %>% 
+  dplyr::mutate(`obs_from_reg1` = as.numeric(`_temp_eN_reg1`)) 
+data = data %>% 
+  dplyr::mutate(`obs_from_reg1` = as.numeric(`_temp_eN_reg1`))
+
+ 13 do:  bysort id: replace obs_from_reg1 = cond(_n == 1, obs_from_reg1, .)
+ 13 r:  data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("id"))) %>% 
+  dplyr::mutate(`obs_from_reg1` = as.numeric(sfun_stata_cond(dplyr::row_number() == 1,  `obs_from_reg1`,  NA_real_))) %>% 
+  dplyr::ungroup() 
+data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("id"))) %>% 
+  dplyr::mutate(`obs_from_reg1` = as.numeric(sfun_stata_cond(dplyr::row_number() == 1,  `obs_from_reg1`,  NA_real_))) %>% 
+  dplyr::ungroup()
+
+ 14 do:  gen _temp_df_r_reg1 = e(df_r)
+ 14 r:  data = data %>% 
+  dplyr::mutate(`_temp_df_r_reg1` = as.numeric(stata_e_L10_df_r)) 
+data = data %>% 
+  dplyr::mutate(`_temp_df_r_reg1` = as.numeric(stata_e_L10_df_r))
+
+ 15 do:  gen df_resid_from_reg1 = _temp_df_r_reg1
+ 15 r:  data = data %>% 
+  dplyr::mutate(`df_resid_from_reg1` = as.numeric(`_temp_df_r_reg1`)) 
+data = data %>% 
+  dplyr::mutate(`df_resid_from_reg1` = as.numeric(`_temp_df_r_reg1`))
+
+ 16 do:  bysort id: replace df_resid_from_reg1 = cond(_n == 1, df_resid_from_reg1, .)
+ 16 r:  data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("id"))) %>% 
+  dplyr::mutate(`df_resid_from_reg1` = as.numeric(sfun_stata_cond(dplyr::row_number() == 1,  `df_resid_from_reg1`,  NA_real_))) %>% 
+  dplyr::ungroup() 
+data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("id"))) %>% 
+  dplyr::mutate(`df_resid_from_reg1` = as.numeric(sfun_stata_cond(dplyr::row_number() == 1,  `df_resid_from_reg1`,  NA_real_))) %>% 
+  dplyr::ungroup()
+
+ 17 do:  gen in_estimation_sample1 = e(sample)
+ 17 r:  data = data %>% 
+  dplyr::mutate(`in_estimation_sample1` = as.numeric(stata_e_sample_L10)) 
+data = data %>% 
+  dplyr::mutate(`in_estimation_sample1` = as.numeric(stata_e_sample_L10))
+
+ 18 do:  assert in_estimation_sample1 == 1 | in_estimation_sample1 == 0 | missing(in_estimation_sample1) 
+
+ 18 r:  not translated since not flagged as data manipulation
+
+ 19 do:  gen y_mod_by_esample1 = y_outcome
+ 19 r:  data = data %>% 
+  dplyr::mutate(`y_mod_by_esample1` = as.numeric(`y_outcome`)) 
+data = data %>% 
+  dplyr::mutate(`y_mod_by_esample1` = as.numeric(`y_outcome`))
+
+ 20 do:  gen _cond_ymod1 = (in_estimation_sample1 == 1 & group_cat == 2)
+ 20 r:  data = data %>% 
+  dplyr::mutate(`_cond_ymod1` = as.numeric((`in_estimation_sample1` == 1 & `group_cat` == 2))) 
+data = data %>% 
+  dplyr::mutate(`_cond_ymod1` = as.numeric((`in_estimation_sample1` == 1 & `group_cat` == 2)))
+
+ 21 do:  gen _new_val_ymod1 = y_outcome * 1.1
+ 21 r:  data = data %>% 
+  dplyr::mutate(`_new_val_ymod1` = as.numeric(`y_outcome` * 1.1)) 
+data = data %>% 
+  dplyr::mutate(`_new_val_ymod1` = as.numeric(`y_outcome` * 1.1))
+
+ 22 do:  replace y_mod_by_esample1 = cond(_cond_ymod1, _new_val_ymod1, y_mod_by_esample1)
+ 22 r:  data = data %>% 
+  dplyr::mutate(`y_mod_by_esample1` = as.numeric(sfun_stata_cond(`_cond_ymod1`,  `_new_val_ymod1`,  `y_mod_by_esample1`))) 
+data = data %>% 
+  dplyr::mutate(`y_mod_by_esample1` = as.numeric(sfun_stata_cond(`_cond_ymod1`,  `_new_val_ymod1`,  `y_mod_by_esample1`)))
+
+ 23 do:  xi i.group_cat
+ 23 r:  stata_tmp_xi_orig_num_L23 = haven::zap_labels(data[['group_cat']])
+stata_tmp_xi_unique_L23 = base::sort(base::unique(stata_tmp_xi_orig_num_L23[!is.na(stata_tmp_xi_orig_num_L23)]))
+if (length(stata_tmp_xi_unique_L23) > 0) {
+  base_level = stata_tmp_xi_unique_L23[1]
+  levels_to_dummy = setdiff(stata_tmp_xi_unique_L23, base_level)
+for (level in levels_to_dummy) {
+  new_col_name = paste0("_I", 'group_cat', "_", level)
+  dummy_expr = dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L23) & stata_tmp_xi_orig_num_L23 == level, 1L, dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L23) & stata_tmp_xi_orig_num_L23 != level, 0L, NA_integer_))
+  data[[new_col_name]] = dummy_expr
+  attr(data[[new_col_name]], "label") = paste0("group_cat==", level)
+} # End for (level in levels_to_dummy)
+} # End if (length(temp_unique_values_name) > 0)
+rm(stata_tmp_xi_orig_num_L23, stata_tmp_xi_unique_L23) 
+stata_tmp_xi_orig_num_L23 = haven::zap_labels(data[['group_cat']])
+
+stata_tmp_xi_unique_L23 = base::sort(base::unique(stata_tmp_xi_orig_num_L23[!is.na(stata_tmp_xi_orig_num_L23)]))
+
+if (length(stata_tmp_xi_unique_L23) > 0) {
+  base_level = stata_tmp_xi_unique_L23[1]
+  levels_to_dummy = setdiff(stata_tmp_xi_unique_L23, base_level)
+for (level in levels_to_dummy) {
+  new_col_name = paste0("_I", 'group_cat', "_", level)
+  dummy_expr = dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L23) & stata_tmp_xi_orig_num_L23 == level, 1L, dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L23) & stata_tmp_xi_orig_num_L23 != level, 0L, NA_integer_))
+  data[[new_col_name]] = dummy_expr
+  attr(data[[new_col_name]], "label") = paste0("group_cat==", level)
+} # End for (level in levels_to_dummy)
+} # End if (length(temp_unique_values_name) > 0)
+
+rm(stata_tmp_xi_orig_num_L23, stata_tmp_xi_unique_L23)
+
+ 24 do:  summarize _Igroup_cat_2 _Igroup_cat_3 
+
+ 24 r:  not translated since not flagged as data manipulation
+
+ 25 do:  gen _cond_xw = (_Igroup_cat_2 == 1 & !missing(_Igroup_cat_2))
+ 25 r:  data = data %>% 
+  dplyr::mutate(`_cond_xw` = as.numeric((`_Igroup_cat_2` == 1 & !sfun_missing(`_Igroup_cat_2`)))) 
+data = data %>% 
+  dplyr::mutate(`_cond_xw` = as.numeric((`_Igroup_cat_2` == 1 & !sfun_missing(`_Igroup_cat_2`))))
+
+ 26 do:  gen x_weighted_by_Igroup2 = cond(_cond_xw, x_numeric * _Igroup_cat_2, .)
+ 26 r:  data = data %>% 
+  dplyr::mutate(`x_weighted_by_Igroup2` = as.numeric(sfun_stata_cond(`_cond_xw`,  `x_numeric` * `_Igroup_cat_2`,  NA_real_))) 
+data = data %>% 
+  dplyr::mutate(`x_weighted_by_Igroup2` = as.numeric(sfun_stata_cond(`_cond_xw`,  `x_numeric` * `_Igroup_cat_2`,  NA_real_)))
+
+ 27 do:  drop _Igroup_cat*
+ 27 r:  data = dplyr::select(data, -c(dplyr::matches('^_Igroup_cat.*$'))) 
+data = dplyr::select(data, -c(dplyr::matches('^_Igroup_cat.*$')))
+
+ 28 do:  xi i.another_factor
+ 28 r:  stata_tmp_xi_orig_num_L28 = haven::zap_labels(data[['another_factor']])
+stata_tmp_xi_unique_L28 = base::sort(base::unique(stata_tmp_xi_orig_num_L28[!is.na(stata_tmp_xi_orig_num_L28)]))
+if (length(stata_tmp_xi_unique_L28) > 0) {
+  base_level = stata_tmp_xi_unique_L28[1]
+  levels_to_dummy = setdiff(stata_tmp_xi_unique_L28, base_level)
+for (level in levels_to_dummy) {
+  new_col_name = paste0("_I", 'another_f', "_", level)
+  dummy_expr = dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L28) & stata_tmp_xi_orig_num_L28 == level, 1L, dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L28) & stata_tmp_xi_orig_num_L28 != level, 0L, NA_integer_))
+  data[[new_col_name]] = dummy_expr
+  attr(data[[new_col_name]], "label") = paste0("another_factor==", level)
+} # End for (level in levels_to_dummy)
+} # End if (length(temp_unique_values_name) > 0)
+rm(stata_tmp_xi_orig_num_L28, stata_tmp_xi_unique_L28) 
+stata_tmp_xi_orig_num_L28 = haven::zap_labels(data[['another_factor']])
+
+stata_tmp_xi_unique_L28 = base::sort(base::unique(stata_tmp_xi_orig_num_L28[!is.na(stata_tmp_xi_orig_num_L28)]))
+
+if (length(stata_tmp_xi_unique_L28) > 0) {
+  base_level = stata_tmp_xi_unique_L28[1]
+  levels_to_dummy = setdiff(stata_tmp_xi_unique_L28, base_level)
+for (level in levels_to_dummy) {
+  new_col_name = paste0("_I", 'another_f', "_", level)
+  dummy_expr = dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L28) & stata_tmp_xi_orig_num_L28 == level, 1L, dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L28) & stata_tmp_xi_orig_num_L28 != level, 0L, NA_integer_))
+  data[[new_col_name]] = dummy_expr
+  attr(data[[new_col_name]], "label") = paste0("another_factor==", level)
+} # End for (level in levels_to_dummy)
+} # End if (length(temp_unique_values_name) > 0)
+
+rm(stata_tmp_xi_orig_num_L28, stata_tmp_xi_unique_L28)
+
+ 29 do:  gen _interaction_another_f_2_xnum = _Ianother_f_2 * x_numeric
+ 29 r:  data = data %>% 
+  dplyr::mutate(`_interaction_another_f_2_xnum` = as.numeric(`_Ianother_f_2` * `x_numeric`)) 
+data = data %>% 
+  dplyr::mutate(`_interaction_another_f_2_xnum` = as.numeric(`_Ianother_f_2` * `x_numeric`))
+
+ 30 do:  gen _interaction_another_f_3_xnum = _Ianother_f_3 * x_numeric
+ 30 r:  data = data %>% 
+  dplyr::mutate(`_interaction_another_f_3_xnum` = as.numeric(`_Ianother_f_3` * `x_numeric`)) 
+data = data %>% 
+  dplyr::mutate(`_interaction_another_f_3_xnum` = as.numeric(`_Ianother_f_3` * `x_numeric`))
+
+ 31 do:  summarize _Ianother_f_2 _Ianother_f_3 _interaction_another_f_2_xnum _interaction_another_f_3_xnum 
+
+ 31 r:  not translated since not flagged as data manipulation
+
+ 32 do:  drop _Ianother_f* _interaction_another_f*
+ 32 r:  data = dplyr::select(data, -c(dplyr::matches('^_Ianother_f.*$'), dplyr::matches('^_interaction_another_f.*$'))) 
+data = dplyr::select(data, -c(dplyr::matches('^_Ianother_f.*$'), dplyr::matches('^_interaction_another_f.*$')))
+
+ 33 do:  xi i.region_cat*i.group_cat
+ 33 r:  # xi command: Unsupported syntax or variable type for: i.region_cat*i.group_cat. Only 'i.varname' is currently supported. 
+# xi command: Unsupported syntax or variable type for: i.region_cat*i.group_cat. Only 'i.varname' is currently supported.
+
+Error: After Stata line  33 , R data set differs from Stata reference.
+
+Data set from Stata (do_df):
+tibble [250 × 29] (S3: tbl_df/tbl/data.frame)
+ $ id                   : num [1:250] 1 1 1 1 1 2 2 2 2 2 ...
+  ..- attr(*, "label")= chr "Individual ID"
+  ..- attr(*, "format.stata")= chr "%12.0g"
+ $ time                 : num [1:250] 1 2 3 4 5 1 2 3 4 5 ...
+  ..- attr(*, "label")= chr "Time Period"
+  ..- attr(*, "format.stata")= chr "%12.0g"
+ $ group_cat            : dbl+lbl [1:250] 2, 3, 2, 2, 1, 3, 2, 2, 3, 2, 3, 2, 2, 1, 3, 2, 2, 1, ...
+   ..@ label       : chr "Treatment Group"
+   ..@ format.stata: chr "%12.0g"
+   ..@ labels      : Named num [1:3] 1 2 3
+   .. ..- attr(*, "names")= chr [1:3] "Control" "TreatA" "TreatB"
+ $ region_cat           : dbl+lbl [1:250] 3, 2, 1, 3, 1, 1, 2, 2, 3, 4, 2, 2, 1, 1, 3, 1, 2, 3, ...
+   ..@ label       : chr "Geographic Region"
+   ..@ format.stata: chr "%12.0g"
+   ..@ labels      : Named num [1:4] 1 2 3 4
+   .. ..- attr(*, "names")= chr [1:4] "a" "b" "c" "d"
+ $ x_numeric            : num [1:250] 100 8.04 10.37 5.7 8.75 ...
+  ..- attr(*, "label")= chr "Continuous Covariate X"
+  ..- attr(*, "format.stata")= chr "%10.0g"
+ $ another_factor       : dbl+lbl [1:250]  3,  2,  2,  1,  1,  3,  1,  1,  3,  3,  2, NA,  1,  2...
+   ..@ label       : chr "Another Factor for xi"
+   ..@ format.stata: chr "%12.0g"
+   ..@ labels      : Named num [1:3] 1 2 3
+   .. ..- attr(*, "names")= chr [1:3] "X1" "X2" "X3"
+ $ baseline_char        : chr [1:250] "Low" "High" "High" "High" ...
+  ..- attr(*, "label")= chr "Baseline Characteristic"
+  ..- attr(*, "format.stata")= chr "%-9s"
+ $ y_outcome            : num [1:250] 9.66 7.3 8.67 8.33 5.85 ...
+  ..- attr(*, "label")= chr "Outcome Variable Y"
+  ..- attr(*, "format.stata")= chr "%10.0g"
+ $ _temp_eN_reg1        : num [1:250] 242 242 242 242 242 242 242 242 242 242 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ obs_from_reg1        : num [1:250] 242 NA NA NA NA 242 NA NA NA NA ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ _temp_df_r_reg1      : num [1:250] 240 240 240 240 240 240 240 240 240 240 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ df_resid_from_reg1   : num [1:250] 240 NA NA NA NA 240 NA NA NA NA ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ in_estimation_sample1: num [1:250] 1 1 1 1 1 1 1 1 1 1 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ y_mod_by_esample1    : num [1:250] 10.63 7.3 9.54 9.17 5.85 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ _cond_ymod1          : num [1:250] 1 0 1 1 0 0 1 1 0 1 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ _new_val_ymod1       : num [1:250] 10.63 8.03 9.54 9.17 6.43 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ _cond_xw             : num [1:250] 1 0 1 1 0 0 1 1 0 1 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ x_weighted_by_Igroup2: num [1:250] 100 NA 10.4 5.7 NA ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ _Iregion_ca_2        : num [1:250] 0 1 0 0 0 0 1 1 0 0 ...
+  ..- attr(*, "label")= chr "region_cat==2"
+  ..- attr(*, "format.stata")= chr "%8.0g"
+ $ _Iregion_ca_3        : num [1:250] 1 0 0 1 0 0 0 0 1 0 ...
+  ..- attr(*, "label")= chr "region_cat==3"
+  ..- attr(*, "format.stata")= chr "%8.0g"
+ $ _Iregion_ca_4        : num [1:250] 0 0 0 0 0 0 0 0 0 1 ...
+  ..- attr(*, "label")= chr "region_cat==4"
+  ..- attr(*, "format.stata")= chr "%8.0g"
+ $ _Igroup_cat_2        : num [1:250] 1 0 1 1 0 0 1 1 0 1 ...
+  ..- attr(*, "label")= chr "group_cat==2"
+  ..- attr(*, "format.stata")= chr "%8.0g"
+ $ _Igroup_cat_3        : num [1:250] 0 1 0 0 0 1 0 0 1 0 ...
+  ..- attr(*, "label")= chr "group_cat==3"
+  ..- attr(*, "format.stata")= chr "%8.0g"
+ $ _IregXgro_2_2        : num [1:250] 0 0 0 0 0 0 1 1 0 0 ...
+  ..- attr(*, "label")= chr "region_cat==2 & group_cat==2"
+  ..- attr(*, "format.stata")= chr "%8.0g"
+ $ _IregXgro_2_3        : num [1:250] 0 1 0 0 0 0 0 0 0 0 ...
+  ..- attr(*, "label")= chr "region_cat==2 & group_cat==3"
+  ..- attr(*, "format.stata")= chr "%8.0g"
+ $ _IregXgro_3_2        : num [1:250] 1 0 0 1 0 0 0 0 0 0 ...
+  ..- attr(*, "label")= chr "region_cat==3 & group_cat==2"
+  ..- attr(*, "format.stata")= chr "%8.0g"
+ $ _IregXgro_3_3        : num [1:250] 0 0 0 0 0 0 0 0 1 0 ...
+  ..- attr(*, "label")= chr "region_cat==3 & group_cat==3"
+  ..- attr(*, "format.stata")= chr "%8.0g"
+ $ _IregXgro_4_2        : num [1:250] 0 0 0 0 0 0 0 0 0 1 ...
+  ..- attr(*, "label")= chr "region_cat==4 & group_cat==2"
+  ..- attr(*, "format.stata")= chr "%8.0g"
+ $ _IregXgro_4_3        : num [1:250] 0 0 0 0 0 0 0 0 0 0 ...
+  ..- attr(*, "label")= chr "region_cat==4 & group_cat==3"
+  ..- attr(*, "format.stata")= chr "%8.0g"
+NULL
+
+Data set from R (r_df):
+tibble [250 × 19] (S3: tbl_df/tbl/data.frame)
+ $ id                        : num [1:250] 1 1 1 1 1 2 2 2 2 2 ...
+  ..- attr(*, "label")= chr "Individual ID"
+ $ time                      : num [1:250] 1 2 3 4 5 1 2 3 4 5 ...
+  ..- attr(*, "label")= chr "Time Period"
+ $ group_cat                 : num [1:250] 2 3 2 2 1 3 2 2 3 2 ...
+  ..- attr(*, "label")= chr "Treatment Group"
+ $ region_cat                : num [1:250] 3 2 1 3 1 1 2 2 3 4 ...
+  ..- attr(*, "label")= chr "Geographic Region"
+ $ x_numeric                 : num [1:250] 100 8.04 10.37 5.7 8.75 ...
+  ..- attr(*, "label")= chr "Continuous Covariate X"
+ $ another_factor            : num [1:250] 3 2 2 1 1 3 1 1 3 3 ...
+  ..- attr(*, "label")= chr "Another Factor for xi"
+ $ baseline_char             : chr [1:250] "Low" "High" "High" "High" ...
+  ..- attr(*, "label")= chr "Baseline Characteristic"
+ $ y_outcome                 : num [1:250] 9.66 7.3 8.67 8.33 5.85 ...
+  ..- attr(*, "label")= chr "Outcome Variable Y"
+ $ stata2r_original_order_idx: int [1:250] 1 2 3 4 5 6 7 8 9 10 ...
+ $ _temp_eN_reg1             : num [1:250] 242 242 242 242 242 242 242 242 242 242 ...
+ $ obs_from_reg1             : num [1:250] 242 NA NA NA NA 242 NA NA NA NA ...
+ $ _temp_df_r_reg1           : num [1:250] 240 240 240 240 240 240 240 240 240 240 ...
+ $ df_resid_from_reg1        : num [1:250] 240 NA NA NA NA 240 NA NA NA NA ...
+ $ in_estimation_sample1     : num [1:250] 1 1 1 1 1 1 1 1 1 1 ...
+ $ y_mod_by_esample1         : num [1:250] 10.63 7.3 9.54 9.17 5.85 ...
+ $ _cond_ymod1               : num [1:250] 1 0 1 1 0 0 1 1 0 1 ...
+ $ _new_val_ymod1            : num [1:250] 10.63 8.03 9.54 9.17 6.43 ...
+ $ _cond_xw                  : num [1:250] 1 0 1 1 0 0 1 1 0 1 ...
+ $ x_weighted_by_Igroup2     : num [1:250] 100 NA 10.4 5.7 NA ...
+NULL
+
+Differences:List of 2
+ $ identical      : logi FALSE
+ $ column_mismatch:List of 2
+  ..$ missing_in_do_df: chr(0) 
+  ..$ missing_in_r_df : chr [1:11] "_Iregion_ca_2" "_Iregion_ca_3" "_Iregion_ca_4" "_Igroup_cat_2" ...
+NULL
