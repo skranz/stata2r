@@ -54,8 +54,8 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     }
   }
 
-  # Determine if the target variable will be a string type based on EXPLICIT Stata declaration.
-  # If no explicit type, let R infer from the translated expression.
+  # Determine if the target variable will be a string type based on EXPLICIT Stata declaration
+  # or inferred from the expression.
   is_stata_expr_string_typed = sfun_is_stata_expression_string_typed(stata_expr)
 
   # Apply explicit type casting if declared in Stata command, overriding inferred type
@@ -63,7 +63,7 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       if (stringi::stri_startswith_fixed(declared_type_str, "str")) {
           is_stata_expr_string_typed = TRUE
       } else { # byte, int, long, float, double
-          is_stata_expr_string_typed = FALSE
+          is_stata_expr_string_typed = FALSE # It's numeric.
       }
   }
 
@@ -79,18 +79,16 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
           calculated_value_expr = paste0("as.character(", calculated_value_expr_raw, ")")
       }
   } else { # Numeric output
-      # Ensure logicals become 0/1. Stata converts TRUE/FALSE to 1/0 for numeric types.
-      # This handles `gen newvar = x==y` resulting in numeric 0/1.
-      # If it's a logical expression, cast to numeric.
-      is_a_logical_expression = isTRUE(
-          stringi::stri_detect_regex(calculated_value_expr_raw, "\\bTRUE\\b|\\bFALSE\\b|==|!=|<=|>=|<|>|&|\\||\\bsfun_missing\\b") &&
-          !stringi::stri_detect_fixed(calculated_value_expr_raw, "dplyr::if_else")
-      )
+      # Default numeric type in Stata is float. Haven reads float as double.
+      # So, generally, numeric results should be double in R unless an explicit integer type is declared.
+      force_integer_type = (!is.na(declared_type_str) && declared_type_str %in% c("byte", "int", "long"))
 
-      if (is_a_logical_expression) {
-          calculated_value_expr = paste0("as.numeric(", calculated_value_expr_raw, ")")
+      if (force_integer_type) {
+          # Need to ensure NA_real_ becomes NA_integer_ if expression results in NA
+          calculated_value_expr = paste0("as.integer(", calculated_value_expr_raw, ")")
       } else {
-          calculated_value_expr = calculated_value_expr_raw
+          # Default to double (numeric) for all other numeric cases (float, double, or no type declared)
+          calculated_value_expr = paste0("as.numeric(", calculated_value_expr_raw, ")")
       }
   }
 
@@ -120,4 +118,5 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 
