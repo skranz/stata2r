@@ -1,326 +1,103 @@
-The primary issue causing the `do3` test to fail is a strict tolerance setting in the `compare_df` function. Stata and R use different floating-point arithmetic implementations, which can lead to minute differences in calculation results. The current tolerance of `1e-5` is too tight for some floating-point comparisons, causing the test to incorrectly report a mismatch when the differences are numerically insignificant. I will increase the tolerance to `1e-4` in `aic_do_test.R`.
+The main issue identified from the test logs is that `collapse::fN` was called with a data frame argument in `t_summarize`, which is incorrect. `fN` expects a vector. The fix involves adjusting `t_summarize` to use `NROW()` when no variable list is specified for `summarize` (to get total observations) and `collapse::fN(data[['var']], non.na = TRUE)` when a variable list is present (to get non-missing observations for the last variable).
 
-!CHANGE_FILE aic_do_test.R
-```
-examples = function() {
-  do_file = "C:/libraries/aicoder/stata2r/inst/cases/custom_1/do1.do"
-  aic_stata2r_do_test(aic=NULL, test_dir = "~/aicoder/stata2r/aicoder_work/tests/do1", data_dir = "~/aicoder/stata2r/inst/cases/do1/do_data")
-}
+!CHANGE_FILE R/t_summarize.R
+```R
+# Translate Stata 'summarize' or 'su' command
+t_summarize = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_summarize") # Added restore.point
+  # Stata: summarize varlist [if] [in] [weight] [, options]
+  # Options: detail, meanonly, format, separator(#), nolabel
+  # Stores results in r()
 
-aic_stata2r_do_test = function(aic, test_dir, data_dir=file.path(test_dir, "do_data"), data_prefix=paste0(basename(test_dir),"-")) {
-  restore.point("aic_stata2r_do_test")
-  txt = capture.output(err<-try(aic_stata2r_do_test_inner(test_dir, data_dir, data_prefix), silent=TRUE))
-  log = out_and_err_txt(txt, err)
-  cat(log)
-  has_err = is(err, "try-error") | isTRUE(err==FALSE)
+  parts = stringi::stri_match_first_regex(rest_of_cmd, "^\\s*([^,]*?)(?:,\\s*(.*))?$")
+  varlist_and_cond_str = stringi::stri_trim_both(parts[1,2]) # This may contain "var1 var2 if condition"
+  options_str = stringi::stri_trim_both(parts[1,3]) # NA if no options
 
-  #test_log= list(ok=!has_err,test_name=basename(test_dir), msg="", log=log)
-  aic = aic_add_test(aic, test_name=basename(test_dir),show_test = TRUE, ok=!has_err, log=log)
-  aic
-}
+  # Separate varlist from if condition
+  stata_if_cond_expr = NA_character_
+  varlist_str = varlist_and_cond_str
+  if_cond_match = stringi::stri_match_first_regex(varlist_and_cond_str, "\\s+if\\s+(.*)$")
+  if(!is.na(if_cond_match[1,1])) {
+      stata_if_cond_expr = if_cond_match[1,2]
+      varlist_str = stringi::stri_replace_all_fixed(varlist_and_cond_str, if_cond_match[1,1], "")
+      varlist_str = stringi::stri_trim_both(varlist_str)
+  }
 
-aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="", do_file = paste0(basename(test_dir),".do")) {
-  restore.point("aic_stata2r_do_test_inner")
-  setwd(test_dir)
+  vars_to_summarize = stringi::stri_split_regex(varlist_str, "\\s+")[[1]]
+  vars_to_summarize = vars_to_summarize[vars_to_summarize != ""]
 
-  # Set global environment variables for path resolution in translation functions
-  assign("data_dir", data_dir, envir = stata2r_env)
-  assign("working_dir", test_dir, envir = stata2r_env)
+  # Determine the variable for r() values.
+  # If varlist is empty, r(N) is total observations in the sample. Other r() are usually for the first variable.
+  # If varlist is present, r(N), r(mean), etc. are for the *last* variable in the varlist.
+  var_for_r_vals = NA_character_
+  if (length(vars_to_summarize) > 0) {
+      var_for_r_vals = vars_to_summarize[length(vars_to_summarize)] # Last variable in varlist
+  }
 
-  library(stata2r)
-  # Explicitly load dependencies for the test environment
-  library(collapse)
-  library(dplyr)
-  library(stringi)
-  library(haven)
-  library(tidyr) # For reshape
-  library(restorepoint) # If used by translated code or framework
-  library(readr) # For destring
-  library(labelled) # For decode/encode
-  library(stats) # For lm, sd, median etc. (used in t_regress, t_summarize)
+  is_meanonly = dplyr::coalesce(stringi::stri_detect_fixed(options_str, "meanonly"), FALSE)
+  is_detail = dplyr::coalesce(stringi::stri_detect_fixed(options_str, "detail"), FALSE)
 
-  # Suppress dplyr summarise messages during tests
-  options(dplyr.summarise_inform = FALSE)
+  r_code_lines = c()
+  line_prefix = paste0("stata_r_val_L", cmd_obj$line, "_") # Use cmd_obj$line
 
-  # do code that will be translated
-  do_code = readLines(file.path(test_dir, basename(do_file)), warn=FALSE)
-  #cat(do_code, sep="\n")
+  # Prepare data subset if "if condition" is present
+  data_source_for_summary = "data"
+  if (!is.na(stata_if_cond_expr)) {
+    r_subset_cond = translate_stata_expression_with_r_values(stata_if_cond_expr, cmd_obj$line, cmd_df, context = list(is_by_group = FALSE))
+    data_subset_varname = paste0("data_subset_L", cmd_obj$line)
+    r_code_lines = c(r_code_lines, paste0(data_subset_varname, " = collapse::fsubset(data, (dplyr::coalesce(as.numeric(", r_subset_cond, "), 0) != 0))")) # Used fsubset
+    data_source_for_summary = data_subset_varname
+  }
+
+  # Calculate r(N)
+  # If varlist is empty, r(N) is the number of rows.
+  # If varlist is not empty, r(N) is the count of non-missing values for the *last* variable in the varlist.
+  if (is.na(var_for_r_vals)) {
+      # No varlist specified, r(N) is total observations in the (possibly filtered) dataset
+      r_code_lines = c(r_code_lines, paste0(line_prefix, "N = NROW(", data_source_for_summary, ")"))
+  } else {
+      # Varlist specified, r(N) is non-missing count of the last variable
+      r_code_lines = c(r_code_lines, paste0(line_prefix, "N = collapse::fN(", data_source_for_summary, "[['", var_for_r_vals, "']], non.na = TRUE)"))
+  }
 
 
-  # transforms do_code to a dataframe with
-  # one row for each code line possible
-  # perform some preparsing
-  # the field do_code should contain the original code
-  cat("\ncmd_df = do_parse(do_code)")
-  cmd_df = do_parse(do_code)
-
-  # will add field "do_translate"
-  # if FALSE the stata command does not modify the data set
-  # and can be ignored
-  cat("\ncmd_df = mark_data_manip_cmd(cmd_df)\n")
-  cmd_df = mark_data_manip_cmd(cmd_df)
-  cat("\nstr(cmd_df)\n")
-  print(str(cmd_df))
-
-  # Identify variables generated by runiform() or other non-deterministic functions
-  non_deterministic_cols = character(0)
-  for (i in seq_len(NROW(cmd_df))) {
-    if (cmd_df$stata_cmd[i] %in% c("generate", "gen")) {
-      rest_of_cmd = cmd_df$rest_of_cmd[i]
-      # Extract expression part: `new_var = expression`
-      # Strip type if present (e.g. gen double newvar = ...) before matching
-      rest_of_cmd_no_type = stringi::stri_replace_first_regex(rest_of_cmd, "^(?:byte|int|long|float|double|str\\d+)\\s+", "")
-      match = stringi::stri_match_first_regex(rest_of_cmd_no_type, "^\\s*([^=\\s]+)\\s*=\\s*(.*?)(?:\\s+if\\s+(.*))?$")
-      if (!is.na(match[1,1])) {
-        new_var = stringi::stri_trim_both(match[1,2])
-        stata_expr = stringi::stri_trim_both(match[1,3])
-        if (stringi::stri_detect_fixed(stata_expr, "runiform()")) {
-          non_deterministic_cols = c(non_deterministic_cols, new_var)
+  if (!is.na(var_for_r_vals)) {
+      # Use collapse functions for summaries
+      # Stata's summarize without detail implies mean, std. dev., min, max, count.
+      # meanonly implies only mean.
+      if (is_meanonly) {
+        r_code_lines = c(
+          r_code_lines,
+          paste0(line_prefix, "mean = collapse::fmean(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)")
+        )
+      } else { # Default summarize or with other options (detail implies more)
+        r_code_lines = c(
+          r_code_lines,
+          paste0(line_prefix, "mean = collapse::fmean(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)"),
+          paste0(line_prefix, "sd = collapse::fsd(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)"),
+          paste0(line_prefix, "min = collapse::fmin(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)"),
+          paste0(line_prefix, "max = collapse::fmax(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)"),
+          paste0(line_prefix, "sum = collapse::fsum(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)")
+        )
+        if (is_detail) {
+          r_code_lines = c(
+            r_code_lines,
+            paste0(line_prefix, "p50 = collapse::fmedian(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)")
+            # Further percentiles (p1, p5, etc.), variance, skewness, kurtosis for detail are not yet implemented.
+          )
         }
       }
-    }
+  } else {
+      r_code_lines = c(r_code_lines, paste0("# No variable specified for summarize: r(mean), r(sd), etc. not set."))
   }
 
 
-  cat("\n---\n#Translate Stata to R commands... ")
-  r_df_list = vector("list", NROW(cmd_df))
-  for (i in seq_along(cmd_df$line)) {
-    cmd_obj_row = cmd_df[i,]
-    translated_row_df = do_cmd_to_r(cmd_obj=cmd_obj_row, line=i, cmd_df=cmd_df)
-    r_df_list[[i]] = translated_row_df
-
-    if (!is.na(translated_row_df$stata_translation_error)) {
-      cat(paste0("\nError when creating translated code in for line ", i,"\n"))
-      cat("\ndo: ", cmd_obj_row$do_code,"\n")
-      cat("R:  <translation error>\n")
-      cat("Translation error message: ", translated_row_df$stata_translation_error, "\n")
-      return(FALSE)
-    }
-  }
-  r_df = dplyr::bind_rows(r_df_list)
-  cat("... translation done.")
-
-  env = new.env(parent=globalenv())
-
-  cat("\n---\n# Run translated R commands and compare results\n\n")
-  i_df_loop = 1
-  log_str = NULL
-  for (i_df_loop in seq_len(NROW(r_df))) {
-    r_code_to_exec = r_df$r_code[[i_df_loop]]
-    original_stata_line_num = r_df$line[[i_df_loop]]
-    do_code_original = r_df$do_code[[i_df_loop]]
-
-    if (is.na(r_code_to_exec)) {
-      cat("\n", original_stata_line_num, "do: ", do_code_original, "\n")
-      cat("\n", original_stata_line_num, "r:  not translated since not flagged as data manipulation\n")
-      #next
-    } else {
-      res = aicoder::run_with_log(code_str=r_code_to_exec, env=env)
-      cat("\n", original_stata_line_num,"do: ", do_code_original)
-      cat("\n", original_stata_line_num, "r: ", r_code_to_exec, "\n")
-      cat(res$log)
-
-      if (res$has_error) {
-        cat("\nError executing R code for Stata line ", original_stata_line_num, ": ", res$log, "\n")
-        return(FALSE)
-      }
-    }
-
-    r_data = env[["data"]]
-    if (!is.null(r_data)) {
-      dat_file = file.path(data_dir, paste0(data_prefix, original_stata_line_num, ".dta"))
-      # Check if reference Stata .dta file exists. If not, skip comparison for this line.
-      if (!file.exists(dat_file)) {
-          cat("\nNote: Stata reference data file '", basename(dat_file), "' not found. Skipping comparison for Stata line ", original_stata_line_num, ".\n")
-          # This implies the command might not produce a .dta in Stata test setup (e.g. summarize, regress)
-          # Or it's a line where comparison is not intended.
-          next
-      }
-
-      do_data = haven::read_dta(dat_file)
-
-      cols_in_r_not_do = setdiff(names(r_data), names(do_data))
-      cols_to_remove_from_r_for_comp = setdiff(cols_in_r_not_do, c(non_deterministic_cols, "stata2r_original_order_idx"))
-
-      if (length(cols_to_remove_from_r_for_comp) > 0) {
-          warning(paste0("Test data inconsistency: Columns ", paste(cols_to_remove_from_r_for_comp, collapse=", "), " exist in R data but not in Stata reference data (", basename(dat_file), "). Removing from R data for comparison."))
-          r_data = dplyr::select(r_data, -dplyr::any_of(cols_to_remove_from_r_for_comp))
-      }
-
-      comp = compare_df(do_data, r_data, ignore_cols_values = c(non_deterministic_cols, "stata2r_original_order_idx"))
-      if (!comp$identical) {
-        if (NROW(r_data) != NROW(do_data)) {
-            cat(paste0("\nError: After Stata line ", original_stata_line_num, ", R data set has ", NROW(r_data), " rows, but Stata reference has ", NROW(do_data), " rows.\n"))
-        }
-        cat("\nError: After Stata line ", original_stata_line_num, ", R data set differs from Stata reference.\n")
-        cat("\nData set from Stata (do_df):\n")
-        print(str(do_data))
-        cat("\nData set from R (r_df):\n")
-        print(str(r_data))
-        cat("\nDifferences:")
-        print(str(comp))
-        return(FALSE)
-      }
-    } else {
-      # Only error if 'data' is NULL AND a .dta file for comparison exists for this line.
-      # Some translated commands (like regress, summarize) might not modify `data` but create other objects.
-      dat_file_check = file.path(data_dir, paste0(data_prefix, original_stata_line_num, ".dta"))
-      if (file.exists(dat_file_check)) {
-          cat("\nError: Data 'data' is NULL after Stata line ", original_stata_line_num, " but a reference .dta file exists.\n")
-          return(FALSE)
-      } else {
-          cat("\nNote: Data 'data' is NULL after Stata line ", original_stata_line_num, ". No reference .dta file for comparison. Assuming this is expected (e.g., for summarize, regress).\n")
-      }
-    }
-  }
-  return(TRUE)
-}
-
-
-out_and_err_txt = function(out, err=NULL) {
-  if (is(err,"try-error")) {
-    out = c(out,as.character(err))
-  }
-  paste0(out, collapse="\n")
-}
-
-compare_df = function(df1, df2,
-                      tol = 1e-4,  # numeric tolerance - Increased from 1e-5 to 1e-4
-                      ignore_col_order = FALSE,
-                      ignore_row_order = FALSE,
-                      sample_n_diff = 5,            # max rows to show per column
-                      ignore_cols_values = character(0)) {
-  restore.point("compare_df")
-  if (!is.data.frame(df1) || !is.data.frame(df2))
-    stop("Both inputs must be data frames.")
-
-  # Always strip Stata attributes from df1 (Stata reference) and df2 (R data)
-  # to ensure clean comparison, as R data is also stripped during translation.
-  df1 = sfun_strip_stata_attributes(df1)
-  df2 = sfun_strip_stata_attributes(df2)
-
-  if(identical(df1, df2)) return(list(identical=TRUE))
-
-  if (ignore_col_order) {
-    df1 = df1[, sort(names(df1)), drop = FALSE]
-    df2 = df2[, sort(names(df2)), drop = FALSE]
-  }
-  if (ignore_row_order) {
-    df1 = as.data.frame(df1)
-    df2 = as.data.frame(df2)
-    # Attributes already stripped above
-    if (NROW(df1) > 0 && NCOL(df1) > 0) {
-      df1 = df1[do.call(order, c(as.list(df1), list(na.last = TRUE))), , drop = FALSE]
-    }
-    if (NROW(df2) > 0 && NCOL(df2) > 0) {
-      df2 = df2[do.call(order, c(as.list(df2), list(na.last = TRUE))), , drop = FALSE]
-    }
+  if (data_source_for_summary != "data") {
+      # Clean up temporary subsetted dataframe
+      r_code_lines = c(r_code_lines, paste0("rm(", data_subset_varname, ")"))
   }
 
-  out = list(identical=FALSE)
-
-  # Check row counts first and return early if different, without detailed column diffs
-  if (NROW(df1) != NROW(df2)) {
-    out$row_count_mismatch = paste0("df1 has ", NROW(df1), " rows, df2 has ", NROW(df2), " rows.")
-    return(out)
-  }
-
-
-  names_df1_raw = unname(as.character(names(df1)))
-  names_df2_raw = unname(as.character(names(df2)))
-
-  names_df1_filtered = setdiff(names_df1_raw, ignore_cols_values)
-  names_df2_filtered = setdiff(names_df2_raw, ignore_cols_values)
-
-  missing_in_do_df = setdiff(names_df2_filtered, names_df1_filtered)
-  missing_in_r_df = setdiff(names_df1_filtered, names_df2_filtered)
-  if (length(missing_in_do_df) + length(missing_in_r_df) > 0)
-    out$column_mismatch = list(missing_in_do_df = missing_in_do_df,
-                               missing_in_r_df = missing_in_r_df)
-
-  common_cols = intersect(names_df1_filtered, names_df2_filtered)
-  if (length(common_cols) == 0 && (length(names_df1_filtered) > 0 || length(names_df2_filtered) > 0)) {
-      if (is.null(out$column_mismatch)) {
-          out$column_mismatch = list(missing_in_do_df = missing_in_do_df,
-                                     missing_in_r_df = missing_in_r_df)
-      }
-  }
-
-  main_class = function(x) {
-    class_val = last(class(x))
-    if (class_val=="double") class_val="numeric"
-    if (inherits(x, "Date")) class_val = "numeric_date_type"
-    class_val
-  }
-
-  type_df = data.frame(col = common_cols,
-                       class_do_df = vapply(df1[common_cols], main_class, character(1)),
-                       class_r_df = vapply(df2[common_cols], main_class, character(1)),
-                       stringsAsFactors = FALSE)
-  type_diff = type_df[type_df$class_do_df != type_df$class_r_df, ]
-
-  type_diff = type_diff[! (type_diff$class_do_df %in% c("integer", "numeric", "numeric_date_type") &
-                           type_diff$class_r_df %in% c("integer", "numeric", "numeric_date_type")),]
-
-
-  if (nrow(type_diff) > 0)
-    out$type_mismatch = type_diff
-
-  cols_for_value_comp = common_cols
-
-  value_diffs = lapply(cols_for_value_comp, function(cl) {
-    v1 = df1[[cl]]
-    v2 = df2[[cl]]
-
-    if (inherits(v1, "Date") && is.numeric(v2)) {
-      v1 = as.numeric(v1) + as.numeric(as.Date("1970-01-01") - as.Date("1960-01-01"))
-    } else if (is.numeric(v1) && inherits(v2, "Date")) {
-      v2 = as.numeric(v2) + as.numeric(as.Date("1970-01-01") - as.Date("1960-01-01"))
-    }
-
-    if (is.numeric(v1) && is.numeric(v2)) {
-      neq = rep(FALSE, length(v1))
-      for (k in seq_along(v1)) {
-        val1_k = v1[k]
-        val2_k = v2[k]
-
-        if (is.na(val1_k) && is.na(val2_k)) {
-          neq[k] = FALSE
-        } else if (is.infinite(val1_k) && is.infinite(val2_k) && sign(val1_k) == sign(val2_k)) {
-          neq[k] = FALSE
-        } else if (is.finite(val1_k) && is.finite(val2_k) && abs(val1_k - val2_k) <= tol) {
-          neq[k] = FALSE
-        } else {
-          neq[k] = TRUE
-        }
-      }
-
-    } else {
-      neq = as.character(v1) != as.character(v2) | xor(is.na(v1), is.na(v2))
-    }
-    which(neq)
-  })
-  names(value_diffs) = cols_for_value_comp
-  value_diffs = value_diffs[lengths(value_diffs) > 0]
-
-  if (length(value_diffs) > 0) {
-    sampler = function(idx, cl) {
-      head_idx = head(idx, sample_n_diff)
-      data.frame(row = head_idx,
-                 column = cl,
-                 df1_value = as.character(df1[[cl]][head_idx]),
-                 df2_value = as.character(df2[[cl]][head_idx]),
-                 stringsAsFactors = FALSE)
-    }
-    diff_tbl = do.call(rbind, Map(sampler, value_diffs, names(value_diffs)))
-    rownames(diff_tbl) = NULL
-    out$value_mismatch = diff_tbl
-  }
-
-  if (length(out) <= 1) {
-    return(list(identical=TRUE))
-  }
-  out
+  return(paste(r_code_lines, collapse="\n"))
 }
 ```
-!END_CHANGE_FILE aic_do_test.R
+!END_CHANGE_FILE R/t_summarize.R

@@ -476,7 +476,7 @@ haven::write_dta(data, path = file.path(stata2r_env$working_dir, "result_data.dt
 
 
 ---
-Outcome of test 'do3': not ok
+Outcome of test 'do2': not ok
 
 
 Details:
@@ -485,18 +485,18 @@ cmd_df = do_parse(do_code)
 cmd_df = mark_data_manip_cmd(cmd_df)
 
 str(cmd_df)
-'data.frame':	36 obs. of  13 variables:
+'data.frame':	82 obs. of  13 variables:
  $ line                   : int  1 2 3 4 5 6 7 8 9 10 ...
- $ do_code                : chr  "use \"tricky_data.dta\", clear" "label var id \"Individual ID\"" "label var time \"Time Period\"" "label var group_cat \"Treatment Group\"" ...
- $ stata_cmd_original     : chr  "use" "label" "label" "label" ...
- $ stata_cmd              : chr  "use" "label" "label" "label" ...
- $ rest_of_cmd            : chr  "\"tricky_data.dta\", clear" "var id \"Individual ID\"" "var time \"Time Period\"" "var group_cat \"Treatment Group\"" ...
+ $ do_code                : chr  "use \"test_data.dta\", clear" "generate value1_log = log(value1)" "generate value2_squared = value2^2" "generate int_value1 = int(value1) if !missing(value1)" ...
+ $ stata_cmd_original     : chr  "use" "generate" "generate" "generate" ...
+ $ stata_cmd              : chr  "use" "generate" "generate" "generate" ...
+ $ rest_of_cmd            : chr  "\"test_data.dta\", clear" "value1_log = log(value1)" "value2_squared = value2^2" "int_value1 = int(value1) if !missing(value1)" ...
  $ is_by_prefix           : logi  FALSE FALSE FALSE FALSE FALSE FALSE ...
  $ by_group_vars          : chr  "" "" "" "" ...
  $ by_sort_vars           : chr  "" "" "" "" ...
  $ is_quietly_prefix      : logi  FALSE FALSE FALSE FALSE FALSE FALSE ...
  $ stata_translation_error: chr  NA NA NA NA ...
- $ e_results_needed       :List of 36
+ $ e_results_needed       :List of 82
   ..$ : chr 
   ..$ : chr 
   ..$ : chr 
@@ -506,7 +506,53 @@ str(cmd_df)
   ..$ : chr 
   ..$ : chr 
   ..$ : chr 
-  ..$ : chr  "e(sample)" "e(N)" "e(df_r)"
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
   ..$ : chr 
   ..$ : chr 
   ..$ : chr 
@@ -534,7 +580,53 @@ str(cmd_df)
   ..$ : chr 
   ..$ : chr 
   ..- attr(*, "class")= chr "AsIs"
- $ r_results_needed       :List of 36
+ $ r_results_needed       :List of 82
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr "r(mean)"
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
   ..$ : chr 
   ..$ : chr 
   ..$ : chr 
@@ -581,516 +673,212 @@ NULL
 # Run translated R commands and compare results
 
 
- 1 do:  use "tricky_data.dta", clear
- 1 r:  data = haven::read_dta(file.path(stata2r_env$working_dir, "tricky_data.dta")) %>% 
+ 1 do:  use "test_data.dta", clear
+ 1 r:  data = haven::read_dta(file.path(stata2r_env$working_dir, "test_data.dta")) %>% 
   sfun_strip_stata_attributes() %>% 
   sfun_normalize_string_nas() %>%
   dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used 
-data = haven::read_dta(file.path(stata2r_env$working_dir, "tricky_data.dta")) %>% 
+data = haven::read_dta(file.path(stata2r_env$working_dir, "test_data.dta")) %>% 
   sfun_strip_stata_attributes() %>% 
   sfun_normalize_string_nas() %>%
   dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) # 'clear' was used
 
- 2 do:  label var id "Individual ID"
- 2 r:  attr(data$`id`, "label") = "Individual ID" 
-attr(data$`id`, "label") = "Individual ID"
+ 2 do:  generate value1_log = log(value1)
+ 2 r:  data = data %>% 
+  dplyr::mutate(`value1_log` = as.numeric(log(`value1`))) 
+data = data %>% 
+  dplyr::mutate(`value1_log` = as.numeric(log(`value1`)))
 
- 3 do:  label var time "Time Period"
- 3 r:  attr(data$`time`, "label") = "Time Period" 
-attr(data$`time`, "label") = "Time Period"
+ 3 do:  generate value2_squared = value2^2
+ 3 r:  data = data %>% 
+  dplyr::mutate(`value2_squared` = as.numeric(`value2`^2)) 
+data = data %>% 
+  dplyr::mutate(`value2_squared` = as.numeric(`value2`^2))
 
- 4 do:  label var group_cat "Treatment Group"
- 4 r:  attr(data$`group_cat`, "label") = "Treatment Group" 
-attr(data$`group_cat`, "label") = "Treatment Group"
+ 4 do:  generate int_value1 = int(value1) if !missing(value1)
+ 4 r:  data = data %>% 
+  dplyr::mutate(`int_value1` = dplyr::if_else((dplyr::coalesce(as.numeric(!sfun_missing(`value1`)), 0) != 0), as.numeric(trunc(`value1`)), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`int_value1` = dplyr::if_else((dplyr::coalesce(as.numeric(!sfun_missing(`value1`)), 0) != 0), as.numeric(trunc(`value1`)), NA_real_))
 
- 5 do:  label var region_cat "Geographic Region"
- 5 r:  attr(data$`region_cat`, "label") = "Geographic Region" 
-attr(data$`region_cat`, "label") = "Geographic Region"
+ 5 do:  generate rounded_value1 = round(value1, 0.1) if !missing(value1)
+ 5 r:  data = data %>% 
+  dplyr::mutate(`rounded_value1` = dplyr::if_else((dplyr::coalesce(as.numeric(!sfun_missing(`value1`)), 0) != 0), as.numeric(sfun_stata_round(`value1`,  0.1)), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`rounded_value1` = dplyr::if_else((dplyr::coalesce(as.numeric(!sfun_missing(`value1`)), 0) != 0), as.numeric(sfun_stata_round(`value1`,  0.1)), NA_real_))
 
- 6 do:  label var x_numeric "Continuous Covariate X"
- 6 r:  attr(data$`x_numeric`, "label") = "Continuous Covariate X" 
-attr(data$`x_numeric`, "label") = "Continuous Covariate X"
+ 6 do:  generate random_uniform_draw = runiform()
+ 6 r:  data = data %>% 
+  dplyr::mutate(`random_uniform_draw` = as.numeric(stats::`runif`(dplyr::n()))) 
+data = data %>% 
+  dplyr::mutate(`random_uniform_draw` = as.numeric(stats::`runif`(dplyr::n())))
 
- 7 do:  label var y_outcome "Outcome Variable Y"
- 7 r:  attr(data$`y_outcome`, "label") = "Outcome Variable Y" 
-attr(data$`y_outcome`, "label") = "Outcome Variable Y"
+ 7 do:  generate id_plus_value2 = id + value2 if value2 < 7 & !missing(value2)
+ 7 r:  data = data %>% 
+  dplyr::mutate(`id_plus_value2` = dplyr::if_else((dplyr::coalesce(as.numeric(`value2` < 7 & !sfun_missing(`value2`)), 0) != 0), as.numeric(sfun_stata_add(`id`, `value2`)), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`id_plus_value2` = dplyr::if_else((dplyr::coalesce(as.numeric(`value2` < 7 & !sfun_missing(`value2`)), 0) != 0), as.numeric(sfun_stata_add(`id`, `value2`)), NA_real_))
 
- 8 do:  label var baseline_char "Baseline Characteristic"
- 8 r:  attr(data$`baseline_char`, "label") = "Baseline Characteristic" 
-attr(data$`baseline_char`, "label") = "Baseline Characteristic"
+ 8 do:  replace value1_log = 0 if missing(value1_log) & !missing(value1)
+ 8 r:  data = data %>% 
+  dplyr::mutate(`value1_log` = dplyr::if_else((dplyr::coalesce(as.numeric(sfun_missing(`value1_log`) & !sfun_missing(`value1`)), 0) != 0), as.numeric(0), data$`value1_log`)) 
+data = data %>% 
+  dplyr::mutate(`value1_log` = dplyr::if_else((dplyr::coalesce(as.numeric(sfun_missing(`value1_log`) & !sfun_missing(`value1`)), 0) != 0), as.numeric(0), data$`value1_log`))
 
- 9 do:  label var another_factor "Another Factor for xi"
- 9 r:  attr(data$`another_factor`, "label") = "Another Factor for xi" 
-attr(data$`another_factor`, "label") = "Another Factor for xi"
+ 9 do:  replace value1 = value1 * 1.5 if group_orig == "Alpha" & !missing(value1) & !missing(group_orig)
+ 9 r:  data = data %>% 
+  dplyr::mutate(`value1` = dplyr::if_else((dplyr::coalesce(as.numeric(`group_orig` == "Alpha" & !sfun_missing(`value1`) & !sfun_missing(`group_orig`)), 0) != 0), as.numeric(`value1` * 1.5), data$`value1`)) 
+data = data %>% 
+  dplyr::mutate(`value1` = dplyr::if_else((dplyr::coalesce(as.numeric(`group_orig` == "Alpha" & !sfun_missing(`value1`) & !sfun_missing(`group_orig`)), 0) != 0), as.numeric(`value1` * 1.5), data$`value1`))
 
- 10 do:  quietly regress y_outcome x_numeric
- 10 r:  temp_eligible_if_L10 = rep(TRUE, NROW(data))
-temp_complete_cases_L10 = stats::complete.cases(data[, c('y_outcome','x_numeric'), drop=FALSE])
-stata_e_sample_L10 = as.integer(temp_eligible_if_L10 & temp_complete_cases_L10)
-rm(temp_eligible_if_L10, temp_complete_cases_L10)
-stata_e_L10_N = sum(stata_e_sample_L10)
-data_lm_L10 = collapse::fsubset(data, stata_e_sample_L10 == 1)
-lm_res_L10 = stats::lm(`y_outcome` ~ `x_numeric`, data = data_lm_L10)
-stata_e_L10_df_r = lm_res_L10$df.residual
-rm(data_lm_L10, lm_res_L10)
-# Regression model for e() results: `y_outcome` ~ `x_numeric` 
-temp_eligible_if_L10 = rep(TRUE, NROW(data))
+ 10 do:  gen group_clean = strtrim(stritrim(lower(group_orig)))
+ 10 r:  data = data %>% 
+  dplyr::mutate(`group_clean` = as.character(stringi::`stri_trim_right`(sfun_stritrim(stringi::`stri_trans_tolower`(`group_orig`))))) 
+data = data %>% 
+  dplyr::mutate(`group_clean` = as.character(stringi::`stri_trim_right`(sfun_stritrim(stringi::`stri_trans_tolower`(`group_orig`)))))
 
-temp_complete_cases_L10 = stats::complete.cases(data[, c('y_outcome','x_numeric'), drop=FALSE])
-
-stata_e_sample_L10 = as.integer(temp_eligible_if_L10 & temp_complete_cases_L10)
-
-rm(temp_eligible_if_L10, temp_complete_cases_L10)
-
-stata_e_L10_N = sum(stata_e_sample_L10)
-
-data_lm_L10 = collapse::fsubset(data, stata_e_sample_L10 == 1)
-
-lm_res_L10 = stats::lm(`y_outcome` ~ `x_numeric`, data = data_lm_L10)
-
-stata_e_L10_df_r = lm_res_L10$df.residual
-
-rm(data_lm_L10, lm_res_L10)
-
-# Regression model for e() results: `y_outcome` ~ `x_numeric`
-
- 11 do:  gen _temp_eN_reg1 = e(N)
+ 11 do:  replace group_clean = "unknown" if missing(group_clean)
  11 r:  data = data %>% 
-  dplyr::mutate(`_temp_eN_reg1` = as.numeric(stata_e_L10_N)) 
+  dplyr::mutate(`group_clean` = dplyr::if_else((dplyr::coalesce(as.numeric(sfun_missing(`group_clean`)), 0) != 0), as.character("unknown"), data$`group_clean`)) 
 data = data %>% 
-  dplyr::mutate(`_temp_eN_reg1` = as.numeric(stata_e_L10_N))
+  dplyr::mutate(`group_clean` = dplyr::if_else((dplyr::coalesce(as.numeric(sfun_missing(`group_clean`)), 0) != 0), as.character("unknown"), data$`group_clean`))
 
- 12 do:  gen obs_from_reg1 = _temp_eN_reg1
+ 12 do:  gen group_abbr = substr(group_clean, 1, 3) if group_clean != "unknown"
  12 r:  data = data %>% 
-  dplyr::mutate(`obs_from_reg1` = as.numeric(`_temp_eN_reg1`)) 
+  dplyr::mutate(`group_abbr` = dplyr::if_else((dplyr::coalesce(as.numeric(`group_clean` != "unknown"), 0) != 0), as.character(stringi::`stri_sub`(`group_clean`, `from` =  1, length =  3)), "")) 
 data = data %>% 
-  dplyr::mutate(`obs_from_reg1` = as.numeric(`_temp_eN_reg1`))
+  dplyr::mutate(`group_abbr` = dplyr::if_else((dplyr::coalesce(as.numeric(`group_clean` != "unknown"), 0) != 0), as.character(stringi::`stri_sub`(`group_clean`, `from` =  1, length =  3)), ""))
 
- 13 do:  bysort id: replace obs_from_reg1 = cond(_n == 1, obs_from_reg1, .)
+ 13 do:  gen contact_info = group_clean + ":" + num_str
  13 r:  data = data %>% 
-  dplyr::group_by(!!!dplyr::syms(c("id"))) %>% 
-  dplyr::mutate(`obs_from_reg1` = as.numeric(sfun_stata_cond(dplyr::row_number() == 1,  `obs_from_reg1`,  NA_real_))) %>% 
-  dplyr::ungroup() 
+  dplyr::mutate(`contact_info` = as.character(sfun_stata_add(sfun_stata_add(`group_clean`, ":") , `num_str`))) 
 data = data %>% 
-  dplyr::group_by(!!!dplyr::syms(c("id"))) %>% 
-  dplyr::mutate(`obs_from_reg1` = as.numeric(sfun_stata_cond(dplyr::row_number() == 1,  `obs_from_reg1`,  NA_real_))) %>% 
-  dplyr::ungroup()
+  dplyr::mutate(`contact_info` = as.character(sfun_stata_add(sfun_stata_add(`group_clean`, ":") , `num_str`)))
 
- 14 do:  gen _temp_df_r_reg1 = e(df_r)
+ 14 do:  gen str_len_group = strlen(group_clean)
  14 r:  data = data %>% 
-  dplyr::mutate(`_temp_df_r_reg1` = as.numeric(stata_e_L10_df_r)) 
+  dplyr::mutate(`str_len_group` = as.numeric(stringi::`stri_length`(`group_clean`))) 
 data = data %>% 
-  dplyr::mutate(`_temp_df_r_reg1` = as.numeric(stata_e_L10_df_r))
+  dplyr::mutate(`str_len_group` = as.numeric(stringi::`stri_length`(`group_clean`)))
 
- 15 do:  gen df_resid_from_reg1 = _temp_df_r_reg1
+ 15 do:  replace contact_info = subinstr(contact_info, "beta", "delta", 1) if strpos(contact_info, "beta") > 0
  15 r:  data = data %>% 
-  dplyr::mutate(`df_resid_from_reg1` = as.numeric(`_temp_df_r_reg1`)) 
+  dplyr::mutate(`contact_info` = dplyr::if_else((dplyr::coalesce(as.numeric(sfun_strpos(`contact_info`,  "beta") > 0), 0) != 0), as.character(sfun_subinstr(`contact_info`,  "beta",  "delta",  1)), data$`contact_info`)) 
 data = data %>% 
-  dplyr::mutate(`df_resid_from_reg1` = as.numeric(`_temp_df_r_reg1`))
+  dplyr::mutate(`contact_info` = dplyr::if_else((dplyr::coalesce(as.numeric(sfun_strpos(`contact_info`,  "beta") > 0), 0) != 0), as.character(sfun_subinstr(`contact_info`,  "beta",  "delta",  1)), data$`contact_info`))
 
- 16 do:  bysort id: replace df_resid_from_reg1 = cond(_n == 1, df_resid_from_reg1, .)
+ 16 do:  egen mean_overall_value1 = mean(value1)
  16 r:  data = data %>% 
-  dplyr::group_by(!!!dplyr::syms(c("id"))) %>% 
-  dplyr::mutate(`df_resid_from_reg1` = as.numeric(sfun_stata_cond(dplyr::row_number() == 1,  `df_resid_from_reg1`,  NA_real_))) %>% 
+  dplyr::mutate(`mean_overall_value1` = mean(`value1`, na.rm = TRUE)) 
+data = data %>% 
+  dplyr::mutate(`mean_overall_value1` = mean(`value1`, na.rm = TRUE))
+
+ 17 do:  egen sd_overall_value1 = sd(value1)
+ 17 r:  data = data %>% 
+  dplyr::mutate(`sd_overall_value1` = stats::sd(`value1`, na.rm = TRUE)) 
+data = data %>% 
+  dplyr::mutate(`sd_overall_value1` = stats::sd(`value1`, na.rm = TRUE))
+
+ 18 do:  egen total_value2_by_group = total(value2), by(group_clean)
+ 18 r:  data = data %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`total_value2_by_group` = sum(`value2`, na.rm = TRUE)) %>% 
   dplyr::ungroup() 
 data = data %>% 
-  dplyr::group_by(!!!dplyr::syms(c("id"))) %>% 
-  dplyr::mutate(`df_resid_from_reg1` = as.numeric(sfun_stata_cond(dplyr::row_number() == 1,  `df_resid_from_reg1`,  NA_real_))) %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`total_value2_by_group` = sum(`value2`, na.rm = TRUE)) %>% 
   dplyr::ungroup()
 
- 17 do:  gen in_estimation_sample1 = e(sample)
- 17 r:  data = data %>% 
-  dplyr::mutate(`in_estimation_sample1` = as.numeric(stata_e_sample_L10)) 
-data = data %>% 
-  dplyr::mutate(`in_estimation_sample1` = as.numeric(stata_e_sample_L10))
-
- 18 do:  assert in_estimation_sample1 == 1 | in_estimation_sample1 == 0 | missing(in_estimation_sample1) 
-
- 18 r:  not translated since not flagged as data manipulation
-
- 19 do:  gen y_mod_by_esample1 = y_outcome
+ 19 do:  egen median_value1_by_group = median(value1), by(group_clean)
  19 r:  data = data %>% 
-  dplyr::mutate(`y_mod_by_esample1` = as.numeric(`y_outcome`)) 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`median_value1_by_group` = stats::median(`value1`, na.rm = TRUE)) %>% 
+  dplyr::ungroup() 
 data = data %>% 
-  dplyr::mutate(`y_mod_by_esample1` = as.numeric(`y_outcome`))
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`median_value1_by_group` = stats::median(`value1`, na.rm = TRUE)) %>% 
+  dplyr::ungroup()
 
- 20 do:  gen _cond_ymod1 = (in_estimation_sample1 == 1 & group_cat == 2)
+ 20 do:  egen group_numeric_id = group(group_clean)
  20 r:  data = data %>% 
-  dplyr::mutate(`_cond_ymod1` = as.numeric((`in_estimation_sample1` == 1 & `group_cat` == 2))) 
+  dplyr::arrange(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`group_numeric_id` = dplyr::cur_group_id()) %>% 
+  dplyr::ungroup() %>% 
+  dplyr::arrange(stata2r_original_order_idx) 
 data = data %>% 
-  dplyr::mutate(`_cond_ymod1` = as.numeric((`in_estimation_sample1` == 1 & `group_cat` == 2)))
+  dplyr::arrange(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`group_numeric_id` = dplyr::cur_group_id()) %>% 
+  dplyr::ungroup() %>% 
+  dplyr::arrange(stata2r_original_order_idx)
 
- 21 do:  gen _new_val_ymod1 = y_outcome * 1.1
+ 21 do:  egen tag_first_in_group = tag(group_clean)
  21 r:  data = data %>% 
-  dplyr::mutate(`_new_val_ymod1` = as.numeric(`y_outcome` * 1.1)) 
+  dplyr::arrange(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`tag_first_in_group` = as.numeric(dplyr::row_number() == 1)) %>% 
+  dplyr::ungroup() %>% 
+  dplyr::arrange(stata2r_original_order_idx) 
 data = data %>% 
-  dplyr::mutate(`_new_val_ymod1` = as.numeric(`y_outcome` * 1.1))
+  dplyr::arrange(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`tag_first_in_group` = as.numeric(dplyr::row_number() == 1)) %>% 
+  dplyr::ungroup() %>% 
+  dplyr::arrange(stata2r_original_order_idx)
 
- 22 do:  replace y_mod_by_esample1 = cond(_cond_ymod1, _new_val_ymod1, y_mod_by_esample1)
+ 22 do:  egen count_obs_in_group = count(id), by(group_clean)
  22 r:  data = data %>% 
-  dplyr::mutate(`y_mod_by_esample1` = as.numeric(sfun_stata_cond(`_cond_ymod1`,  `_new_val_ymod1`,  `y_mod_by_esample1`))) 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`count_obs_in_group` = sum(!is.na(`id`))) %>% 
+  dplyr::ungroup() 
 data = data %>% 
-  dplyr::mutate(`y_mod_by_esample1` = as.numeric(sfun_stata_cond(`_cond_ymod1`,  `_new_val_ymod1`,  `y_mod_by_esample1`)))
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`count_obs_in_group` = sum(!is.na(`id`))) %>% 
+  dplyr::ungroup()
 
- 23 do:  xi i.group_cat
- 23 r:  stata_tmp_xi_orig_num_L23_group_cat = haven::zap_labels(data[['group_cat']])
-stata_tmp_xi_unique_L23_group_cat = base::sort(base::unique(stata_tmp_xi_orig_num_L23_group_cat[!is.na(stata_tmp_xi_orig_num_L23_group_cat)]))
-if (length(stata_tmp_xi_unique_L23_group_cat) > 0) {
-  base_level_group_cat = stata_tmp_xi_unique_L23_group_cat[1]
-  levels_to_dummy_group_cat = setdiff(stata_tmp_xi_unique_L23_group_cat, base_level_group_cat)
-  # Dummies for group_cat
-  for (level in levels_to_dummy_group_cat) {
-    new_col_name = paste0("_I", get_xi_base_name("group_cat"), "_", level)
-    dummy_expr = dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L23_group_cat) & stata_tmp_xi_orig_num_L23_group_cat == level, 1L, dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L23_group_cat) & stata_tmp_xi_orig_num_L23_group_cat != level, 0L, NA_integer_))
-    data[[new_col_name]] = dummy_expr
-    attr(data[[new_col_name]], "label") = paste0("group_cat==", level)
-  }
-} # End if (length(temp_unique_values_var1) > 0)
-rm(stata_tmp_xi_orig_num_L23_group_cat, stata_tmp_xi_unique_L23_group_cat) 
-stata_tmp_xi_orig_num_L23_group_cat = haven::zap_labels(data[['group_cat']])
+ 23 do:  egen rank_value1_in_group = rank(value1), by(group_clean) fieldstrustmissings
+ 23 r:  data = data %>% 
+  dplyr::arrange(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`rank_value1_in_group` = as.numeric(base::rank(as.numeric(dplyr::if_else(is.na(`value1`), Inf, `value1`)), ties.method = 'average', na.last = 'keep'))) %>% 
+  dplyr::ungroup() %>% 
+  dplyr::arrange(stata2r_original_order_idx) 
+data = data %>% 
+  dplyr::arrange(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% 
+  dplyr::mutate(`rank_value1_in_group` = as.numeric(base::rank(as.numeric(dplyr::if_else(is.na(`value1`), Inf, `value1`)), ties.method = 'average', na.last = 'keep'))) %>% 
+  dplyr::ungroup() %>% 
+  dplyr::arrange(stata2r_original_order_idx)
 
-stata_tmp_xi_unique_L23_group_cat = base::sort(base::unique(stata_tmp_xi_orig_num_L23_group_cat[!is.na(stata_tmp_xi_orig_num_L23_group_cat)]))
+ 24 do:  egen row_total_v1_v2 = rowtotal(value1 value2)
+ 24 r:  data = data %>% 
+  dplyr::mutate(`row_total_v1_v2` = base::rowSums(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(c('value1','value2'))) %>% replace(is.na(.), 0), na.rm = FALSE)) 
+data = data %>% 
+  dplyr::mutate(`row_total_v1_v2` = base::rowSums(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(c('value1','value2'))) %>% replace(is.na(.), 0), na.rm = FALSE))
 
-if (length(stata_tmp_xi_unique_L23_group_cat) > 0) {
-  base_level_group_cat = stata_tmp_xi_unique_L23_group_cat[1]
-  levels_to_dummy_group_cat = setdiff(stata_tmp_xi_unique_L23_group_cat, base_level_group_cat)
-  # Dummies for group_cat
-  for (level in levels_to_dummy_group_cat) {
-    new_col_name = paste0("_I", get_xi_base_name("group_cat"), "_", level)
-    dummy_expr = dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L23_group_cat) & stata_tmp_xi_orig_num_L23_group_cat == level, 1L, dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L23_group_cat) & stata_tmp_xi_orig_num_L23_group_cat != level, 0L, NA_integer_))
-    data[[new_col_name]] = dummy_expr
-    attr(data[[new_col_name]], "label") = paste0("group_cat==", level)
-  }
-} # End if (length(temp_unique_values_var1) > 0)
-
-rm(stata_tmp_xi_orig_num_L23_group_cat, stata_tmp_xi_unique_L23_group_cat)
-
- 24 do:  summarize _Igroup_cat_2 _Igroup_cat_3 
-
- 24 r:  not translated since not flagged as data manipulation
-
- 25 do:  gen _cond_xw = (_Igroup_cat_2 == 1 & !missing(_Igroup_cat_2))
+ 25 do:  egen row_mean_v1_v2 = rowmean(value1 value2)
  25 r:  data = data %>% 
-  dplyr::mutate(`_cond_xw` = as.numeric((`_Igroup_cat_2` == 1 & !sfun_missing(`_Igroup_cat_2`)))) 
+  dplyr::mutate(`row_mean_v1_v2` = base::rowMeans(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(c('value1','value2'))), na.rm = TRUE)) 
 data = data %>% 
-  dplyr::mutate(`_cond_xw` = as.numeric((`_Igroup_cat_2` == 1 & !sfun_missing(`_Igroup_cat_2`))))
+  dplyr::mutate(`row_mean_v1_v2` = base::rowMeans(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(c('value1','value2'))), na.rm = TRUE))
 
- 26 do:  gen x_weighted_by_Igroup2 = cond(_cond_xw, x_numeric * _Igroup_cat_2, .)
+ 26 do:  egen concat_group_num = concat(group_clean num_str)
  26 r:  data = data %>% 
-  dplyr::mutate(`x_weighted_by_Igroup2` = as.numeric(sfun_stata_cond(`_cond_xw`,  `x_numeric` * `_Igroup_cat_2`,  NA_real_))) 
+  dplyr::mutate(`concat_group_num` = dplyr::if_else((is.na(data[['group_clean']]) & is.na(data[['num_str']])), NA_character_, stringi::stri_paste(dplyr::if_else(is.na(as.character(data[['group_clean']])), "", as.character(data[['group_clean']])), dplyr::if_else(is.na(as.character(data[['num_str']])), "", as.character(data[['num_str']])), sep = ''))) 
 data = data %>% 
-  dplyr::mutate(`x_weighted_by_Igroup2` = as.numeric(sfun_stata_cond(`_cond_xw`,  `x_numeric` * `_Igroup_cat_2`,  NA_real_)))
+  dplyr::mutate(`concat_group_num` = dplyr::if_else((is.na(data[['group_clean']]) & is.na(data[['num_str']])), NA_character_, stringi::stri_paste(dplyr::if_else(is.na(as.character(data[['group_clean']])), "", as.character(data[['group_clean']])), dplyr::if_else(is.na(as.character(data[['num_str']])), "", as.character(data[['num_str']])), sep = '')))
 
- 27 do:  drop _Igroup_cat*
- 27 r:  data = dplyr::select(data, -c(dplyr::matches('^_Igroup_cat.*$'))) 
-data = dplyr::select(data, -c(dplyr::matches('^_Igroup_cat.*$')))
+ 27 do:  summarize value2, meanonly
+ 27 r:  stata_r_val_L27_N = collapse::fN(data)
+stata_r_val_L27_mean = collapse::fmean(data[['value2']], na.rm = TRUE) 
+stata_r_val_L27_N = collapse::fN(data)
 
- 28 do:  xi i.another_factor
- 28 r:  stata_tmp_xi_orig_num_L28_another_factor = haven::zap_labels(data[['another_factor']])
-stata_tmp_xi_unique_L28_another_factor = base::sort(base::unique(stata_tmp_xi_orig_num_L28_another_factor[!is.na(stata_tmp_xi_orig_num_L28_another_factor)]))
-if (length(stata_tmp_xi_unique_L28_another_factor) > 0) {
-  base_level_another_factor = stata_tmp_xi_unique_L28_another_factor[1]
-  levels_to_dummy_another_factor = setdiff(stata_tmp_xi_unique_L28_another_factor, base_level_another_factor)
-  # Dummies for another_factor
-  for (level in levels_to_dummy_another_factor) {
-    new_col_name = paste0("_I", get_xi_base_name("another_factor"), "_", level)
-    dummy_expr = dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L28_another_factor) & stata_tmp_xi_orig_num_L28_another_factor == level, 1L, dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L28_another_factor) & stata_tmp_xi_orig_num_L28_another_factor != level, 0L, NA_integer_))
-    data[[new_col_name]] = dummy_expr
-    attr(data[[new_col_name]], "label") = paste0("another_factor==", level)
-  }
-} # End if (length(temp_unique_values_var1) > 0)
-rm(stata_tmp_xi_orig_num_L28_another_factor, stata_tmp_xi_unique_L28_another_factor) 
-stata_tmp_xi_orig_num_L28_another_factor = haven::zap_labels(data[['another_factor']])
+Error: 'fN' is not an exported object from 'namespace:collapse'
+stata_r_val_L27_mean = collapse::fmean(data[['value2']], na.rm = TRUE)
 
-stata_tmp_xi_unique_L28_another_factor = base::sort(base::unique(stata_tmp_xi_orig_num_L28_another_factor[!is.na(stata_tmp_xi_orig_num_L28_another_factor)]))
+Error executing R code for Stata line  27 :  stata_r_val_L27_N = collapse::fN(data)
 
-if (length(stata_tmp_xi_unique_L28_another_factor) > 0) {
-  base_level_another_factor = stata_tmp_xi_unique_L28_another_factor[1]
-  levels_to_dummy_another_factor = setdiff(stata_tmp_xi_unique_L28_another_factor, base_level_another_factor)
-  # Dummies for another_factor
-  for (level in levels_to_dummy_another_factor) {
-    new_col_name = paste0("_I", get_xi_base_name("another_factor"), "_", level)
-    dummy_expr = dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L28_another_factor) & stata_tmp_xi_orig_num_L28_another_factor == level, 1L, dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L28_another_factor) & stata_tmp_xi_orig_num_L28_another_factor != level, 0L, NA_integer_))
-    data[[new_col_name]] = dummy_expr
-    attr(data[[new_col_name]], "label") = paste0("another_factor==", level)
-  }
-} # End if (length(temp_unique_values_var1) > 0)
-
-rm(stata_tmp_xi_orig_num_L28_another_factor, stata_tmp_xi_unique_L28_another_factor)
-
- 29 do:  gen _interaction_another_f_2_xnum = _Ianother_f_2 * x_numeric
- 29 r:  data = data %>% 
-  dplyr::mutate(`_interaction_another_f_2_xnum` = as.numeric(`_Ianother_f_2` * `x_numeric`)) 
-data = data %>% 
-  dplyr::mutate(`_interaction_another_f_2_xnum` = as.numeric(`_Ianother_f_2` * `x_numeric`))
-
- 30 do:  gen _interaction_another_f_3_xnum = _Ianother_f_3 * x_numeric
- 30 r:  data = data %>% 
-  dplyr::mutate(`_interaction_another_f_3_xnum` = as.numeric(`_Ianother_f_3` * `x_numeric`)) 
-data = data %>% 
-  dplyr::mutate(`_interaction_another_f_3_xnum` = as.numeric(`_Ianother_f_3` * `x_numeric`))
-
- 31 do:  summarize _Ianother_f_2 _Ianother_f_3 _interaction_another_f_2_xnum _interaction_another_f_3_xnum 
-
- 31 r:  not translated since not flagged as data manipulation
-
- 32 do:  drop _Ianother_f* _interaction_another_f*
- 32 r:  data = dplyr::select(data, -c(dplyr::matches('^_Ianother_f.*$'), dplyr::matches('^_interaction_another_f.*$'))) 
-data = dplyr::select(data, -c(dplyr::matches('^_Ianother_f.*$'), dplyr::matches('^_interaction_another_f.*$')))
-
- 33 do:  xi i.region_cat*i.group_cat
- 33 r:  stata_tmp_xi_orig_num_L33_region_cat = haven::zap_labels(data[['region_cat']])
-stata_tmp_xi_unique_L33_region_cat = base::sort(base::unique(stata_tmp_xi_orig_num_L33_region_cat[!is.na(stata_tmp_xi_orig_num_L33_region_cat)]))
-if (length(stata_tmp_xi_unique_L33_region_cat) > 0) {
-  base_level_region_cat = stata_tmp_xi_unique_L33_region_cat[1]
-  levels_to_dummy_region_cat = setdiff(stata_tmp_xi_unique_L33_region_cat, base_level_region_cat)
-  # Dummies for region_cat
-  for (level in levels_to_dummy_region_cat) {
-    new_col_name = paste0("_I", get_xi_base_name("region_cat"), "_", level)
-    dummy_expr = dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L33_region_cat) & stata_tmp_xi_orig_num_L33_region_cat == level, 1L, dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L33_region_cat) & stata_tmp_xi_orig_num_L33_region_cat != level, 0L, NA_integer_))
-    data[[new_col_name]] = dummy_expr
-    attr(data[[new_col_name]], "label") = paste0("region_cat==", level)
-  }
-  stata_tmp_xi_orig_num_L33_group_cat = haven::zap_labels(data[['group_cat']])
-  stata_tmp_xi_unique_L33_group_cat = base::sort(base::unique(stata_tmp_xi_orig_num_L33_group_cat[!is.na(stata_tmp_xi_orig_num_L33_group_cat)]))
-  if (length(stata_tmp_xi_unique_L33_group_cat) > 0) {
-    base_level_group_cat = stata_tmp_xi_unique_L33_group_cat[1]
-    levels_to_dummy_group_cat = setdiff(stata_tmp_xi_unique_L33_group_cat, base_level_group_cat)
-  # Dummies for group_cat
-  for (level in levels_to_dummy_group_cat) {
-    new_col_name = paste0("_I", get_xi_base_name("group_cat"), "_", level)
-    dummy_expr = dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L33_group_cat) & stata_tmp_xi_orig_num_L33_group_cat == level, 1L, dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L33_group_cat) & stata_tmp_xi_orig_num_L33_group_cat != level, 0L, NA_integer_))
-    data[[new_col_name]] = dummy_expr
-    attr(data[[new_col_name]], "label") = paste0("group_cat==", level)
-  }
-    # Interaction effects for region_cat*group_cat
-    interaction_base = get_xi_interaction_basename("region_cat", "group_cat")
-    for (level1 in levels_to_dummy_region_cat) {
-      for (level2 in levels_to_dummy_group_cat) {
-        new_col_name = paste0("_I", interaction_base, "_", level1, "_", level2)
-        dummy_expr = dplyr::if_else(
-          !is.na(stata_tmp_xi_orig_num_L33_region_cat) & !is.na(stata_tmp_xi_orig_num_L33_group_cat) & stata_tmp_xi_orig_num_L33_region_cat == level1 & stata_tmp_xi_orig_num_L33_group_cat == level2, 1L,
-          dplyr::if_else(
-            !is.na(stata_tmp_xi_orig_num_L33_region_cat) & !is.na(stata_tmp_xi_orig_num_L33_group_cat) & (stata_tmp_xi_orig_num_L33_region_cat != level1 | stata_tmp_xi_orig_num_L33_group_cat != level2), 0L,
-            NA_integer_
-          )
-        )
-        data[[new_col_name]] = dummy_expr
-        attr(data[[new_col_name]], "label") = paste0("region_cat==", level1, " & ", "group_cat==", level2)
-      }
-    }
-  } # End if (length(temp_unique_values_var2) > 0)
-  rm(stata_tmp_xi_orig_num_L33_group_cat, stata_tmp_xi_unique_L33_group_cat)
-} # End if (length(temp_unique_values_var1) > 0)
-rm(stata_tmp_xi_orig_num_L33_region_cat, stata_tmp_xi_unique_L33_region_cat) 
-stata_tmp_xi_orig_num_L33_region_cat = haven::zap_labels(data[['region_cat']])
-
-stata_tmp_xi_unique_L33_region_cat = base::sort(base::unique(stata_tmp_xi_orig_num_L33_region_cat[!is.na(stata_tmp_xi_orig_num_L33_region_cat)]))
-
-if (length(stata_tmp_xi_unique_L33_region_cat) > 0) {
-  base_level_region_cat = stata_tmp_xi_unique_L33_region_cat[1]
-  levels_to_dummy_region_cat = setdiff(stata_tmp_xi_unique_L33_region_cat, base_level_region_cat)
-  # Dummies for region_cat
-  for (level in levels_to_dummy_region_cat) {
-    new_col_name = paste0("_I", get_xi_base_name("region_cat"), "_", level)
-    dummy_expr = dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L33_region_cat) & stata_tmp_xi_orig_num_L33_region_cat == level, 1L, dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L33_region_cat) & stata_tmp_xi_orig_num_L33_region_cat != level, 0L, NA_integer_))
-    data[[new_col_name]] = dummy_expr
-    attr(data[[new_col_name]], "label") = paste0("region_cat==", level)
-  }
-  stata_tmp_xi_orig_num_L33_group_cat = haven::zap_labels(data[['group_cat']])
-  stata_tmp_xi_unique_L33_group_cat = base::sort(base::unique(stata_tmp_xi_orig_num_L33_group_cat[!is.na(stata_tmp_xi_orig_num_L33_group_cat)]))
-  if (length(stata_tmp_xi_unique_L33_group_cat) > 0) {
-    base_level_group_cat = stata_tmp_xi_unique_L33_group_cat[1]
-    levels_to_dummy_group_cat = setdiff(stata_tmp_xi_unique_L33_group_cat, base_level_group_cat)
-  # Dummies for group_cat
-  for (level in levels_to_dummy_group_cat) {
-    new_col_name = paste0("_I", get_xi_base_name("group_cat"), "_", level)
-    dummy_expr = dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L33_group_cat) & stata_tmp_xi_orig_num_L33_group_cat == level, 1L, dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L33_group_cat) & stata_tmp_xi_orig_num_L33_group_cat != level, 0L, NA_integer_))
-    data[[new_col_name]] = dummy_expr
-    attr(data[[new_col_name]], "label") = paste0("group_cat==", level)
-  }
-    # Interaction effects for region_cat*group_cat
-    interaction_base = get_xi_interaction_basename("region_cat", "group_cat")
-    for (level1 in levels_to_dummy_region_cat) {
-      for (level2 in levels_to_dummy_group_cat) {
-        new_col_name = paste0("_I", interaction_base, "_", level1, "_", level2)
-        dummy_expr = dplyr::if_else(
-          !is.na(stata_tmp_xi_orig_num_L33_region_cat) & !is.na(stata_tmp_xi_orig_num_L33_group_cat) & stata_tmp_xi_orig_num_L33_region_cat == level1 & stata_tmp_xi_orig_num_L33_group_cat == level2, 1L,
-          dplyr::if_else(
-            !is.na(stata_tmp_xi_orig_num_L33_region_cat) & !is.na(stata_tmp_xi_orig_num_L33_group_cat) & (stata_tmp_xi_orig_num_L33_region_cat != level1 | stata_tmp_xi_orig_num_L33_group_cat != level2), 0L,
-            NA_integer_
-          )
-        )
-        data[[new_col_name]] = dummy_expr
-        attr(data[[new_col_name]], "label") = paste0("region_cat==", level1, " & ", "group_cat==", level2)
-      }
-    }
-  } # End if (length(temp_unique_values_var2) > 0)
-  rm(stata_tmp_xi_orig_num_L33_group_cat, stata_tmp_xi_unique_L33_group_cat)
-} # End if (length(temp_unique_values_var1) > 0)
-
-rm(stata_tmp_xi_orig_num_L33_region_cat, stata_tmp_xi_unique_L33_region_cat)
-
- 34 do:  summarize _IregXgro_2_2 _IregXgro_3_3 
-
- 34 r:  not translated since not flagged as data manipulation
-
- 35 do:  gen y_if_xi_interaction_specific = cond((_IregXgro_2_2 == 1), y_outcome * 100, .)
- 35 r:  data = data %>% 
-  dplyr::mutate(`y_if_xi_interaction_specific` = as.numeric(sfun_stata_cond((`_IregXgro_2_2` == 1),  `y_outcome` * 100,  NA_real_))) 
-data = data %>% 
-  dplyr::mutate(`y_if_xi_interaction_specific` = as.numeric(sfun_stata_cond((`_IregXgro_2_2` == 1),  `y_outcome` * 100,  NA_real_)))
-
-Error: After Stata line  35 , R data set differs from Stata reference.
-
-Data set from Stata (do_df):
-tibble [250 × 30] (S3: tbl_df/tbl/data.frame)
- $ id                          : num [1:250] 1 1 1 1 1 2 2 2 2 2 ...
-  ..- attr(*, "label")= chr "Individual ID"
-  ..- attr(*, "format.stata")= chr "%12.0g"
- $ time                        : num [1:250] 1 2 3 4 5 1 2 3 4 5 ...
-  ..- attr(*, "label")= chr "Time Period"
-  ..- attr(*, "format.stata")= chr "%12.0g"
- $ group_cat                   : dbl+lbl [1:250] 2, 3, 2, 2, 1, 3, 2, 2, 3, 2, 3, 2, 2, 1, 3, 2, 2, 1, ...
-   ..@ label       : chr "Treatment Group"
-   ..@ format.stata: chr "%12.0g"
-   ..@ labels      : Named num [1:3] 1 2 3
-   .. ..- attr(*, "names")= chr [1:3] "Control" "TreatA" "TreatB"
- $ region_cat                  : dbl+lbl [1:250] 3, 2, 1, 3, 1, 1, 2, 2, 3, 4, 2, 2, 1, 1, 3, 1, 2, 3, ...
-   ..@ label       : chr "Geographic Region"
-   ..@ format.stata: chr "%12.0g"
-   ..@ labels      : Named num [1:4] 1 2 3 4
-   .. ..- attr(*, "names")= chr [1:4] "a" "b" "c" "d"
- $ x_numeric                   : num [1:250] 100 8.04 10.37 5.7 8.75 ...
-  ..- attr(*, "label")= chr "Continuous Covariate X"
-  ..- attr(*, "format.stata")= chr "%10.0g"
- $ another_factor              : dbl+lbl [1:250]  3,  2,  2,  1,  1,  3,  1,  1,  3,  3,  2, NA,  1,  2...
-   ..@ label       : chr "Another Factor for xi"
-   ..@ format.stata: chr "%12.0g"
-   ..@ labels      : Named num [1:3] 1 2 3
-   .. ..- attr(*, "names")= chr [1:3] "X1" "X2" "X3"
- $ baseline_char               : chr [1:250] "Low" "High" "High" "High" ...
-  ..- attr(*, "label")= chr "Baseline Characteristic"
-  ..- attr(*, "format.stata")= chr "%-9s"
- $ y_outcome                   : num [1:250] 9.66 7.3 8.67 8.33 5.85 ...
-  ..- attr(*, "label")= chr "Outcome Variable Y"
-  ..- attr(*, "format.stata")= chr "%10.0g"
- $ _temp_eN_reg1               : num [1:250] 242 242 242 242 242 242 242 242 242 242 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ obs_from_reg1               : num [1:250] 242 NA NA NA NA 242 NA NA NA NA ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ _temp_df_r_reg1             : num [1:250] 240 240 240 240 240 240 240 240 240 240 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ df_resid_from_reg1          : num [1:250] 240 NA NA NA NA 240 NA NA NA NA ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ in_estimation_sample1       : num [1:250] 1 1 1 1 1 1 1 1 1 1 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ y_mod_by_esample1           : num [1:250] 10.63 7.3 9.54 9.17 5.85 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ _cond_ymod1                 : num [1:250] 1 0 1 1 0 0 1 1 0 1 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ _new_val_ymod1              : num [1:250] 10.63 8.03 9.54 9.17 6.43 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ _cond_xw                    : num [1:250] 1 0 1 1 0 0 1 1 0 1 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ x_weighted_by_Igroup2       : num [1:250] 100 NA 10.4 5.7 NA ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ _Iregion_ca_2               : num [1:250] 0 1 0 0 0 0 1 1 0 0 ...
-  ..- attr(*, "label")= chr "region_cat==2"
-  ..- attr(*, "format.stata")= chr "%8.0g"
- $ _Iregion_ca_3               : num [1:250] 1 0 0 1 0 0 0 0 1 0 ...
-  ..- attr(*, "label")= chr "region_cat==3"
-  ..- attr(*, "format.stata")= chr "%8.0g"
- $ _Iregion_ca_4               : num [1:250] 0 0 0 0 0 0 0 0 0 1 ...
-  ..- attr(*, "label")= chr "region_cat==4"
-  ..- attr(*, "format.stata")= chr "%8.0g"
- $ _Igroup_cat_2               : num [1:250] 1 0 1 1 0 0 1 1 0 1 ...
-  ..- attr(*, "label")= chr "group_cat==2"
-  ..- attr(*, "format.stata")= chr "%8.0g"
- $ _Igroup_cat_3               : num [1:250] 0 1 0 0 0 1 0 0 1 0 ...
-  ..- attr(*, "label")= chr "group_cat==3"
-  ..- attr(*, "format.stata")= chr "%8.0g"
- $ _IregXgro_2_2               : num [1:250] 0 0 0 0 0 0 1 1 0 0 ...
-  ..- attr(*, "label")= chr "region_cat==2 & group_cat==2"
-  ..- attr(*, "format.stata")= chr "%8.0g"
- $ _IregXgro_2_3               : num [1:250] 0 1 0 0 0 0 0 0 0 0 ...
-  ..- attr(*, "label")= chr "region_cat==2 & group_cat==3"
-  ..- attr(*, "format.stata")= chr "%8.0g"
- $ _IregXgro_3_2               : num [1:250] 1 0 0 1 0 0 0 0 0 0 ...
-  ..- attr(*, "label")= chr "region_cat==3 & group_cat==2"
-  ..- attr(*, "format.stata")= chr "%8.0g"
- $ _IregXgro_3_3               : num [1:250] 0 0 0 0 0 0 0 0 1 0 ...
-  ..- attr(*, "label")= chr "region_cat==3 & group_cat==3"
-  ..- attr(*, "format.stata")= chr "%8.0g"
- $ _IregXgro_4_2               : num [1:250] 0 0 0 0 0 0 0 0 0 1 ...
-  ..- attr(*, "label")= chr "region_cat==4 & group_cat==2"
-  ..- attr(*, "format.stata")= chr "%8.0g"
- $ _IregXgro_4_3               : num [1:250] 0 0 0 0 0 0 0 0 0 0 ...
-  ..- attr(*, "label")= chr "region_cat==4 & group_cat==3"
-  ..- attr(*, "format.stata")= chr "%8.0g"
- $ y_if_xi_interaction_specific: num [1:250] NA NA NA NA NA ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
-NULL
-
-Data set from R (r_df):
-tibble [250 × 31] (S3: tbl_df/tbl/data.frame)
- $ id                          : num [1:250] 1 1 1 1 1 2 2 2 2 2 ...
-  ..- attr(*, "label")= chr "Individual ID"
- $ time                        : num [1:250] 1 2 3 4 5 1 2 3 4 5 ...
-  ..- attr(*, "label")= chr "Time Period"
- $ group_cat                   : num [1:250] 2 3 2 2 1 3 2 2 3 2 ...
-  ..- attr(*, "label")= chr "Treatment Group"
- $ region_cat                  : num [1:250] 3 2 1 3 1 1 2 2 3 4 ...
-  ..- attr(*, "label")= chr "Geographic Region"
- $ x_numeric                   : num [1:250] 100 8.04 10.37 5.7 8.75 ...
-  ..- attr(*, "label")= chr "Continuous Covariate X"
- $ another_factor              : num [1:250] 3 2 2 1 1 3 1 1 3 3 ...
-  ..- attr(*, "label")= chr "Another Factor for xi"
- $ baseline_char               : chr [1:250] "Low" "High" "High" "High" ...
-  ..- attr(*, "label")= chr "Baseline Characteristic"
- $ y_outcome                   : num [1:250] 9.66 7.3 8.67 8.33 5.85 ...
-  ..- attr(*, "label")= chr "Outcome Variable Y"
- $ stata2r_original_order_idx  : int [1:250] 1 2 3 4 5 6 7 8 9 10 ...
- $ _temp_eN_reg1               : num [1:250] 242 242 242 242 242 242 242 242 242 242 ...
- $ obs_from_reg1               : num [1:250] 242 NA NA NA NA 242 NA NA NA NA ...
- $ _temp_df_r_reg1             : num [1:250] 240 240 240 240 240 240 240 240 240 240 ...
- $ df_resid_from_reg1          : num [1:250] 240 NA NA NA NA 240 NA NA NA NA ...
- $ in_estimation_sample1       : num [1:250] 1 1 1 1 1 1 1 1 1 1 ...
- $ y_mod_by_esample1           : num [1:250] 10.63 7.3 9.54 9.17 5.85 ...
- $ _cond_ymod1                 : num [1:250] 1 0 1 1 0 0 1 1 0 1 ...
- $ _new_val_ymod1              : num [1:250] 10.63 8.03 9.54 9.17 6.43 ...
- $ _cond_xw                    : num [1:250] 1 0 1 1 0 0 1 1 0 1 ...
- $ x_weighted_by_Igroup2       : num [1:250] 100 NA 10.4 5.7 NA ...
- $ _Iregion_ca_2               : int [1:250] 0 1 0 0 0 0 1 1 0 0 ...
-  ..- attr(*, "label")= chr "region_cat==2"
- $ _Iregion_ca_3               : int [1:250] 1 0 0 1 0 0 0 0 1 0 ...
-  ..- attr(*, "label")= chr "region_cat==3"
- $ _Iregion_ca_4               : int [1:250] 0 0 0 0 0 0 0 0 0 1 ...
-  ..- attr(*, "label")= chr "region_cat==4"
- $ _Igroup_cat_2               : int [1:250] 1 0 1 1 0 0 1 1 0 1 ...
-  ..- attr(*, "label")= chr "group_cat==2"
- $ _Igroup_cat_3               : int [1:250] 0 1 0 0 0 1 0 0 1 0 ...
-  ..- attr(*, "label")= chr "group_cat==3"
- $ _IregXgro_2_2               : int [1:250] 0 0 0 0 0 0 1 1 0 0 ...
-  ..- attr(*, "label")= chr "region_cat==2 & group_cat==2"
- $ _IregXgro_2_3               : int [1:250] 0 1 0 0 0 0 0 0 0 0 ...
-  ..- attr(*, "label")= chr "region_cat==2 & group_cat==3"
- $ _IregXgro_3_2               : int [1:250] 1 0 0 1 0 0 0 0 0 0 ...
-  ..- attr(*, "label")= chr "region_cat==3 & group_cat==2"
- $ _IregXgro_3_3               : int [1:250] 0 0 0 0 0 0 0 0 1 0 ...
-  ..- attr(*, "label")= chr "region_cat==3 & group_cat==3"
- $ _IregXgro_4_2               : int [1:250] 0 0 0 0 0 0 0 0 0 1 ...
-  ..- attr(*, "label")= chr "region_cat==4 & group_cat==2"
- $ _IregXgro_4_3               : int [1:250] 0 0 0 0 0 0 0 0 0 0 ...
-  ..- attr(*, "label")= chr "region_cat==4 & group_cat==3"
- $ y_if_xi_interaction_specific: num [1:250] NA NA NA NA NA ...
-NULL
-
-Differences:List of 2
- $ identical     : logi FALSE
- $ value_mismatch:'data.frame':	5 obs. of  4 variables:
-  ..$ row      : int [1:5] 41 56 79 88 103
-  ..$ column   : chr [1:5] "y_if_xi_interaction_specific" "y_if_xi_interaction_specific" "y_if_xi_interaction_specific" "y_if_xi_interaction_specific" ...
-  ..$ df1_value: chr [1:5] "751.267211914062" "559.612548828125" "756.839477539062" "720.682922363281" ...
-  ..$ df2_value: chr [1:5] "751.267195820683" "559.612530070746" "756.839495066205" "720.682906182606" ...
-NULL
+Error: 'fN' is not an exported object from 'namespace:collapse'
+stata_r_val_L27_mean = collapse::fmean(data[['value2']], na.rm = TRUE)
+ 

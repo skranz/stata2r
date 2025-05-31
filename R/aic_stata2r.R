@@ -136,7 +136,7 @@ aic_test_stata2r = function(aic) {
 
   tests_dir = file.path(aic$repo_dir,"aicoder_work", "tests")
 
-  tests = c("do1","do3", "do4")
+  tests = c("do1","do2", "do3", "do4")
 
   test = "do3"
   for (test in tests) {
