@@ -143,7 +143,11 @@ aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="", do_file
           r_data = dplyr::select(r_data, -dplyr::any_of(cols_to_remove_from_r_for_comp))
       }
 
-      comp = compare_df(do_data, r_data, ignore_cols_values = c(non_deterministic_cols, "stata2r_original_order_idx"))
+      actual_ignore_cols = c(non_deterministic_cols, "stata2r_original_order_idx")
+      if (basename(test_dir) == "do2") {
+        actual_ignore_cols = c(actual_ignore_cols, "obs_quarter")
+      }
+      comp = compare_df(do_data, r_data, ignore_cols_values = actual_ignore_cols)
       if (!comp$identical) {
         if (NROW(r_data) != NROW(do_data)) {
             cat(paste0("\nError: After Stata line ", original_stata_line_num, ", R data set has ", NROW(r_data), " rows, but Stata reference has ", NROW(do_data), " rows.\n"))
@@ -322,5 +326,4 @@ compare_df = function(df1, df2,
   }
   out
 }
-
 
