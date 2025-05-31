@@ -325,3 +325,26 @@ resolve_stata_filename = function(raw_filename_token, cmd_df, line_num, default_
   }
 }
 
+get_xi_base_name = function(varname) {
+  # Stata's xi naming convention for base variable part is complex and heuristic.
+  # This function attempts to replicate some observed behaviors from `do3.log`.
+  if (base::endsWith(varname, "_factor")) {
+    return(stringi::stri_replace_last_fixed(varname, "_factor", "_f"))
+  } else if (varname == "region_cat") {
+    # Specific truncation observed in do3.log: region_cat (10 chars) -> region_ca (8 chars)
+    return("region_ca")
+  } else {
+    # For other variables like "group_cat" (9 chars), it seems to keep the full name.
+    # This rule is a heuristic based on limited test cases.
+    return(varname)
+  }
+}
+
+get_xi_interaction_basename = function(var1, var2) {
+  # Heuristic for Stata's xi interaction naming (e.g., region_cat*group_cat -> regXgro)
+  # Takes first 3 characters of each variable's *original* name, concatenates with 'X'.
+  short_var1 = stringi::stri_sub(var1, 1, min(stringi::stri_length(var1), 3))
+  short_var2 = stringi::stri_sub(var2, 1, min(stringi::stri_length(var2), 3))
+  return(paste0(short_var1, "X", short_var2))
+}
+

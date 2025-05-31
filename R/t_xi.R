@@ -1,89 +1,97 @@
 # Translate Stata 'xi' command
 # Stata: xi i.varname
-# Creates indicator (dummy) variables for a categorical variable.
+# Stata: xi i.varname1*i.varname2
+# Creates indicator (dummy) variables for categorical variables and their interactions.
 # By default, it drops the first category as a base.
 
 t_xi = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   restore.point("t_xi")
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
-  # For now, focus on the common 'i.varname' syntax for indicator variables.
-  # Other `xi` syntax (e.g., `c.varname`, `xi: regress`) are out of scope for this specific fix.
-  xi_match = stringi::stri_match_first_regex(rest_of_cmd_trimmed, "^i\\.([a-zA-Z_][a-zA-Z0-9_]*)(?:\\s+(.*))?$")
+  # Regex to capture: i.var1 or i.var1*i.var2
+  # G1: var1, G2: var2 (if interaction), G3: remaining options (not used here)
+  xi_match = stringi::stri_match_first_regex(rest_of_cmd_trimmed, "^i\\.([a-zA-Z_][a-zA-Z0-9_]*)(?:\\s*\\*\\s*i\\.([a-zA-Z_][a-zA-Z0-9_]*))?(?:\\s+(.*))?$")
 
   if (is.na(xi_match[1,1])) {
-    return(paste0("# xi command: Unsupported syntax or variable type for: ", rest_of_cmd, ". Only 'i.varname' is currently supported."))
+    return(paste0("# xi command: Unsupported syntax or variable type for: ", rest_of_cmd, ". Only 'i.varname' and 'i.varname1*i.varname2' are currently supported."))
   }
 
-  var_to_expand = xi_match[1,2] # e.g., "group_cat"
-  # Ignore any remaining part for now (e.g., `if` conditions or other variables on the same line).
+  var1_name = xi_match[1,2]
+  var2_name = xi_match[1,3] # NA if no interaction
 
   r_code_lines = c()
 
-  # 1. Get unique non-missing *numeric values* of the variable to expand.
-  # Stata xi uses numeric values for dummy variable names, even if they have labels.
-  # Use haven::zap_labels to get the underlying numeric values.
-  temp_original_numeric_var = paste0("stata_tmp_xi_orig_num_L", line_num)
-  temp_unique_values_name = paste0("stata_tmp_xi_unique_L", line_num)
-
-  r_code_lines = c(r_code_lines,
-    paste0(temp_original_numeric_var, " = haven::zap_labels(data[['", var_to_expand, "']])"),
-    paste0(temp_unique_values_name, " = base::sort(base::unique(", temp_original_numeric_var, "[!is.na(", temp_original_numeric_var, ")]))")
-  )
-
-  # 2. Determine which levels to create dummy variables for.
-  # Stata's `xi i.varname` by default drops the first category alphabetically.
-  r_code_lines = c(r_code_lines,
-    paste0("if (length(", temp_unique_values_name, ") > 0) {")
-  )
-  r_code_lines = c(r_code_lines,
-    paste0("  base_level = ", temp_unique_values_name, "[1]"),
-    paste0("  levels_to_dummy = setdiff(", temp_unique_values_name, ", base_level)")
-  )
-
-  # Create a list of mutate expressions
-  loop_code_lines = c()
-  
-  # Determine the base name for the dummy variable, matching Stata's truncation logic.
-  # Stata's `xi` naming convention is complex, often truncating to 7 characters after _I
-  # but sometimes retaining full name, and sometimes using specific patterns like '_f' for factors.
-  # Based on observed behavior in do3.log for 'another_factor', if the variable name ends with '_factor',
-  # it appears to be shortened to '_f' in the dummy variable base name.
-  var_name_for_dummy = var_to_expand
-  if (base::endsWith(var_to_expand, "_factor")) { # Changed stringi::stri_ends_with to base::endsWith
-      var_name_for_dummy = stringi::stri_replace_last_fixed(var_to_expand, "_factor", "_f")
+  # Helper to generate dummy variables for a single variable, excluding base level
+  generate_dummies_for_var = function(varname, original_numeric_var_expr, unique_values_var_expr, base_level_var_expr, levels_to_dummy_var_expr) {
+    var_lines = c()
+    var_lines = c(var_lines, paste0("  # Dummies for ", varname))
+    var_lines = c(var_lines, paste0("  for (level in ", levels_to_dummy_var_expr, ") {"))
+    var_lines = c(var_lines, paste0("    new_col_name = paste0(\"_I\", get_xi_base_name(\"", varname, "\"), \"_\", level)"))
+    var_lines = c(var_lines, paste0("    dummy_expr = dplyr::if_else(!is.na(", original_numeric_var_expr, ") & ", original_numeric_var_expr, " == level, 1L, dplyr::if_else(!is.na(", original_numeric_var_expr, ") & ", original_numeric_var_expr, " != level, 0L, NA_integer_))"))
+    var_lines = c(var_lines, paste0("    data[[new_col_name]] = dummy_expr"))
+    var_lines = c(var_lines, paste0("    attr(data[[new_col_name]], \"label\") = paste0(\"", varname, "==\", level)"))
+    var_lines = c(var_lines, paste0("  }"))
+    return(var_lines)
   }
-  # Further general truncation rules (e.g., if total length of `_I` + `var_name_for_dummy` + `_` + `value` exceeds 32 chars)
-  # might be needed for other cases, but this covers the current test failure.
 
-  # Loop over levels_to_dummy to create dummy variables
-  loop_code_lines = c(loop_code_lines, paste0("for (level in levels_to_dummy) {"))
+  # --- Process var1 ---
+  temp_orig_num_var1 = paste0("stata_tmp_xi_orig_num_L", line_num, "_", var1_name)
+  temp_unique_values_var1 = paste0("stata_tmp_xi_unique_L", line_num, "_", var1_name)
   
-  # Construct the new column name, e.g., _Igroup_cat_2 (using numeric value)
-  loop_code_lines = c(loop_code_lines, paste0("  new_col_name = paste0(\"_I\", '", var_name_for_dummy, "', \"_\", level)"))
-
-  # Construct the dummy variable logic:
-  # 1 if `var_to_expand` == `level` (numeric comparison)
-  # 0 if `var_to_expand` != `level` AND `var_to_expand` is not missing
-  # NA if `var_to_expand` is missing
-  # Stata's `xi` implies that if `var_to_expand` is missing, the dummy is missing.
-  loop_code_lines = c(loop_code_lines, paste0("  dummy_expr = dplyr::if_else(!is.na(", temp_original_numeric_var, ") & ", temp_original_numeric_var, " == level, 1L, dplyr::if_else(!is.na(", temp_original_numeric_var, ") & ", temp_original_numeric_var, " != level, 0L, NA_integer_))"))
+  r_code_lines = c(r_code_lines,
+    paste0(temp_orig_num_var1, " = haven::zap_labels(data[['", var1_name, "']])"),
+    paste0(temp_unique_values_var1, " = base::sort(base::unique(", temp_orig_num_var1, "[!is.na(", temp_orig_num_var1, ")]))")
+  )
   
-  # Assign the new column using data[[new_col_name]] = dummy_expr
-  loop_code_lines = c(loop_code_lines, paste0("  data[[new_col_name]] = dummy_expr"))
+  r_code_lines = c(r_code_lines, paste0("if (length(", temp_unique_values_var1, ") > 0) {"))
+  r_code_lines = c(r_code_lines, paste0("  base_level_", var1_name, " = ", temp_unique_values_var1, "[1]"))
+  r_code_lines = c(r_code_lines, paste0("  levels_to_dummy_", var1_name, " = setdiff(", temp_unique_values_var1, ", base_level_", var1_name, ")"))
 
-  # Set variable labels for the new columns.
-  # Stata labels `_Ivarname_value` as `varname==value` (e.g., `group_cat==2`).
-  loop_code_lines = c(loop_code_lines, paste0("  attr(data[[new_col_name]], \"label\") = paste0(\"", var_to_expand, "==\", level)"))
-  loop_code_lines = c(loop_code_lines, paste0("} # End for (level in levels_to_dummy)"))
+  # Generate main effect dummies for var1
+  r_code_lines = c(r_code_lines, generate_dummies_for_var(var1_name, temp_orig_num_var1, temp_unique_values_var1, paste0("base_level_", var1_name), paste0("levels_to_dummy_", var1_name)))
+
+  # --- Process var2 if interaction exists ---
+  if (!is.na(var2_name)) {
+    temp_orig_num_var2 = paste0("stata_tmp_xi_orig_num_L", line_num, "_", var2_name)
+    temp_unique_values_var2 = paste0("stata_tmp_xi_unique_L", line_num, "_", var2_name)
+
+    r_code_lines = c(r_code_lines,
+      paste0("  ", temp_orig_num_var2, " = haven::zap_labels(data[['", var2_name, "']])"),
+      paste0("  ", temp_unique_values_var2, " = base::sort(base::unique(", temp_orig_num_var2, "[!is.na(", temp_orig_num_var2, ")]))")
+    )
+
+    r_code_lines = c(r_code_lines, paste0("  if (length(", temp_unique_values_var2, ") > 0) {"))
+    r_code_lines = c(r_code_lines, paste0("    base_level_", var2_name, " = ", temp_unique_values_var2, "[1]"))
+    r_code_lines = c(r_code_lines, paste0("    levels_to_dummy_", var2_name, " = setdiff(", temp_unique_values_var2, ", base_level_", var2_name, ")"))
+
+    # Generate main effect dummies for var2
+    r_code_lines = c(r_code_lines, generate_dummies_for_var(var2_name, temp_orig_num_var2, temp_unique_values_var2, paste0("base_level_", var2_name), paste0("levels_to_dummy_", var2_name)))
+
+    # Generate interaction dummies
+    r_code_lines = c(r_code_lines, paste0("    # Interaction effects for ", var1_name, "*", var2_name))
+    r_code_lines = c(r_code_lines, paste0("    interaction_base = get_xi_interaction_basename(\"", var1_name, "\", \"", var2_name, "\")"))
+    r_code_lines = c(r_code_lines, paste0("    for (level1 in levels_to_dummy_", var1_name, ") {"))
+    r_code_lines = c(r_code_lines, paste0("      for (level2 in levels_to_dummy_", var2_name, ") {"))
+    r_code_lines = c(r_code_lines, paste0("        new_col_name = paste0(\"_I\", interaction_base, \"_\", level1, \"_\", level2)"))
+    r_code_lines = c(r_code_lines, paste0("        dummy_expr = dplyr::if_else("))
+    r_code_lines = c(r_code_lines, paste0("          !is.na(", temp_orig_num_var1, ") & !is.na(", temp_orig_num_var2, ") & ", temp_orig_num_var1, " == level1 & ", temp_orig_num_var2, " == level2, 1L,"))
+    r_code_lines = c(r_code_lines, paste0("          dplyr::if_else("))
+    r_code_lines = c(r_code_lines, paste0("            !is.na(", temp_orig_num_var1, ") & !is.na(", temp_orig_num_var2, ") & (", temp_orig_num_var1, " != level1 | ", temp_orig_num_var2, " != level2), 0L,"))
+    r_code_lines = c(r_code_lines, paste0("            NA_integer_"))
+    r_code_lines = c(r_code_lines, paste0("          )"))
+    r_code_lines = c(r_code_lines, paste0("        )"))
+    r_code_lines = c(r_code_lines, paste0("        data[[new_col_name]] = dummy_expr"))
+    r_code_lines = c(r_code_lines, paste0("        attr(data[[new_col_name]], \"label\") = paste0(\"", var1_name, "==\", level1, \" & \", \"", var2_name, "==\", level2)"))
+    r_code_lines = c(r_code_lines, paste0("      }"))
+    r_code_lines = c(r_code_lines, paste0("    }"))
+    r_code_lines = c(r_code_lines, paste0("  } # End if (length(temp_unique_values_var2) > 0)"))
+    r_code_lines = c(r_code_lines, paste0("  rm(", temp_orig_num_var2, ", ", temp_unique_values_var2, ")"))
+  }
   
-  r_code_lines = c(r_code_lines, loop_code_lines)
-  r_code_lines = c(r_code_lines, paste0("} # End if (length(temp_unique_values_name) > 0)"))
-
-
-  # Clean up temporary variables.
-  r_code_lines = c(r_code_lines, paste0("rm(", temp_original_numeric_var, ", ", temp_unique_values_name, ")"))
+  r_code_lines = c(r_code_lines, paste0("} # End if (length(temp_unique_values_var1) > 0)"))
+  r_code_lines = c(r_code_lines, paste0("rm(", temp_orig_num_var1, ", ", temp_unique_values_var1, ")"))
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 
