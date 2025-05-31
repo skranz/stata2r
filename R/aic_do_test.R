@@ -109,7 +109,7 @@ aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="", do_file
     if (is.na(r_code_to_exec)) {
       cat("\n", original_stata_line_num, "do: ", do_code_original, "\n")
       cat("\n", original_stata_line_num, "r:  not translated since not flagged as data manipulation\n")
-      #next
+      next
     } else {
       res = aicoder::run_with_log(code_str=r_code_to_exec, env=env)
       cat("\n", original_stata_line_num,"do: ", do_code_original)
