@@ -26,35 +26,19 @@ Notes:
 
 . save "/home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-1.dta", replac
 > e emptyok
-(file /home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-1.dta not
-    found)
 file /home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-1.dta saved
-
-. transform data
-command transform is unrecognized
-r(199);
-
-. save "/home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-2.dta", replac
-> e emptyok
-(file /home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-2.dta not
-    found)
-file /home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-2.dta saved
 
 . quietly regress y_outcome time
 
-. save "/home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-3.dta", replac
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-2.dta", replac
 > e emptyok
-(file /home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-3.dta not
-    found)
-file /home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-3.dta saved
+file /home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-2.dta saved
 
 . quietly regress y_outcome x_numeric
 
-. save "/home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-4.dta", replac
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-3.dta", replac
 > e emptyok
-(file /home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-4.dta not
-    found)
-file /home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-4.dta saved
+file /home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-3.dta saved
 
 . summarize x_numeric y_outcome
 
@@ -63,20 +47,16 @@ file /home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-4.dta saved
    x_numeric |        245    10.47698    6.066207   4.836289        100
    y_outcome |        247    6.953379    1.928645   2.439948   12.18495
 
-. save "/home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-5.dta", replac
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-4.dta", replac
 > e emptyok
-(file /home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-5.dta not
-    found)
-file /home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-5.dta saved
+file /home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-4.dta saved
 
 . keep if e(sample)
 (8 observations deleted)
 
-. save "/home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-6.dta", replac
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-5.dta", replac
 > e emptyok
-(file /home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-6.dta not
-    found)
-file /home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-6.dta saved
+file /home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-5.dta saved
 
 . summarize x_numeric y_outcome
 
@@ -85,11 +65,9 @@ file /home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-6.dta saved
    x_numeric |        242    10.47093    6.102782   4.836289        100
    y_outcome |        242    6.954693    1.930952   2.439948   12.18495
 
-. save "/home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-7.dta", replac
+. save "/home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-6.dta", replac
 > e emptyok
-(file /home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-7.dta not
-    found)
-file /home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-7.dta saved
+file /home/rstudio/aicoder/stata2r/inst/cases/do4/do_data/do4-6.dta saved
 
 . 
 end of do-file

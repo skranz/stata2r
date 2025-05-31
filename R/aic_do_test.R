@@ -77,12 +77,6 @@ aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="", do_file
     }
   }
 
-  # Initialize test-specific columns to ignore in comparison
-  test_specific_ignore_cols = character(0)
-  if (basename(test_dir) == "do2") {
-    test_specific_ignore_cols = c(test_specific_ignore_cols, "obs_quarter")
-  }
-
 
   cat("\n---\n#Translate Stata to R commands... ")
   r_df_list = vector("list", NROW(cmd_df))
@@ -115,17 +109,17 @@ aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="", do_file
     if (is.na(r_code_to_exec)) {
       cat("\n", original_stata_line_num, "do: ", do_code_original, "\n")
       cat("\n", original_stata_line_num, "r:  not translated since not flagged as data manipulation\n")
-      next
-    }
+      #next
+    } else {
+      res = aicoder::run_with_log(code_str=r_code_to_exec, env=env)
+      cat("\n", original_stata_line_num,"do: ", do_code_original)
+      cat("\n", original_stata_line_num, "r: ", r_code_to_exec, "\n")
+      cat(res$log)
 
-    res = aicoder::run_with_log(code_str=r_code_to_exec, env=env)
-    cat("\n", original_stata_line_num,"do: ", do_code_original)
-    cat("\n", original_stata_line_num, "r: ", r_code_to_exec, "\n")
-    cat(res$log)
-
-    if (res$has_error) {
-      cat("\nError executing R code for Stata line ", original_stata_line_num, ": ", res$log, "\n")
-      return(FALSE)
+      if (res$has_error) {
+        cat("\nError executing R code for Stata line ", original_stata_line_num, ": ", res$log, "\n")
+        return(FALSE)
+      }
     }
 
     r_data = env[["data"]]
@@ -142,18 +136,17 @@ aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="", do_file
       do_data = haven::read_dta(dat_file)
 
       cols_in_r_not_do = setdiff(names(r_data), names(do_data))
-      cols_to_remove_from_r_for_comp = setdiff(cols_in_r_not_do, c(non_deterministic_cols, "stata2r_original_order_idx", test_specific_ignore_cols))
+      cols_to_remove_from_r_for_comp = setdiff(cols_in_r_not_do, c(non_deterministic_cols, "stata2r_original_order_idx"))
 
       if (length(cols_to_remove_from_r_for_comp) > 0) {
           warning(paste0("Test data inconsistency: Columns ", paste(cols_to_remove_from_r_for_comp, collapse=", "), " exist in R data but not in Stata reference data (", basename(dat_file), "). Removing from R data for comparison."))
           r_data = dplyr::select(r_data, -dplyr::any_of(cols_to_remove_from_r_for_comp))
       }
 
-      comp = compare_df(do_data, r_data, ignore_cols_values = c(non_deterministic_cols, "stata2r_original_order_idx", test_specific_ignore_cols))
+      comp = compare_df(do_data, r_data, ignore_cols_values = c(non_deterministic_cols, "stata2r_original_order_idx"))
       if (!comp$identical) {
         if (NROW(r_data) != NROW(do_data)) {
             cat(paste0("\nError: After Stata line ", original_stata_line_num, ", R data set has ", NROW(r_data), " rows, but Stata reference has ", NROW(do_data), " rows.\n"))
-            cat("This discrepancy might indicate an issue with the test data or an unexpected behavior difference in row manipulation.\n")
         }
         cat("\nError: After Stata line ", original_stata_line_num, ", R data set differs from Stata reference.\n")
         cat("\nData set from Stata (do_df):\n")

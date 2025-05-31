@@ -15,6 +15,7 @@ example = function() {
 }
 
 run_do_with_data_save = function(do_file) {
+  library(haven)
   restore.point("run_do_with_data_save")
   library(dplyr)
   dir = dirname(do_file)
