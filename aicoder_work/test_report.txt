@@ -733,35 +733,37 @@ data = data %>%
   dplyr::mutate(`y_mod_by_esample1` = as.numeric(sfun_stata_cond(`_cond_ymod1`,  `_new_val_ymod1`,  `y_mod_by_esample1`)))
 
  23 do:  xi i.group_cat
- 23 r:  stata_tmp_xi_orig_num_L23 = haven::zap_labels(data[['group_cat']])
-stata_tmp_xi_unique_L23 = base::sort(base::unique(stata_tmp_xi_orig_num_L23[!is.na(stata_tmp_xi_orig_num_L23)]))
-if (length(stata_tmp_xi_unique_L23) > 0) {
-  base_level = stata_tmp_xi_unique_L23[1]
-  levels_to_dummy = setdiff(stata_tmp_xi_unique_L23, base_level)
-for (level in levels_to_dummy) {
-  new_col_name = paste0("_I", 'group_cat', "_", level)
-  dummy_expr = dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L23) & stata_tmp_xi_orig_num_L23 == level, 1L, dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L23) & stata_tmp_xi_orig_num_L23 != level, 0L, NA_integer_))
-  data[[new_col_name]] = dummy_expr
-  attr(data[[new_col_name]], "label") = paste0("group_cat==", level)
-} # End for (level in levels_to_dummy)
-} # End if (length(temp_unique_values_name) > 0)
-rm(stata_tmp_xi_orig_num_L23, stata_tmp_xi_unique_L23) 
-stata_tmp_xi_orig_num_L23 = haven::zap_labels(data[['group_cat']])
+ 23 r:  stata_tmp_xi_orig_num_L23_group_cat = haven::zap_labels(data[['group_cat']])
+stata_tmp_xi_unique_L23_group_cat = base::sort(base::unique(stata_tmp_xi_orig_num_L23_group_cat[!is.na(stata_tmp_xi_orig_num_L23_group_cat)]))
+if (length(stata_tmp_xi_unique_L23_group_cat) > 0) {
+  base_level_group_cat = stata_tmp_xi_unique_L23_group_cat[1]
+  levels_to_dummy_group_cat = setdiff(stata_tmp_xi_unique_L23_group_cat, base_level_group_cat)
+  # Dummies for group_cat
+  for (level in levels_to_dummy_group_cat) {
+    new_col_name = paste0("_I", get_xi_base_name("group_cat"), "_", level)
+    dummy_expr = dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L23_group_cat) & stata_tmp_xi_orig_num_L23_group_cat == level, 1L, dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L23_group_cat) & stata_tmp_xi_orig_num_L23_group_cat != level, 0L, NA_integer_))
+    data[[new_col_name]] = dummy_expr
+    attr(data[[new_col_name]], "label") = paste0("group_cat==", level)
+  }
+} # End if (length(temp_unique_values_var1) > 0)
+rm(stata_tmp_xi_orig_num_L23_group_cat, stata_tmp_xi_unique_L23_group_cat) 
+stata_tmp_xi_orig_num_L23_group_cat = haven::zap_labels(data[['group_cat']])
 
-stata_tmp_xi_unique_L23 = base::sort(base::unique(stata_tmp_xi_orig_num_L23[!is.na(stata_tmp_xi_orig_num_L23)]))
+stata_tmp_xi_unique_L23_group_cat = base::sort(base::unique(stata_tmp_xi_orig_num_L23_group_cat[!is.na(stata_tmp_xi_orig_num_L23_group_cat)]))
 
-if (length(stata_tmp_xi_unique_L23) > 0) {
-  base_level = stata_tmp_xi_unique_L23[1]
-  levels_to_dummy = setdiff(stata_tmp_xi_unique_L23, base_level)
-for (level in levels_to_dummy) {
-  new_col_name = paste0("_I", 'group_cat', "_", level)
-  dummy_expr = dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L23) & stata_tmp_xi_orig_num_L23 == level, 1L, dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L23) & stata_tmp_xi_orig_num_L23 != level, 0L, NA_integer_))
-  data[[new_col_name]] = dummy_expr
-  attr(data[[new_col_name]], "label") = paste0("group_cat==", level)
-} # End for (level in levels_to_dummy)
-} # End if (length(temp_unique_values_name) > 0)
+if (length(stata_tmp_xi_unique_L23_group_cat) > 0) {
+  base_level_group_cat = stata_tmp_xi_unique_L23_group_cat[1]
+  levels_to_dummy_group_cat = setdiff(stata_tmp_xi_unique_L23_group_cat, base_level_group_cat)
+  # Dummies for group_cat
+  for (level in levels_to_dummy_group_cat) {
+    new_col_name = paste0("_I", get_xi_base_name("group_cat"), "_", level)
+    dummy_expr = dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L23_group_cat) & stata_tmp_xi_orig_num_L23_group_cat == level, 1L, dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L23_group_cat) & stata_tmp_xi_orig_num_L23_group_cat != level, 0L, NA_integer_))
+    data[[new_col_name]] = dummy_expr
+    attr(data[[new_col_name]], "label") = paste0("group_cat==", level)
+  }
+} # End if (length(temp_unique_values_var1) > 0)
 
-rm(stata_tmp_xi_orig_num_L23, stata_tmp_xi_unique_L23)
+rm(stata_tmp_xi_orig_num_L23_group_cat, stata_tmp_xi_unique_L23_group_cat)
 
  24 do:  summarize _Igroup_cat_2 _Igroup_cat_3 
 
@@ -784,35 +786,37 @@ data = data %>%
 data = dplyr::select(data, -c(dplyr::matches('^_Igroup_cat.*$')))
 
  28 do:  xi i.another_factor
- 28 r:  stata_tmp_xi_orig_num_L28 = haven::zap_labels(data[['another_factor']])
-stata_tmp_xi_unique_L28 = base::sort(base::unique(stata_tmp_xi_orig_num_L28[!is.na(stata_tmp_xi_orig_num_L28)]))
-if (length(stata_tmp_xi_unique_L28) > 0) {
-  base_level = stata_tmp_xi_unique_L28[1]
-  levels_to_dummy = setdiff(stata_tmp_xi_unique_L28, base_level)
-for (level in levels_to_dummy) {
-  new_col_name = paste0("_I", 'another_f', "_", level)
-  dummy_expr = dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L28) & stata_tmp_xi_orig_num_L28 == level, 1L, dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L28) & stata_tmp_xi_orig_num_L28 != level, 0L, NA_integer_))
-  data[[new_col_name]] = dummy_expr
-  attr(data[[new_col_name]], "label") = paste0("another_factor==", level)
-} # End for (level in levels_to_dummy)
-} # End if (length(temp_unique_values_name) > 0)
-rm(stata_tmp_xi_orig_num_L28, stata_tmp_xi_unique_L28) 
-stata_tmp_xi_orig_num_L28 = haven::zap_labels(data[['another_factor']])
+ 28 r:  stata_tmp_xi_orig_num_L28_another_factor = haven::zap_labels(data[['another_factor']])
+stata_tmp_xi_unique_L28_another_factor = base::sort(base::unique(stata_tmp_xi_orig_num_L28_another_factor[!is.na(stata_tmp_xi_orig_num_L28_another_factor)]))
+if (length(stata_tmp_xi_unique_L28_another_factor) > 0) {
+  base_level_another_factor = stata_tmp_xi_unique_L28_another_factor[1]
+  levels_to_dummy_another_factor = setdiff(stata_tmp_xi_unique_L28_another_factor, base_level_another_factor)
+  # Dummies for another_factor
+  for (level in levels_to_dummy_another_factor) {
+    new_col_name = paste0("_I", get_xi_base_name("another_factor"), "_", level)
+    dummy_expr = dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L28_another_factor) & stata_tmp_xi_orig_num_L28_another_factor == level, 1L, dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L28_another_factor) & stata_tmp_xi_orig_num_L28_another_factor != level, 0L, NA_integer_))
+    data[[new_col_name]] = dummy_expr
+    attr(data[[new_col_name]], "label") = paste0("another_factor==", level)
+  }
+} # End if (length(temp_unique_values_var1) > 0)
+rm(stata_tmp_xi_orig_num_L28_another_factor, stata_tmp_xi_unique_L28_another_factor) 
+stata_tmp_xi_orig_num_L28_another_factor = haven::zap_labels(data[['another_factor']])
 
-stata_tmp_xi_unique_L28 = base::sort(base::unique(stata_tmp_xi_orig_num_L28[!is.na(stata_tmp_xi_orig_num_L28)]))
+stata_tmp_xi_unique_L28_another_factor = base::sort(base::unique(stata_tmp_xi_orig_num_L28_another_factor[!is.na(stata_tmp_xi_orig_num_L28_another_factor)]))
 
-if (length(stata_tmp_xi_unique_L28) > 0) {
-  base_level = stata_tmp_xi_unique_L28[1]
-  levels_to_dummy = setdiff(stata_tmp_xi_unique_L28, base_level)
-for (level in levels_to_dummy) {
-  new_col_name = paste0("_I", 'another_f', "_", level)
-  dummy_expr = dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L28) & stata_tmp_xi_orig_num_L28 == level, 1L, dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L28) & stata_tmp_xi_orig_num_L28 != level, 0L, NA_integer_))
-  data[[new_col_name]] = dummy_expr
-  attr(data[[new_col_name]], "label") = paste0("another_factor==", level)
-} # End for (level in levels_to_dummy)
-} # End if (length(temp_unique_values_name) > 0)
+if (length(stata_tmp_xi_unique_L28_another_factor) > 0) {
+  base_level_another_factor = stata_tmp_xi_unique_L28_another_factor[1]
+  levels_to_dummy_another_factor = setdiff(stata_tmp_xi_unique_L28_another_factor, base_level_another_factor)
+  # Dummies for another_factor
+  for (level in levels_to_dummy_another_factor) {
+    new_col_name = paste0("_I", get_xi_base_name("another_factor"), "_", level)
+    dummy_expr = dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L28_another_factor) & stata_tmp_xi_orig_num_L28_another_factor == level, 1L, dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L28_another_factor) & stata_tmp_xi_orig_num_L28_another_factor != level, 0L, NA_integer_))
+    data[[new_col_name]] = dummy_expr
+    attr(data[[new_col_name]], "label") = paste0("another_factor==", level)
+  }
+} # End if (length(temp_unique_values_var1) > 0)
 
-rm(stata_tmp_xi_orig_num_L28, stata_tmp_xi_unique_L28)
+rm(stata_tmp_xi_orig_num_L28_another_factor, stata_tmp_xi_unique_L28_another_factor)
 
  29 do:  gen _interaction_another_f_2_xnum = _Ianother_f_2 * x_numeric
  29 r:  data = data %>% 
@@ -835,132 +839,258 @@ data = data %>%
 data = dplyr::select(data, -c(dplyr::matches('^_Ianother_f.*$'), dplyr::matches('^_interaction_another_f.*$')))
 
  33 do:  xi i.region_cat*i.group_cat
- 33 r:  # xi command: Unsupported syntax or variable type for: i.region_cat*i.group_cat. Only 'i.varname' is currently supported. 
-# xi command: Unsupported syntax or variable type for: i.region_cat*i.group_cat. Only 'i.varname' is currently supported.
+ 33 r:  stata_tmp_xi_orig_num_L33_region_cat = haven::zap_labels(data[['region_cat']])
+stata_tmp_xi_unique_L33_region_cat = base::sort(base::unique(stata_tmp_xi_orig_num_L33_region_cat[!is.na(stata_tmp_xi_orig_num_L33_region_cat)]))
+if (length(stata_tmp_xi_unique_L33_region_cat) > 0) {
+  base_level_region_cat = stata_tmp_xi_unique_L33_region_cat[1]
+  levels_to_dummy_region_cat = setdiff(stata_tmp_xi_unique_L33_region_cat, base_level_region_cat)
+  # Dummies for region_cat
+  for (level in levels_to_dummy_region_cat) {
+    new_col_name = paste0("_I", get_xi_base_name("region_cat"), "_", level)
+    dummy_expr = dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L33_region_cat) & stata_tmp_xi_orig_num_L33_region_cat == level, 1L, dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L33_region_cat) & stata_tmp_xi_orig_num_L33_region_cat != level, 0L, NA_integer_))
+    data[[new_col_name]] = dummy_expr
+    attr(data[[new_col_name]], "label") = paste0("region_cat==", level)
+  }
+  stata_tmp_xi_orig_num_L33_group_cat = haven::zap_labels(data[['group_cat']])
+  stata_tmp_xi_unique_L33_group_cat = base::sort(base::unique(stata_tmp_xi_orig_num_L33_group_cat[!is.na(stata_tmp_xi_orig_num_L33_group_cat)]))
+  if (length(stata_tmp_xi_unique_L33_group_cat) > 0) {
+    base_level_group_cat = stata_tmp_xi_unique_L33_group_cat[1]
+    levels_to_dummy_group_cat = setdiff(stata_tmp_xi_unique_L33_group_cat, base_level_group_cat)
+  # Dummies for group_cat
+  for (level in levels_to_dummy_group_cat) {
+    new_col_name = paste0("_I", get_xi_base_name("group_cat"), "_", level)
+    dummy_expr = dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L33_group_cat) & stata_tmp_xi_orig_num_L33_group_cat == level, 1L, dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L33_group_cat) & stata_tmp_xi_orig_num_L33_group_cat != level, 0L, NA_integer_))
+    data[[new_col_name]] = dummy_expr
+    attr(data[[new_col_name]], "label") = paste0("group_cat==", level)
+  }
+    # Interaction effects for region_cat*group_cat
+    interaction_base = get_xi_interaction_basename("region_cat", "group_cat")
+    for (level1 in levels_to_dummy_region_cat) {
+      for (level2 in levels_to_dummy_group_cat) {
+        new_col_name = paste0("_I", interaction_base, "_", level1, "_", level2)
+        dummy_expr = dplyr::if_else(
+          !is.na(stata_tmp_xi_orig_num_L33_region_cat) & !is.na(stata_tmp_xi_orig_num_L33_group_cat) & stata_tmp_xi_orig_num_L33_region_cat == level1 & stata_tmp_xi_orig_num_L33_group_cat == level2, 1L,
+          dplyr::if_else(
+            !is.na(stata_tmp_xi_orig_num_L33_region_cat) & !is.na(stata_tmp_xi_orig_num_L33_group_cat) & (stata_tmp_xi_orig_num_L33_region_cat != level1 | stata_tmp_xi_orig_num_L33_group_cat != level2), 0L,
+            NA_integer_
+          )
+        )
+        data[[new_col_name]] = dummy_expr
+        attr(data[[new_col_name]], "label") = paste0("region_cat==", level1, " & ", "group_cat==", level2)
+      }
+    }
+  } # End if (length(temp_unique_values_var2) > 0)
+  rm(stata_tmp_xi_orig_num_L33_group_cat, stata_tmp_xi_unique_L33_group_cat)
+} # End if (length(temp_unique_values_var1) > 0)
+rm(stata_tmp_xi_orig_num_L33_region_cat, stata_tmp_xi_unique_L33_region_cat) 
+stata_tmp_xi_orig_num_L33_region_cat = haven::zap_labels(data[['region_cat']])
 
-Error: After Stata line  33 , R data set differs from Stata reference.
+stata_tmp_xi_unique_L33_region_cat = base::sort(base::unique(stata_tmp_xi_orig_num_L33_region_cat[!is.na(stata_tmp_xi_orig_num_L33_region_cat)]))
+
+if (length(stata_tmp_xi_unique_L33_region_cat) > 0) {
+  base_level_region_cat = stata_tmp_xi_unique_L33_region_cat[1]
+  levels_to_dummy_region_cat = setdiff(stata_tmp_xi_unique_L33_region_cat, base_level_region_cat)
+  # Dummies for region_cat
+  for (level in levels_to_dummy_region_cat) {
+    new_col_name = paste0("_I", get_xi_base_name("region_cat"), "_", level)
+    dummy_expr = dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L33_region_cat) & stata_tmp_xi_orig_num_L33_region_cat == level, 1L, dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L33_region_cat) & stata_tmp_xi_orig_num_L33_region_cat != level, 0L, NA_integer_))
+    data[[new_col_name]] = dummy_expr
+    attr(data[[new_col_name]], "label") = paste0("region_cat==", level)
+  }
+  stata_tmp_xi_orig_num_L33_group_cat = haven::zap_labels(data[['group_cat']])
+  stata_tmp_xi_unique_L33_group_cat = base::sort(base::unique(stata_tmp_xi_orig_num_L33_group_cat[!is.na(stata_tmp_xi_orig_num_L33_group_cat)]))
+  if (length(stata_tmp_xi_unique_L33_group_cat) > 0) {
+    base_level_group_cat = stata_tmp_xi_unique_L33_group_cat[1]
+    levels_to_dummy_group_cat = setdiff(stata_tmp_xi_unique_L33_group_cat, base_level_group_cat)
+  # Dummies for group_cat
+  for (level in levels_to_dummy_group_cat) {
+    new_col_name = paste0("_I", get_xi_base_name("group_cat"), "_", level)
+    dummy_expr = dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L33_group_cat) & stata_tmp_xi_orig_num_L33_group_cat == level, 1L, dplyr::if_else(!is.na(stata_tmp_xi_orig_num_L33_group_cat) & stata_tmp_xi_orig_num_L33_group_cat != level, 0L, NA_integer_))
+    data[[new_col_name]] = dummy_expr
+    attr(data[[new_col_name]], "label") = paste0("group_cat==", level)
+  }
+    # Interaction effects for region_cat*group_cat
+    interaction_base = get_xi_interaction_basename("region_cat", "group_cat")
+    for (level1 in levels_to_dummy_region_cat) {
+      for (level2 in levels_to_dummy_group_cat) {
+        new_col_name = paste0("_I", interaction_base, "_", level1, "_", level2)
+        dummy_expr = dplyr::if_else(
+          !is.na(stata_tmp_xi_orig_num_L33_region_cat) & !is.na(stata_tmp_xi_orig_num_L33_group_cat) & stata_tmp_xi_orig_num_L33_region_cat == level1 & stata_tmp_xi_orig_num_L33_group_cat == level2, 1L,
+          dplyr::if_else(
+            !is.na(stata_tmp_xi_orig_num_L33_region_cat) & !is.na(stata_tmp_xi_orig_num_L33_group_cat) & (stata_tmp_xi_orig_num_L33_region_cat != level1 | stata_tmp_xi_orig_num_L33_group_cat != level2), 0L,
+            NA_integer_
+          )
+        )
+        data[[new_col_name]] = dummy_expr
+        attr(data[[new_col_name]], "label") = paste0("region_cat==", level1, " & ", "group_cat==", level2)
+      }
+    }
+  } # End if (length(temp_unique_values_var2) > 0)
+  rm(stata_tmp_xi_orig_num_L33_group_cat, stata_tmp_xi_unique_L33_group_cat)
+} # End if (length(temp_unique_values_var1) > 0)
+
+rm(stata_tmp_xi_orig_num_L33_region_cat, stata_tmp_xi_unique_L33_region_cat)
+
+ 34 do:  summarize _IregXgro_2_2 _IregXgro_3_3 
+
+ 34 r:  not translated since not flagged as data manipulation
+
+ 35 do:  gen y_if_xi_interaction_specific = cond((_IregXgro_2_2 == 1), y_outcome * 100, .)
+ 35 r:  data = data %>% 
+  dplyr::mutate(`y_if_xi_interaction_specific` = as.numeric(sfun_stata_cond((`_IregXgro_2_2` == 1),  `y_outcome` * 100,  NA_real_))) 
+data = data %>% 
+  dplyr::mutate(`y_if_xi_interaction_specific` = as.numeric(sfun_stata_cond((`_IregXgro_2_2` == 1),  `y_outcome` * 100,  NA_real_)))
+
+Error: After Stata line  35 , R data set differs from Stata reference.
 
 Data set from Stata (do_df):
-tibble [250 × 29] (S3: tbl_df/tbl/data.frame)
- $ id                   : num [1:250] 1 1 1 1 1 2 2 2 2 2 ...
+tibble [250 × 30] (S3: tbl_df/tbl/data.frame)
+ $ id                          : num [1:250] 1 1 1 1 1 2 2 2 2 2 ...
   ..- attr(*, "label")= chr "Individual ID"
   ..- attr(*, "format.stata")= chr "%12.0g"
- $ time                 : num [1:250] 1 2 3 4 5 1 2 3 4 5 ...
+ $ time                        : num [1:250] 1 2 3 4 5 1 2 3 4 5 ...
   ..- attr(*, "label")= chr "Time Period"
   ..- attr(*, "format.stata")= chr "%12.0g"
- $ group_cat            : dbl+lbl [1:250] 2, 3, 2, 2, 1, 3, 2, 2, 3, 2, 3, 2, 2, 1, 3, 2, 2, 1, ...
+ $ group_cat                   : dbl+lbl [1:250] 2, 3, 2, 2, 1, 3, 2, 2, 3, 2, 3, 2, 2, 1, 3, 2, 2, 1, ...
    ..@ label       : chr "Treatment Group"
    ..@ format.stata: chr "%12.0g"
    ..@ labels      : Named num [1:3] 1 2 3
    .. ..- attr(*, "names")= chr [1:3] "Control" "TreatA" "TreatB"
- $ region_cat           : dbl+lbl [1:250] 3, 2, 1, 3, 1, 1, 2, 2, 3, 4, 2, 2, 1, 1, 3, 1, 2, 3, ...
+ $ region_cat                  : dbl+lbl [1:250] 3, 2, 1, 3, 1, 1, 2, 2, 3, 4, 2, 2, 1, 1, 3, 1, 2, 3, ...
    ..@ label       : chr "Geographic Region"
    ..@ format.stata: chr "%12.0g"
    ..@ labels      : Named num [1:4] 1 2 3 4
    .. ..- attr(*, "names")= chr [1:4] "a" "b" "c" "d"
- $ x_numeric            : num [1:250] 100 8.04 10.37 5.7 8.75 ...
+ $ x_numeric                   : num [1:250] 100 8.04 10.37 5.7 8.75 ...
   ..- attr(*, "label")= chr "Continuous Covariate X"
   ..- attr(*, "format.stata")= chr "%10.0g"
- $ another_factor       : dbl+lbl [1:250]  3,  2,  2,  1,  1,  3,  1,  1,  3,  3,  2, NA,  1,  2...
+ $ another_factor              : dbl+lbl [1:250]  3,  2,  2,  1,  1,  3,  1,  1,  3,  3,  2, NA,  1,  2...
    ..@ label       : chr "Another Factor for xi"
    ..@ format.stata: chr "%12.0g"
    ..@ labels      : Named num [1:3] 1 2 3
    .. ..- attr(*, "names")= chr [1:3] "X1" "X2" "X3"
- $ baseline_char        : chr [1:250] "Low" "High" "High" "High" ...
+ $ baseline_char               : chr [1:250] "Low" "High" "High" "High" ...
   ..- attr(*, "label")= chr "Baseline Characteristic"
   ..- attr(*, "format.stata")= chr "%-9s"
- $ y_outcome            : num [1:250] 9.66 7.3 8.67 8.33 5.85 ...
+ $ y_outcome                   : num [1:250] 9.66 7.3 8.67 8.33 5.85 ...
   ..- attr(*, "label")= chr "Outcome Variable Y"
   ..- attr(*, "format.stata")= chr "%10.0g"
- $ _temp_eN_reg1        : num [1:250] 242 242 242 242 242 242 242 242 242 242 ...
+ $ _temp_eN_reg1               : num [1:250] 242 242 242 242 242 242 242 242 242 242 ...
   ..- attr(*, "format.stata")= chr "%9.0g"
- $ obs_from_reg1        : num [1:250] 242 NA NA NA NA 242 NA NA NA NA ...
+ $ obs_from_reg1               : num [1:250] 242 NA NA NA NA 242 NA NA NA NA ...
   ..- attr(*, "format.stata")= chr "%9.0g"
- $ _temp_df_r_reg1      : num [1:250] 240 240 240 240 240 240 240 240 240 240 ...
+ $ _temp_df_r_reg1             : num [1:250] 240 240 240 240 240 240 240 240 240 240 ...
   ..- attr(*, "format.stata")= chr "%9.0g"
- $ df_resid_from_reg1   : num [1:250] 240 NA NA NA NA 240 NA NA NA NA ...
+ $ df_resid_from_reg1          : num [1:250] 240 NA NA NA NA 240 NA NA NA NA ...
   ..- attr(*, "format.stata")= chr "%9.0g"
- $ in_estimation_sample1: num [1:250] 1 1 1 1 1 1 1 1 1 1 ...
+ $ in_estimation_sample1       : num [1:250] 1 1 1 1 1 1 1 1 1 1 ...
   ..- attr(*, "format.stata")= chr "%9.0g"
- $ y_mod_by_esample1    : num [1:250] 10.63 7.3 9.54 9.17 5.85 ...
+ $ y_mod_by_esample1           : num [1:250] 10.63 7.3 9.54 9.17 5.85 ...
   ..- attr(*, "format.stata")= chr "%9.0g"
- $ _cond_ymod1          : num [1:250] 1 0 1 1 0 0 1 1 0 1 ...
+ $ _cond_ymod1                 : num [1:250] 1 0 1 1 0 0 1 1 0 1 ...
   ..- attr(*, "format.stata")= chr "%9.0g"
- $ _new_val_ymod1       : num [1:250] 10.63 8.03 9.54 9.17 6.43 ...
+ $ _new_val_ymod1              : num [1:250] 10.63 8.03 9.54 9.17 6.43 ...
   ..- attr(*, "format.stata")= chr "%9.0g"
- $ _cond_xw             : num [1:250] 1 0 1 1 0 0 1 1 0 1 ...
+ $ _cond_xw                    : num [1:250] 1 0 1 1 0 0 1 1 0 1 ...
   ..- attr(*, "format.stata")= chr "%9.0g"
- $ x_weighted_by_Igroup2: num [1:250] 100 NA 10.4 5.7 NA ...
+ $ x_weighted_by_Igroup2       : num [1:250] 100 NA 10.4 5.7 NA ...
   ..- attr(*, "format.stata")= chr "%9.0g"
- $ _Iregion_ca_2        : num [1:250] 0 1 0 0 0 0 1 1 0 0 ...
+ $ _Iregion_ca_2               : num [1:250] 0 1 0 0 0 0 1 1 0 0 ...
   ..- attr(*, "label")= chr "region_cat==2"
   ..- attr(*, "format.stata")= chr "%8.0g"
- $ _Iregion_ca_3        : num [1:250] 1 0 0 1 0 0 0 0 1 0 ...
+ $ _Iregion_ca_3               : num [1:250] 1 0 0 1 0 0 0 0 1 0 ...
   ..- attr(*, "label")= chr "region_cat==3"
   ..- attr(*, "format.stata")= chr "%8.0g"
- $ _Iregion_ca_4        : num [1:250] 0 0 0 0 0 0 0 0 0 1 ...
+ $ _Iregion_ca_4               : num [1:250] 0 0 0 0 0 0 0 0 0 1 ...
   ..- attr(*, "label")= chr "region_cat==4"
   ..- attr(*, "format.stata")= chr "%8.0g"
- $ _Igroup_cat_2        : num [1:250] 1 0 1 1 0 0 1 1 0 1 ...
+ $ _Igroup_cat_2               : num [1:250] 1 0 1 1 0 0 1 1 0 1 ...
   ..- attr(*, "label")= chr "group_cat==2"
   ..- attr(*, "format.stata")= chr "%8.0g"
- $ _Igroup_cat_3        : num [1:250] 0 1 0 0 0 1 0 0 1 0 ...
+ $ _Igroup_cat_3               : num [1:250] 0 1 0 0 0 1 0 0 1 0 ...
   ..- attr(*, "label")= chr "group_cat==3"
   ..- attr(*, "format.stata")= chr "%8.0g"
- $ _IregXgro_2_2        : num [1:250] 0 0 0 0 0 0 1 1 0 0 ...
+ $ _IregXgro_2_2               : num [1:250] 0 0 0 0 0 0 1 1 0 0 ...
   ..- attr(*, "label")= chr "region_cat==2 & group_cat==2"
   ..- attr(*, "format.stata")= chr "%8.0g"
- $ _IregXgro_2_3        : num [1:250] 0 1 0 0 0 0 0 0 0 0 ...
+ $ _IregXgro_2_3               : num [1:250] 0 1 0 0 0 0 0 0 0 0 ...
   ..- attr(*, "label")= chr "region_cat==2 & group_cat==3"
   ..- attr(*, "format.stata")= chr "%8.0g"
- $ _IregXgro_3_2        : num [1:250] 1 0 0 1 0 0 0 0 0 0 ...
+ $ _IregXgro_3_2               : num [1:250] 1 0 0 1 0 0 0 0 0 0 ...
   ..- attr(*, "label")= chr "region_cat==3 & group_cat==2"
   ..- attr(*, "format.stata")= chr "%8.0g"
- $ _IregXgro_3_3        : num [1:250] 0 0 0 0 0 0 0 0 1 0 ...
+ $ _IregXgro_3_3               : num [1:250] 0 0 0 0 0 0 0 0 1 0 ...
   ..- attr(*, "label")= chr "region_cat==3 & group_cat==3"
   ..- attr(*, "format.stata")= chr "%8.0g"
- $ _IregXgro_4_2        : num [1:250] 0 0 0 0 0 0 0 0 0 1 ...
+ $ _IregXgro_4_2               : num [1:250] 0 0 0 0 0 0 0 0 0 1 ...
   ..- attr(*, "label")= chr "region_cat==4 & group_cat==2"
   ..- attr(*, "format.stata")= chr "%8.0g"
- $ _IregXgro_4_3        : num [1:250] 0 0 0 0 0 0 0 0 0 0 ...
+ $ _IregXgro_4_3               : num [1:250] 0 0 0 0 0 0 0 0 0 0 ...
   ..- attr(*, "label")= chr "region_cat==4 & group_cat==3"
   ..- attr(*, "format.stata")= chr "%8.0g"
+ $ y_if_xi_interaction_specific: num [1:250] NA NA NA NA NA ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
 NULL
 
 Data set from R (r_df):
-tibble [250 × 19] (S3: tbl_df/tbl/data.frame)
- $ id                        : num [1:250] 1 1 1 1 1 2 2 2 2 2 ...
+tibble [250 × 31] (S3: tbl_df/tbl/data.frame)
+ $ id                          : num [1:250] 1 1 1 1 1 2 2 2 2 2 ...
   ..- attr(*, "label")= chr "Individual ID"
- $ time                      : num [1:250] 1 2 3 4 5 1 2 3 4 5 ...
+ $ time                        : num [1:250] 1 2 3 4 5 1 2 3 4 5 ...
   ..- attr(*, "label")= chr "Time Period"
- $ group_cat                 : num [1:250] 2 3 2 2 1 3 2 2 3 2 ...
+ $ group_cat                   : num [1:250] 2 3 2 2 1 3 2 2 3 2 ...
   ..- attr(*, "label")= chr "Treatment Group"
- $ region_cat                : num [1:250] 3 2 1 3 1 1 2 2 3 4 ...
+ $ region_cat                  : num [1:250] 3 2 1 3 1 1 2 2 3 4 ...
   ..- attr(*, "label")= chr "Geographic Region"
- $ x_numeric                 : num [1:250] 100 8.04 10.37 5.7 8.75 ...
+ $ x_numeric                   : num [1:250] 100 8.04 10.37 5.7 8.75 ...
   ..- attr(*, "label")= chr "Continuous Covariate X"
- $ another_factor            : num [1:250] 3 2 2 1 1 3 1 1 3 3 ...
+ $ another_factor              : num [1:250] 3 2 2 1 1 3 1 1 3 3 ...
   ..- attr(*, "label")= chr "Another Factor for xi"
- $ baseline_char             : chr [1:250] "Low" "High" "High" "High" ...
+ $ baseline_char               : chr [1:250] "Low" "High" "High" "High" ...
   ..- attr(*, "label")= chr "Baseline Characteristic"
- $ y_outcome                 : num [1:250] 9.66 7.3 8.67 8.33 5.85 ...
+ $ y_outcome                   : num [1:250] 9.66 7.3 8.67 8.33 5.85 ...
   ..- attr(*, "label")= chr "Outcome Variable Y"
- $ stata2r_original_order_idx: int [1:250] 1 2 3 4 5 6 7 8 9 10 ...
- $ _temp_eN_reg1             : num [1:250] 242 242 242 242 242 242 242 242 242 242 ...
- $ obs_from_reg1             : num [1:250] 242 NA NA NA NA 242 NA NA NA NA ...
- $ _temp_df_r_reg1           : num [1:250] 240 240 240 240 240 240 240 240 240 240 ...
- $ df_resid_from_reg1        : num [1:250] 240 NA NA NA NA 240 NA NA NA NA ...
- $ in_estimation_sample1     : num [1:250] 1 1 1 1 1 1 1 1 1 1 ...
- $ y_mod_by_esample1         : num [1:250] 10.63 7.3 9.54 9.17 5.85 ...
- $ _cond_ymod1               : num [1:250] 1 0 1 1 0 0 1 1 0 1 ...
- $ _new_val_ymod1            : num [1:250] 10.63 8.03 9.54 9.17 6.43 ...
- $ _cond_xw                  : num [1:250] 1 0 1 1 0 0 1 1 0 1 ...
- $ x_weighted_by_Igroup2     : num [1:250] 100 NA 10.4 5.7 NA ...
+ $ stata2r_original_order_idx  : int [1:250] 1 2 3 4 5 6 7 8 9 10 ...
+ $ _temp_eN_reg1               : num [1:250] 242 242 242 242 242 242 242 242 242 242 ...
+ $ obs_from_reg1               : num [1:250] 242 NA NA NA NA 242 NA NA NA NA ...
+ $ _temp_df_r_reg1             : num [1:250] 240 240 240 240 240 240 240 240 240 240 ...
+ $ df_resid_from_reg1          : num [1:250] 240 NA NA NA NA 240 NA NA NA NA ...
+ $ in_estimation_sample1       : num [1:250] 1 1 1 1 1 1 1 1 1 1 ...
+ $ y_mod_by_esample1           : num [1:250] 10.63 7.3 9.54 9.17 5.85 ...
+ $ _cond_ymod1                 : num [1:250] 1 0 1 1 0 0 1 1 0 1 ...
+ $ _new_val_ymod1              : num [1:250] 10.63 8.03 9.54 9.17 6.43 ...
+ $ _cond_xw                    : num [1:250] 1 0 1 1 0 0 1 1 0 1 ...
+ $ x_weighted_by_Igroup2       : num [1:250] 100 NA 10.4 5.7 NA ...
+ $ _Iregion_ca_2               : int [1:250] 0 1 0 0 0 0 1 1 0 0 ...
+  ..- attr(*, "label")= chr "region_cat==2"
+ $ _Iregion_ca_3               : int [1:250] 1 0 0 1 0 0 0 0 1 0 ...
+  ..- attr(*, "label")= chr "region_cat==3"
+ $ _Iregion_ca_4               : int [1:250] 0 0 0 0 0 0 0 0 0 1 ...
+  ..- attr(*, "label")= chr "region_cat==4"
+ $ _Igroup_cat_2               : int [1:250] 1 0 1 1 0 0 1 1 0 1 ...
+  ..- attr(*, "label")= chr "group_cat==2"
+ $ _Igroup_cat_3               : int [1:250] 0 1 0 0 0 1 0 0 1 0 ...
+  ..- attr(*, "label")= chr "group_cat==3"
+ $ _IregXgro_2_2               : int [1:250] 0 0 0 0 0 0 1 1 0 0 ...
+  ..- attr(*, "label")= chr "region_cat==2 & group_cat==2"
+ $ _IregXgro_2_3               : int [1:250] 0 1 0 0 0 0 0 0 0 0 ...
+  ..- attr(*, "label")= chr "region_cat==2 & group_cat==3"
+ $ _IregXgro_3_2               : int [1:250] 1 0 0 1 0 0 0 0 0 0 ...
+  ..- attr(*, "label")= chr "region_cat==3 & group_cat==2"
+ $ _IregXgro_3_3               : int [1:250] 0 0 0 0 0 0 0 0 1 0 ...
+  ..- attr(*, "label")= chr "region_cat==3 & group_cat==3"
+ $ _IregXgro_4_2               : int [1:250] 0 0 0 0 0 0 0 0 0 1 ...
+  ..- attr(*, "label")= chr "region_cat==4 & group_cat==2"
+ $ _IregXgro_4_3               : int [1:250] 0 0 0 0 0 0 0 0 0 0 ...
+  ..- attr(*, "label")= chr "region_cat==4 & group_cat==3"
+ $ y_if_xi_interaction_specific: num [1:250] NA NA NA NA NA ...
 NULL
 
 Differences:List of 2
- $ identical      : logi FALSE
- $ column_mismatch:List of 2
-  ..$ missing_in_do_df: chr(0) 
-  ..$ missing_in_r_df : chr [1:11] "_Iregion_ca_2" "_Iregion_ca_3" "_Iregion_ca_4" "_Igroup_cat_2" ...
+ $ identical     : logi FALSE
+ $ value_mismatch:'data.frame':	5 obs. of  4 variables:
+  ..$ row      : int [1:5] 41 56 79 88 103
+  ..$ column   : chr [1:5] "y_if_xi_interaction_specific" "y_if_xi_interaction_specific" "y_if_xi_interaction_specific" "y_if_xi_interaction_specific" ...
+  ..$ df1_value: chr [1:5] "751.267211914062" "559.612548828125" "756.839477539062" "720.682922363281" ...
+  ..$ df2_value: chr [1:5] "751.267195820683" "559.612530070746" "756.839495066205" "720.682906182606" ...
 NULL
