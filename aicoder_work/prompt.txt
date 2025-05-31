@@ -716,15 +716,16 @@ is_stata_fmt_allowing_2_digit_year = function(fmt) {
 
 sfun_day = function(stata_date_values) {
   restore.point("sfun_day")
-  # Convert Stata date (numeric days since 1970-01-01 for consistency with R's internal Date representation) to R Date object.
+  # Convert Stata date (numeric days since 1960-01-01) to R Date object.
   # as.Date handles NA values correctly.
-  r_dates = as.Date(stata_date_values, origin = "1970-01-01")
+  r_dates = as.Date(stata_date_values, origin = "1960-01-01")
   
   # Extract day as numeric.
   # format() returns a character string, so convert to numeric.
   # This will result in NA for any invalid date conversions.
   return(as.numeric(format(r_dates, "%d")))
 }
+
 
 ```
 ### END OF FILE: sfun_day.R
@@ -739,15 +740,16 @@ sfun_day = function(stata_date_values) {
 
 sfun_dow = function(stata_date_values) {
   restore.point("sfun_dow")
-  # Convert Stata date (numeric days since 1970-01-01 for consistency with R's internal Date representation) to R Date object.
+  # Convert Stata date (numeric days since 1960-01-01) to R Date object.
   # as.Date handles NA values correctly.
-  r_dates = as.Date(stata_date_values, origin = "1970-01-01")
+  r_dates = as.Date(stata_date_values, origin = "1960-01-01")
   
   # Extract day of the week as numeric (0 for Sunday, ..., 6 for Saturday).
   # format() with "%w" provides this behavior.
   # This will result in NA for any invalid date conversions.
   return(as.numeric(format(r_dates, "%w")))
 }
+
 
 ```
 ### END OF FILE: sfun_dow.R
@@ -877,15 +879,16 @@ sfun_missing = function(x) {
 
 sfun_month = function(stata_date_values) {
   restore.point("sfun_month")
-  # Convert Stata date (numeric days since 1970-01-01 for consistency with R's internal Date representation) to R Date object.
+  # Convert Stata date (numeric days since 1960-01-01) to R Date object.
   # as.Date handles NA values correctly.
-  r_dates = as.Date(stata_date_values, origin = "1970-01-01")
+  r_dates = as.Date(stata_date_values, origin = "1960-01-01")
   
   # Extract month as numeric.
   # format() returns a character string, so convert to numeric.
   # This will result in NA for any invalid date conversions.
   return(as.numeric(format(r_dates, "%m")))
 }
+
 
 ```
 ### END OF FILE: sfun_month.R
@@ -926,9 +929,9 @@ sfun_normalize_string_nas = function(df) {
 
 sfun_qofd = function(stata_date_values) {
   restore.point("sfun_qofd")
-  # Convert Stata date (numeric days since 1970-01-01 for consistency with R's internal Date representation) to R Date object.
+  # Convert Stata date (numeric days since 1960-01-01) to R Date object.
   # as.Date handles NA values correctly.
-  r_dates = as.Date(stata_date_values, origin = "1970-01-01")
+  r_dates = as.Date(stata_date_values, origin = "1960-01-01")
 
   # Extract month from the R Date object
   months = as.numeric(format(r_dates, "%m"))
@@ -941,6 +944,7 @@ sfun_qofd = function(stata_date_values) {
 
   return(quarters_of_year)
 }
+
 
 ```
 ### END OF FILE: sfun_qofd.R
@@ -1092,12 +1096,12 @@ sfun_stata_date_single = function(s, fmt, century_pivot = NULL) {
     parsed_date = as.Date(paste(corrected_year, format(parsed_date, "%m-%d"), sep="-"))
   }
 
-  # Return numeric value as days since 1970-01-01, consistent with haven::read_dta's interpretation
-  # of Stata date variables and observed Stata `date()` function behavior in test logs.
-  stata_date = as.numeric(parsed_date)
+  # Return numeric value as days since 1960-01-01 (Stata's epoch)
+  stata_date = as.numeric(parsed_date - as.Date("1960-01-01"))
 
   return(stata_date)
 }
+
 
 ```
 ### END OF FILE: sfun_stata_date_single.R
@@ -1134,12 +1138,12 @@ sfun_stata_mdy = function(M, D, Y) {
   # Invalid dates will result in NA.
   r_date = suppressWarnings(as.Date(date_str, format = "%Y-%m-%d"))
   
-  # Return numeric value as days since 1970-01-01, consistent with haven::read_dta's interpretation
-  # of Stata date variables and observed Stata `date()` function behavior in test logs.
-  stata_date_value = as.numeric(r_date)
+  # Return numeric value as days since 1960-01-01 (Stata's epoch)
+  stata_date_value = as.numeric(r_date - as.Date("1960-01-01"))
   
   return(stata_date_value)
 }
+
 
 ```
 ### END OF FILE: sfun_stata_mdy.R
@@ -1336,15 +1340,16 @@ sfun_subinstr = function(s1, s2, s3, n) {
 
 sfun_year = function(stata_date_values) {
   restore.point("sfun_year")
-  # Convert Stata date (numeric days since 1970-01-01 for consistency with R's internal Date representation) to R Date object.
+  # Convert Stata date (numeric days since 1960-01-01) to R Date object.
   # as.Date handles NA values correctly.
-  r_dates = as.Date(stata_date_values, origin = "1970-01-01")
+  r_dates = as.Date(stata_date_values, origin = "1960-01-01")
 
   # Extract year as numeric.
   # format() returns a character string, so convert to numeric.
   # This will result in NA for any invalid date conversions.
   return(as.numeric(format(r_dates, "%Y")))
 }
+
 
 ```
 ### END OF FILE: sfun_year.R
@@ -6218,10 +6223,20 @@ data = data %>%
 data = data %>% 
   dplyr::mutate(`obs_date` = as.numeric(sfun_stata_date(`date_str`,  "YMD",  2050)))
 
-Error: After Stata line  29 , R data set differs from Stata reference.
+ 30 do:  format obs_date %tdCY-N-D 
+
+ 30 r:  not translated since not flagged as data manipulation
+
+ 31 do:  gen obs_year = year(obs_date) if !missing(obs_date)
+ 31 r:  data = data %>% 
+  dplyr::mutate(`obs_year` = dplyr::if_else((dplyr::coalesce(as.numeric(!sfun_missing(`obs_date`)), 0) != 0), as.numeric(sfun_year(`obs_date`)), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`obs_year` = dplyr::if_else((dplyr::coalesce(as.numeric(!sfun_missing(`obs_date`)), 0) != 0), as.numeric(sfun_year(`obs_date`)), NA_real_))
+
+Error: After Stata line  31 , R data set differs from Stata reference.
 
 Data set from Stata (do_df):
-tibble [50 × 29] (S3: tbl_df/tbl/data.frame)
+tibble [50 × 30] (S3: tbl_df/tbl/data.frame)
  $ id                    : num [1:50] 1 2 3 4 5 6 7 8 9 10 ...
   ..- attr(*, "label")= chr "id"
   ..- attr(*, "format.stata")= chr "%9.0g"
@@ -6287,13 +6302,14 @@ tibble [50 × 29] (S3: tbl_df/tbl/data.frame)
   ..- attr(*, "format.stata")= chr "%9s"
  $ value2_dev_from_mean  : num [1:50] -0.667 -1.667 NA 5.333 -1.667 ...
   ..- attr(*, "format.stata")= chr "%9.0g"
- $ obs_date              : num [1:50] 22179 22883 22685 22420 22164 ...
+ $ obs_date              : Date[1:50], format: "2020-09-21" "2022-08-26" ...
+ $ obs_year              : num [1:50] 2020 2022 2022 2021 2020 ...
   ..- attr(*, "format.stata")= chr "%9.0g"
  - attr(*, "label")= chr "Written by R."
 NULL
 
 Data set from R (r_df):
-tibble [50 × 30] (S3: tbl_df/tbl/data.frame)
+tibble [50 × 31] (S3: tbl_df/tbl/data.frame)
  $ id                        : num [1:50] 1 2 3 4 5 6 7 8 9 10 ...
  $ group_orig                : chr [1:50] " Gamma" " Gamma" "Beta" "Beta" ...
  $ value1                    : num [1:50] 73.9 NA 52.8 29.8 44.2 ...
@@ -6306,7 +6322,7 @@ tibble [50 × 30] (S3: tbl_df/tbl/data.frame)
  $ value2_squared            : num [1:50] 16 9 NA 100 9 4 9 36 36 64 ...
  $ int_value1                : num [1:50] 73 NA 52 29 44 NA 41 20 31 70 ...
  $ rounded_value1            : num [1:50] 73.9 NA 52.8 29.8 44.2 NA 41.7 20 31.9 70.1 ...
- $ random_uniform_draw       : num [1:50] 0.74 0.284 0.91 0.615 0.563 ...
+ $ random_uniform_draw       : num [1:50] 0.1582 0.4005 0.8635 0.8582 0.0204 ...
  $ id_plus_value2            : num [1:50] 5 5 NA NA 8 8 10 14 15 NA ...
  $ group_clean               : chr [1:50] "gamma" "gamma" "beta" "beta" ...
  $ group_abbr                : chr [1:50] "gam" "gam" "bet" "bet" ...
@@ -6323,7 +6339,8 @@ tibble [50 × 30] (S3: tbl_df/tbl/data.frame)
  $ row_mean_v1_v2            : num [1:50] 39 3 52.8 19.9 23.6 ...
  $ concat_group_num          : chr [1:50] "gamma166" "gamma181" "beta101" "beta136" ...
  $ value2_dev_from_mean      : num [1:50] -0.667 -1.667 NA 5.333 -1.667 ...
- $ obs_date                  : num [1:50] 18526 19230 19032 18767 18511 ...
+ $ obs_date                  : num [1:50] 22179 22883 22685 22420 22164 ...
+ $ obs_year                  : num [1:50] 2020 2022 2022 2021 2020 ...
 NULL
 
 Differences:List of 2
@@ -6331,8 +6348,8 @@ Differences:List of 2
  $ value_mismatch:'data.frame':	5 obs. of  4 variables:
   ..$ row      : int [1:5] 1 2 3 4 5
   ..$ column   : chr [1:5] "obs_date" "obs_date" "obs_date" "obs_date" ...
-  ..$ df1_value: chr [1:5] "22179" "22883" "22685" "22420" ...
-  ..$ df2_value: chr [1:5] "18526" "19230" "19032" "18767" ...
+  ..$ df1_value: chr [1:5] "18526" "19230" "19032" "18767" ...
+  ..$ df2_value: chr [1:5] "22179" "22883" "22685" "22420" ...
 NULL
 
 ##############################
