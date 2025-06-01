@@ -470,9 +470,9 @@ data = data %>%
  37 r:  data = dplyr::arrange(data, !!!dplyr::syms(c("proportion"))) 
 data = dplyr::arrange(data, !!!dplyr::syms(c("proportion")))
 
- 38 do:  save "result_data.dta", replace
- 38 r:  haven::write_dta(data, path = file.path(stata2r_env$working_dir, "result_data.dta")) # Options ignored: replace 
-haven::write_dta(data, path = file.path(stata2r_env$working_dir, "result_data.dta")) # Options ignored: replace
+ 38 do:  save "result_data.dta", replace 
+
+ 38 r:  not translated since not flagged as data manipulation
 
 
 ---

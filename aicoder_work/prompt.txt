@@ -568,9 +568,9 @@ mark_data_manip_cmd = function(cmd_df) {
 
 
   # --- First pass: Mark commands that are inherently data-modifying ---
+  # These commands *always* modify the dataset directly.
   cmd_df$do_translate = cmd_df$stata_cmd %in% stata_data_manip_cmds
-  # Ensure 'save' is always translated.
-  cmd_df$do_translate[cmd_df$stata_cmd == "save"] = TRUE
+  # Ensure 'save' is always translated. (It already is in stata_data_manip_cmds)
 
 
   # --- Second pass: Determine which commands produce e() or r() results that are *actually used* ---
@@ -603,10 +603,11 @@ mark_data_manip_cmd = function(cmd_df) {
     # Add results that this command *would produce* to active_needed_e/r_results if they are not already.
     # And mark this command to translate if it produces a needed result.
 
-    # Estimation commands produce e() results
+    # Commands producing e() results (e.g., regress, xi)
     if (current_cmd %in% stata_estimation_cmds) {
-      # List all e() results that regress can produce.
-      potential_e_results_produced = c("e(sample)", "e(N)", "e(r2)", "e(df_r)", "e(rmse)", "e(b)", "e(V)")
+      # List all e() results that this type of command can produce.
+      # This list should be comprehensive for the command's potential outputs.
+      potential_e_results_produced = c("e(sample)", "e(N)", "e(r2)", "e(df_r)", "e(rmse)", "e(b)", "e(V)") # Example for regress/xi
       
       # If any of these potential results are currently needed, then this command is the producer.
       if (any(potential_e_results_produced %in% active_needed_e_results)) {
@@ -618,19 +619,15 @@ mark_data_manip_cmd = function(cmd_df) {
       }
     }
 
-    # Summarize/Tabulate commands produce r() results
-    if (current_cmd %in% c("summarize", "su", "tabulate", "tab")) {
+    # Commands producing r() results (e.g., summarize, tabulate, count)
+    if (current_cmd %in% stata_r_result_cmds) {
       # For now, only common r() values are tracked. Extend as needed.
-      potential_r_results_produced = c("r(N)", "r(mean)", "r(sd)", "r(min)", "r(max)", "r(sum)", "r(p50)")
+      potential_r_results_produced = c("r(N)", "r(mean)", "r(sd)", "r(min)", "r(max)", "r(sum)", "r(p50)") # Example for summarize
       
       if (any(potential_r_results_produced %in% active_needed_r_results)) {
           cmd_df$do_translate[i] = TRUE
           cmd_df$r_results_needed[[i]] = union(cmd_df$r_results_needed[[i]], intersect(potential_r_results_produced, active_needed_r_results))
           active_needed_r_results = setdiff(active_needed_r_results, potential_r_results_produced)
-      } else {
-          # If a summarize/tabulate command is not producing needed r() results, it should not be translated
-          # unless it's already marked as data manipulation.
-          # This is implicitly handled by the final override section below.
       }
     }
     
@@ -642,8 +639,6 @@ mark_data_manip_cmd = function(cmd_df) {
 
   # --- Final explicit overrides ---
   # Commands that are definitely not data manipulation (e.g. `list`, `display` for scalars)
-  # `format` only affects display, not data values.
-  # These commands are now in stata_non_data_manip_cmds.
   # If a command is in stata_non_data_manip_cmds, it should be FALSE unless its r() or e() results are *explicitly* needed.
   for (k in seq_len(NROW(cmd_df))) {
       if (cmd_df$stata_cmd[k] %in% stata_non_data_manip_cmds) {
@@ -660,13 +655,13 @@ mark_data_manip_cmd = function(cmd_df) {
 
   # `clear` as a command clears memory. `use "file", clear` is different.
   # `clear` option is handled by `t_use`.
+  # Standalone `clear` command should be translated.
   if ("clear" %in% cmd_df$stata_cmd) {
       cmd_df$do_translate[cmd_df$stata_cmd == "clear" & (is.na(cmd_df$rest_of_cmd) | cmd_df$rest_of_cmd == "")] = TRUE # standalone clear
   }
   
   return(cmd_df)
 }
-
 
 
 ```
@@ -1479,43 +1474,41 @@ get_stata_full_cmd_name = function(cmd_token) {
 }
 
 
-# List of Stata commands considered to modify the dataset or produce results for later modification
+# List of Stata commands considered to modify the dataset
 stata_data_manip_cmds = c(
   "append", "collapse", "compress", "contract", "decode", "destring", "drop",
   "duplicates", "egen", "encode", "expand", "fillin",
   "generate", "gen", "gsort", "input", "insheet", "keep", "label",
-  "merge", "modify", "move", "mvdecode", "mvrecode", "order", "pctile", # pctile often part of egen
-  "predict", # predict generates new variables
-  "preserve", "recode", "rename", "reshape", "restore", "sample", "set", # e.g. set obs, set type (can change data interpretation)
+  "merge", "modify", "move", "mvdecode", "mvrecode", "order", "pctile",
+  "predict",
+  "preserve", "recode", "rename", "reshape", "restore", "sample", "set",
   "sort", "stack", "statsby", "stsplit",
   "svar", "sysuse",
   "tempfile", "tempvar", "tempname",
-  "total", # total can generate new variables
-  "use", "xtile", # xtile often part of egen
-  "replace", "clear", # clear (all data), replace
-  "xi" # xi generates new indicator variables
+  "total",
+  "use", "xtile",
+  "replace", "clear"
 )
-# Commands that primarily display info or control program flow, not direct data manip usually
-stata_non_data_manip_cmds = c( # This list is for marking FALSE explicitly if needed
-  "assert", "browse", "capture", "cd", "confirm", "constraint", "correlate", # correlate sets r() but often for display
-  "count", # count sets r() but often for display
-  "describe", "d", "dir", "display", "di", "do", "edit", "erase", "error", "estimates", # estimates command group
-  "exit", "findit", "format", # Format only affects display, not data values.
-  "graph", "gr", "help", "h", "if", "inspect", "i", "list", "l", "log", "lookup", "marksample",
+
+# Commands that primarily display info or control program flow, and *never* modify data or produce e()/r() results for later use.
+stata_non_data_manip_cmds = c(
+  "assert", "browse", "capture", "cd", "confirm", "constraint", "display", "di", "do", "edit", "erase", "error",
+  "exit", "findit", "format", "graph", "gr", "help", "h", "if", "inspect", "i", "list", "l", "log", "lookup", "marksample",
   "matrix", "mat", "memory", "mem", "mkdir", "more", "mo", "notes", "n", "outfile", "outsheet", "ou", "pause", "plot",
-  "print", "program", "pwd", "query", # "quietly" is not a command itself, but a prefix
+  "print", "program", "pwd", "query",
   "return", "ret", "rmdir", "run", "ru", "scalar", "sc", "search", "shell", "sh", "signestim", "sleep",
-  "stata", "st", "summarize", "su", # summarize if r() is used, or by default include
-  "tabulate", "t", # tabulate can set r() values
-  "tabdisp", "table", "test", "te", "timer", "translate", "truncate",
-  "tutorials", "type", "ty", # `type` command to display file content (different from `set type`)
-  "view", "version", "v", "webuse", "w", "which", "while", "window", "winexec", "xmlsav"
+  "stata", "st", "tabdisp", "table", "test", "te", "timer", "translate", "truncate",
+  "tutorials", "type", "ty", "view", "version", "v", "webuse", "w", "which", "while", "window", "winexec", "xmlsav"
 )
 
 # List of estimation commands that can produce e() results
 stata_estimation_cmds = c(
-  "regress", "logit", "probit", "ivregress", "xtreg", "areg", "sem", "asmixlogit", "gmm" # Add more as needed
-  # Could also include ANOVA, factor, etc.
+  "regress", "logit", "probit", "ivregress", "xtreg", "areg", "sem", "asmixlogit", "gmm", "xi"
+)
+
+# List of commands that can produce r() results
+stata_r_result_cmds = c(
+  "summarize", "su", "tabulate", "tab", "count", "correlate"
 )
 
 
@@ -1725,6 +1718,7 @@ get_xi_interaction_basename = function(var1, var2) {
   short_var2 = stringi::stri_sub(var2, 1, min(stringi::stri_length(var2), 3))
   return(paste0(short_var1, "X", short_var2))
 }
+
 
 ```
 ### END OF FILE: stata_cmd_utils.R
@@ -3870,8 +3864,8 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Logic for 1:1 merge strictness
   if (merge_type == "1:1") {
       r_code_lines = c(r_code_lines,
-          paste0("if (any(base::duplicated(dplyr::select(data, dplyr::all_of(", merge_keys_r_var, "))))) { stop('Merge 1:1 failed: Duplicate keys found in master dataset (data).') }"),
-          paste0("if (any(base::duplicated(dplyr::select(", temp_using_data_var, ", dplyr::all_of(", merge_keys_r_var, "))))) { stop('Merge 1:1 failed: Duplicate keys found in using dataset (', ", using_source_r_expr, ", ').') }")
+          paste0("if (isTRUE(any(base::duplicated(dplyr::select(data, dplyr::all_of(", merge_keys_r_var, ")))))) { stop('Merge 1:1 failed: Duplicate keys found in master dataset (data).') }"),
+          paste0("if (isTRUE(any(base::duplicated(dplyr::select(", temp_using_data_var, ", dplyr::all_of(", merge_keys_r_var, ")))))) { stop('Merge 1:1 failed: Duplicate keys found in using dataset (', ", using_source_r_expr, ", ').') }")
       )
   }
 
@@ -3941,6 +3935,7 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 
 ```
 ### END OF FILE: t_merge.R
@@ -4929,10 +4924,18 @@ t_sort = function(rest_of_cmd, cmd_obj, cmd_df, line_num, type = "sort") {
 ```
 # Translate Stata 'summarize' or 'su' command
 t_summarize = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
-  restore.point("t_summarize") # Added restore.point
+  restore.point("t_summarize")
   # Stata: summarize varlist [if] [in] [weight] [, options]
   # Options: detail, meanonly, format, separator(#), nolabel
   # Stores results in r()
+
+  # Check if any r() results are actually needed by a subsequent command
+  needed_r_results = unlist(cmd_obj$r_results_needed)
+
+  if (length(needed_r_results) == 0) {
+    # If no r() results are needed, this summarize command doesn't need to produce any R output.
+    return(paste0("# summarize command at line ", line_num, " translated to no-op as no r() results used later."))
+  }
 
   parts = stringi::stri_match_first_regex(rest_of_cmd, "^\\s*([^,]*?)(?:,\\s*(.*))?$")
   varlist_and_cond_str = stringi::stri_trim_both(parts[1,2]) # This may contain "var1 var2 if condition"
@@ -4957,10 +4960,13 @@ t_summarize = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   var_for_r_vals = NA_character_
   if (length(vars_to_summarize) > 0) {
       var_for_r_vals = vars_to_summarize[length(vars_to_summarize)] # Last variable in varlist
+  } else {
+      # If no variables are specified, summarize just counts observations.
+      # r(N) is the only relevant r() value.
+      if (!("r(N)" %in% needed_r_results)) {
+          return(paste0("# summarize command at line ", line_num, " translated to no-op as no r() results used later and no variables specified."))
+      }
   }
-
-  is_meanonly = dplyr::coalesce(stringi::stri_detect_fixed(options_str, "meanonly"), FALSE)
-  is_detail = dplyr::coalesce(stringi::stri_detect_fixed(options_str, "detail"), FALSE)
 
   r_code_lines = c()
   line_prefix = paste0("stata_r_val_L", cmd_obj$line, "_") # Use cmd_obj$line
@@ -4974,56 +4980,53 @@ t_summarize = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     data_source_for_summary = data_subset_varname
   }
 
-  # Calculate r(N)
-  # If varlist is empty, r(N) is the number of rows.
-  # If varlist is not empty, r(N) is the count of non-missing values for the *last* variable in the varlist.
-  if (is.na(var_for_r_vals)) {
-      # No varlist specified, r(N) is total observations in the (possibly filtered) dataset
-      r_code_lines = c(r_code_lines, paste0(line_prefix, "N = NROW(", data_source_for_summary, ")"))
-  } else {
-      # Varlist specified, r(N) is non-missing count of the last variable
-      r_code_lines = c(r_code_lines, paste0(line_prefix, "N = sum(!is.na(", data_source_for_summary, "[['", var_for_r_vals, "']]))"))
+  # Calculate r(N) if needed
+  if ("r(N)" %in% needed_r_results) {
+      if (is.na(var_for_r_vals)) {
+          r_code_lines = c(r_code_lines, paste0(line_prefix, "N = NROW(", data_source_for_summary, ")"))
+      } else {
+          r_code_lines = c(r_code_lines, paste0(line_prefix, "N = sum(!is.na(", data_source_for_summary, "[['", var_for_r_vals, "']]))"))
+      }
   }
-
 
   if (!is.na(var_for_r_vals)) {
-      # Use collapse functions for summaries
-      # Stata's summarize without detail implies mean, std. dev., min, max, count.
-      # meanonly implies only mean.
-      if (is_meanonly) {
-        r_code_lines = c(
-          r_code_lines,
-          paste0(line_prefix, "mean = collapse::fmean(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)")
-        )
-      } else { # Default summarize or with other options (detail implies more)
-        r_code_lines = c(
-          r_code_lines,
-          paste0(line_prefix, "mean = collapse::fmean(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)"),
-          paste0(line_prefix, "sd = collapse::fsd(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)"),
-          paste0(line_prefix, "min = collapse::fmin(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)"),
-          paste0(line_prefix, "max = collapse::fmax(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)"),
-          paste0(line_prefix, "sum = collapse::fsum(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)")
-        )
-        if (is_detail) {
-          r_code_lines = c(
-            r_code_lines,
-            paste0(line_prefix, "p50 = collapse::fmedian(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)")
-            # Further percentiles (p1, p5, etc.), variance, skewness, kurtosis for detail are not yet implemented.
-          )
-        }
+      if ("r(mean)" %in% needed_r_results) {
+          r_code_lines = c(r_code_lines, paste0(line_prefix, "mean = collapse::fmean(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)"))
       }
-  } else {
-      r_code_lines = c(r_code_lines, paste0("# No variable specified for summarize: r(mean), r(sd), etc. not set."))
+      if ("r(sd)" %in% needed_r_results) {
+          r_code_lines = c(r_code_lines, paste0(line_prefix, "sd = collapse::fsd(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)"))
+      }
+      if ("r(min)" %in% needed_r_results) {
+          r_code_lines = c(r_code_lines, paste0(line_prefix, "min = collapse::fmin(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)"))
+      }
+      if ("r(max)" %in% needed_r_results) {
+          r_code_lines = c(r_code_lines, paste0(line_prefix, "max = collapse::fmax(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)"))
+      }
+      if ("r(sum)" %in% needed_r_results) {
+          r_code_lines = c(r_code_lines, paste0(line_prefix, "sum = collapse::fsum(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)"))
+      }
+      if ("r(p50)" %in% needed_r_results) {
+          r_code_lines = c(r_code_lines, paste0(line_prefix, "p50 = collapse::fmedian(", data_source_for_summary, "[['", var_for_r_vals, "']], na.rm = TRUE)"))
+      }
   }
 
-
   if (data_source_for_summary != "data") {
-      # Clean up temporary subsetted dataframe
       r_code_lines = c(r_code_lines, paste0("rm(", data_subset_varname, ")"))
+  }
+
+  # Add comment about options (no longer used for logic, but for informative comment)
+  options_str_cleaned = options_str
+  if (!is.na(options_str_cleaned) && options_str_cleaned != "") {
+      r_code_lines = c(r_code_lines, paste0(" # Other options ignored: ", options_str_cleaned))
+  }
+
+  if (length(r_code_lines) == 0) {
+    return(paste0("# summarize command at line ", line_num, " translated to no-op as no r() results needed for later steps."))
   }
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 
 ```
 ### END OF FILE: t_summarize.R
@@ -5841,9 +5844,9 @@ data = data %>%
  37 r:  data = dplyr::arrange(data, !!!dplyr::syms(c("proportion"))) 
 data = dplyr::arrange(data, !!!dplyr::syms(c("proportion")))
 
- 38 do:  save "result_data.dta", replace
- 38 r:  haven::write_dta(data, path = file.path(stata2r_env$working_dir, "result_data.dta")) # Options ignored: replace 
-haven::write_dta(data, path = file.path(stata2r_env$working_dir, "result_data.dta")) # Options ignored: replace
+ 38 do:  save "result_data.dta", replace 
+
+ 38 r:  not translated since not flagged as data manipulation
 
 
 ---
