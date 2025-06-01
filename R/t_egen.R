@@ -1,10 +1,5 @@
 t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   restore.point("t_egen")
-  # Basic parsing: newvar = function(args) [, by(groupvars)] [if condition]
-  # Example: egen mean_i_grp = mean(i), by(group)
-  # Example: egen total_i = total(i)
-  # Example: bysort group: egen rank_i = rank(i) (Note: bysort handled by cmd_obj$is_by_prefix)
-
   # Remove type prefix if any (byte, int, long, float, double, str#, etc.)
   # Pattern: ^\s*(byte|int|long|float|double|str\\d+)\\s+
   rest_of_cmd_no_type = stringi::stri_replace_first_regex(rest_of_cmd, "^\\s*(?:byte|int|long|float|double|str\\d+|strL)\\s+", "")
@@ -135,6 +130,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Translate egen function into an R expression for calculation
   calc_expr = ""
   is_row_function = FALSE # Flag for functions like rowtotal, rowmean that don't use group_by
+  needs_temp_sort_and_merge = FALSE # Flag for group, tag, rank when no bysort prefix
 
   # Switch for egen functions
   if (egen_func_name == "mean") {
@@ -142,34 +138,42 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   } else if (egen_func_name == "total" || egen_func_name == "sum") {
     calc_expr = paste0("sum(", r_egen_args_conditional, ", na.rm = TRUE)")
   } else if (egen_func_name == "count") {
-    # count(exp) counts non-missing results of exp. If exp is varname, sum(!is.na(varname)).
-    # If exp is complex, sum(eval(parse(text=r_egen_args_conditional)) != 0 & !is.na(eval(parse(text=r_egen_args_conditional))))
-    # Assuming r_egen_args_conditional results in a numeric or logical vector
     calc_expr = paste0("sum(!is.na(", r_egen_args_conditional, "))")
   } else if (egen_func_name == "rank") {
-    # Stata rank() without fieldstrustmissings returns missing for missing.
-    # Stata rank() with fieldstrustmissings treats missing values as true values (usually largest) and assigns them a rank.
-    # Stata's rank() uses the 'average' method for ties.
-    if (is_fieldstrustmissings) {
-      # Replace NA values with Inf to rank them highest.
-      # Note: r_egen_args_conditional already applies if/in conditions, yielding NA for rows not meeting condition.
-      # These NAs should also be treated as largest for ranking due to fieldstrustmissings.
-      val_for_ranking = paste0("as.numeric(dplyr::if_else(is.na(", r_egen_args_conditional, "), Inf, ", r_egen_args_conditional, "))")
-      calc_expr = paste0("as.numeric(base::rank(", val_for_ranking, ", ties.method = 'average', na.last = 'keep'))")
-    } else {
-      # Default Stata rank: NAs get NA ranks, and uses 'average' method for ties.
-      calc_expr = paste0("as.numeric(base::rank(", r_egen_args_conditional, ", ties.method = 'average', na.last = 'keep'))")
+    if (!cmd_obj$is_by_prefix) { # If rank is called without bysort prefix
+      needs_temp_sort_and_merge = TRUE
+      # calc_expr will be used inside the temporary sorted data.frame. Variables must be prefixed with `.`
+      if (is_fieldstrustmissings) {
+        calc_expr = paste0("as.numeric(base::rank(dplyr::if_else(is.na(.`", stringi::stri_replace_all_fixed(r_egen_args, "`", ""), "`), Inf, .`", stringi::stri_replace_all_fixed(r_egen_args, "`", ""), "`), ties.method = 'average', na.last = 'keep'))")
+      } else {
+        calc_expr = paste0("as.numeric(base::rank(.`", stringi::stri_replace_all_fixed(r_egen_args, "`", ""), "`, ties.method = 'average', na.last = 'keep'))")
+      }
+    } else { # With bysort prefix
+      if (is_fieldstrustmissings) {
+        val_for_ranking = paste0("as.numeric(dplyr::if_else(is.na(", r_egen_args_conditional, "), Inf, ", r_egen_args_conditional, "))")
+        calc_expr = paste0("as.numeric(base::rank(", val_for_ranking, ", ties.method = 'average', na.last = 'keep'))")
+      } else {
+        calc_expr = paste0("as.numeric(base::rank(", r_egen_args_conditional, ", ties.method = 'average', na.last = 'keep'))")
+      }
     }
   } else if (egen_func_name == "median" || egen_func_name == "p50") {
     calc_expr = paste0("stats::median(", r_egen_args_conditional, ", na.rm = TRUE)")
   } else if (egen_func_name == "sd" || egen_func_name == "std") {
     calc_expr = paste0("stats::sd(", r_egen_args_conditional, ", na.rm = TRUE)")
   } else if (egen_func_name == "group") {
-    # dplyr::cur_group_id() gives integer for each group.
-    calc_expr = paste0("dplyr::cur_group_id()")
+    if (!cmd_obj$is_by_prefix) { # If group is called without bysort prefix
+      needs_temp_sort_and_merge = TRUE
+      calc_expr = paste0("dplyr::cur_group_id()")
+    } else { # With bysort prefix
+      calc_expr = paste0("dplyr::cur_group_id()")
+    }
   } else if (egen_func_name == "tag") {
-    # Stata tag(varlist) creates 1 for first observation in a group (defined by varlist) and 0 otherwise.
-    calc_expr = paste0("as.numeric(dplyr::row_number() == 1)")
+    if (!cmd_obj$is_by_prefix) { # If tag is called without bysort prefix
+      needs_temp_sort_and_merge = TRUE
+      calc_expr = paste0("as.numeric(dplyr::row_number() == 1)")
+    } else { # With bysort prefix
+      calc_expr = paste0("as.numeric(dplyr::row_number() == 1)")
+    }
   } else if (egen_func_name == "rowtotal") {
     # FIX: Remove backticks from variable names as `translate_stata_expression_to_r` already adds them,
     # and `dplyr::all_of` expects bare column names (strings), not backticked strings.
@@ -254,53 +258,75 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
 
 
-  # Determine variables for initial sorting for functions requiring internal sort (rank, group, tag)
-  sort_vars_for_arrange = character(0)
-
-  # Only sort temporarily if it's NOT a by-prefix command, but one of the order-sensitive egen functions
-  if (!cmd_obj$is_by_prefix && length(group_vars_list_bare) > 0 && egen_func_name %in% c("rank", "group", "tag")) {
-    sort_vars_for_arrange = unique(c(group_vars_list_bare))
-    if (egen_func_name == "rank" && !is.na(egen_args_str) && egen_args_str != "") {
-      # For rank, also sort by the argument of rank() if it's a variable
-      rank_arg_var = stringi::stri_replace_all_fixed(r_egen_args, "`", "") # Remove backticks for comparison
-      if (rank_arg_var %in% names(data)) { # Check if it's a valid variable name
-        sort_vars_for_arrange = unique(c(sort_vars_for_arrange, rank_arg_var))
-      }
-    }
-    sort_vars_for_arrange = sort_vars_for_arrange[!is.na(sort_vars_for_arrange) & sort_vars_for_arrange != ""]
-  }
-
   r_code_lines = c()
-  pipe_elements = list("data") # Start the pipe with the data object
+  
+  if (needs_temp_sort_and_merge) {
+      if (!isTRUE(stata2r_env$has_original_order_idx)) {
+          return(paste0("# Error: egen ", egen_func_name, " requires original order index (stata2r_original_order_idx) when used without bysort prefix. Add a `use` command to initialize it."))
+      }
+      
+      temp_df_name = paste0("stata_tmp_egen_order_L", line_num)
+      
+      # Columns needed for sorting and calculation: group_vars_list_bare, and the variable used in rank() if applicable
+      cols_for_temp_calculation = unique(group_vars_list_bare)
+      if (egen_func_name == "rank" && !is.na(egen_args_str) && egen_args_str != "") {
+          rank_arg_var_bare = stringi::stri_replace_all_fixed(r_egen_args, "`", "")
+          cols_for_temp_calculation = unique(c(cols_for_temp_calculation, rank_arg_var_bare))
+      }
+      
+      select_cols_for_temp = paste0('c("stata2r_original_order_idx", "', paste(cols_for_temp_calculation, collapse = '", "'), '")')
 
-  # Add arrange for `egen group/tag/rank` functions within the pipe, if not already handled by bysort command
-  if (length(sort_vars_for_arrange) > 0 && !is_row_function) {
-    arrange_vars_expr = paste0('!!!dplyr::syms(c("', paste0(sort_vars_for_arrange, collapse = '", "'), '"))')
-    pipe_elements = c(pipe_elements, paste0("dplyr::arrange(", arrange_vars_expr, ")"))
+      r_code_lines = c(r_code_lines,
+          paste0(temp_df_name, " = dplyr::select(data, ", select_cols_for_temp, ")")
+      )
+      
+      # Apply the if/in condition from egen args for the temporary data
+      if (!is.na(final_r_subset_cond_in_args) && final_r_subset_cond_in_args != "") {
+          r_subset_cond_for_temp_df = translate_stata_expression_with_r_values(stata_if_cond_in_args, line_num, cmd_df, context = list(is_by_group=FALSE))
+          r_code_lines = c(r_code_lines, paste0(temp_df_name, " = dplyr::mutate(", temp_df_name, ", .stata_egen_cond_L", line_num, " = dplyr::coalesce(as.numeric(with(", temp_df_name, ", ", r_subset_cond_for_temp_df, ")), 0) != 0)"))
+      }
+      
+      # Sort the temporary data before calculating group IDs / ranks
+      sort_expr_for_temp = paste0('!!!dplyr::syms(c("', paste0(group_vars_list_bare, collapse = '", "'), '"))')
+      if (egen_func_name == "rank" && !is.na(egen_args_str) && egen_args_str != "") {
+          rank_arg_var_bare = stringi::stri_replace_all_fixed(r_egen_args, "`", "")
+          sort_expr_for_temp = paste0('!!!dplyr::syms(c("', paste0(unique(c(group_vars_list_bare, rank_arg_var_bare)), collapse = '", "'), '"))')
+      }
+      r_code_lines = c(r_code_lines, paste0(temp_df_name, " = ", temp_df_name, " %>% dplyr::arrange(", sort_expr_for_temp, ")"))
+
+      # Calculate the new variable
+      r_code_lines = c(r_code_lines, paste0(temp_df_name, " = ", temp_df_name, " %>% dplyr::group_by(!!!dplyr::syms(c(\"", paste0(group_vars_list_bare, collapse = '", "'), "\"))) %>% dplyr::mutate(", full_mutate_expr, ") %>% dplyr::ungroup()"))
+
+      # Join back to original data using original_order_idx
+      # Need to handle if condition: if condition is FALSE, value remains NA (for new var) or original (for replace)
+      if (!is.na(final_r_subset_cond_in_args) && final_r_subset_cond_in_args != "") {
+          r_code_lines = c(r_code_lines, paste0("data = dplyr::left_join(data, dplyr::select(", temp_df_name, ", stata2r_original_order_idx, `", new_var, "`, .stata_egen_cond_L", line_num, "), by = \"stata2r_original_order_idx\")"))
+          r_code_lines = c(r_code_lines, paste0("data = dplyr::mutate(data, `", new_var, "` = dplyr::if_else(dplyr::coalesce(data[[paste0(\".stata_egen_cond_L\", ", line_num, ")]], FALSE), data[[`", new_var, "`]], NA_real_))"))
+          r_code_lines = c(r_code_lines, paste0("data = dplyr::select(data, -dplyr::any_of(paste0(\".stata_egen_cond_L\", ", line_num, ")))"))
+      } else {
+          r_code_lines = c(r_code_lines, paste0("data = dplyr::left_join(data, dplyr::select(", temp_df_name, ", stata2r_original_order_idx, `", new_var, "`), by = \"stata2r_original_order_idx\")"))
+      }
+      
+      r_code_lines = c(r_code_lines, paste0("rm(", temp_df_name, ")"))
+
+  } else { # Standard mutate logic for other egen functions or bysort prefix
+      pipe_elements = list("data") # Elements for the pipe chain, starting from `data`
+
+      # Add grouping and mutate steps
+      if (length(group_vars_list_bare) > 0 && !is_row_function) {
+          group_by_call_str = paste0('dplyr::group_by(!!!dplyr::syms(c("', paste0(group_vars_list_bare, collapse='", "'), '")))')
+          pipe_elements = c(pipe_elements, group_by_call_str)
+      }
+
+      pipe_elements = c(pipe_elements, paste0("dplyr::mutate(", full_mutate_expr, ")"))
+
+      if (length(group_vars_list_bare) > 0 && !is_row_function) {
+          pipe_elements = c(pipe_elements, "dplyr::ungroup()")
+      }
+
+      r_code_lines = c(r_code_lines, paste0("data = ", paste(pipe_elements, collapse = " %>% \n  ")))
   }
 
-
-  # Add grouping and mutate steps
-  if (length(group_vars_list_bare) > 0 && !is_row_function) {
-    group_by_call_str = paste0('dplyr::group_by(!!!dplyr::syms(c("', paste0(group_vars_list_bare, collapse='", "'), '")))')
-    pipe_elements = c(pipe_elements, group_by_call_str)
-  }
-
-  pipe_elements = c(pipe_elements, paste0("dplyr::mutate(", full_mutate_expr, ")"))
-
-  if (length(group_vars_list_bare) > 0 && !is_row_function) {
-    pipe_elements = c(pipe_elements, "dplyr::ungroup()")
-  }
-
-  # Restore original order if it was a temporary sort for egen functions without bysort prefix
-  # This is handled by arranging by `stata2r_original_order_idx` after ungrouping.
-  if (!cmd_obj$is_by_prefix && length(sort_vars_for_arrange) > 0 && !is_row_function && isTRUE(stata2r_env$has_original_order_idx)) {
-    pipe_elements = c(pipe_elements, "dplyr::arrange(stata2r_original_order_idx)")
-  }
-
-  r_code_lines = c(r_code_lines, paste0("data = ", paste(pipe_elements, collapse = " %>% \n  ")))
-
-   # Add comment about options if any were present but not handled (excluding by)
    options_str_cleaned = options_str
    if (!is.na(options_str_cleaned)) {
         options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "\\bby\\s*\\([^)]+\\)", "")
