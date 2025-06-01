@@ -141,6 +141,9 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
      r_code_lines = c(r_code_lines, paste0("data = ", paste(main_pipe_parts, collapse = " %>% \n  ")))
   }
 
+  # After collapse, the original order index is no longer valid.
+  r_code_lines = c(r_code_lines, paste0("assign(\"has_original_order_idx\", FALSE, envir = stata2r_env)"))
+
 
   r_code_str = paste(r_code_lines, collapse="\n")
 

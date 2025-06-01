@@ -227,7 +227,8 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
 
   # Determine actual grouping variables for dplyr::group_by
-  group_vars_list_bare = character(0) # Will hold just bare variable names
+  group_vars_list_bare = character(0) 
+  
   if (cmd_obj$is_by_prefix) {
     if (length(cmd_obj$by_group_vars) > 0 && !is.na(cmd_obj$by_group_vars[1])) {
       group_vars_list = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
@@ -293,7 +294,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   # Restore original order if it was a temporary sort for egen functions without bysort prefix
   # This is handled by arranging by `stata2r_original_order_idx` after ungrouping.
-  if (!cmd_obj$is_by_prefix && length(sort_vars_for_arrange) > 0 && !is_row_function) {
+  if (!cmd_obj$is_by_prefix && length(sort_vars_for_arrange) > 0 && !is_row_function && isTRUE(stata2r_env$has_original_order_idx)) {
     pipe_elements = c(pipe_elements, "dplyr::arrange(stata2r_original_order_idx)")
   }
 

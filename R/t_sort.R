@@ -15,11 +15,16 @@ t_sort = function(rest_of_cmd, cmd_obj, cmd_df, line_num, type = "sort") {
     return("# sort/gsort command with no effectively parsed variables.")
   }
 
+  # Determine if stata2r_original_order_idx should be used as a tie-breaker
+  use_original_order_idx = isTRUE(stata2r_env$has_original_order_idx)
+
   if (type == "sort") {
-    # Plain sort is ascending for all variables
+    sort_vars = vars
+    if (use_original_order_idx) {
+      sort_vars = c(sort_vars, "stata2r_original_order_idx")
+    }
     # Using dplyr::arrange with !!!dplyr::syms for consistency and robustness
-    # Add stata2r_original_order_idx as the final tie-breaker
-    sort_vars_r = paste0('!!!dplyr::syms(c("', paste(vars, collapse='", "'), '", "stata2r_original_order_idx"))')
+    sort_vars_r = paste0('!!!dplyr::syms(c("', paste(sort_vars, collapse='", "'), '"))')
     r_code_str = paste0("data = dplyr::arrange(data, ", sort_vars_r, ")")
 
   } else if (type == "gsort") {
@@ -41,7 +46,9 @@ t_sort = function(rest_of_cmd, cmd_obj, cmd_df, line_num, type = "sort") {
       }
     }
     # Add stata2r_original_order_idx as the final tie-breaker to ensure stable sort for ties
-    arrange_expressions = c(arrange_expressions, '!!!dplyr::syms("stata2r_original_order_idx")')
+    if (use_original_order_idx) {
+      arrange_expressions = c(arrange_expressions, '!!!dplyr::syms("stata2r_original_order_idx")')
+    }
     r_code_str = paste0("data = dplyr::arrange(data, ", paste(arrange_expressions, collapse = ", "), ")")
   } else {
     r_code_str = paste0("# Unknown sort type: ", type)
