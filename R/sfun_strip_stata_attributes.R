@@ -29,10 +29,10 @@ sfun_strip_stata_attributes = function(x) {
     # specific class that Stata doesn't have a direct equivalent for.
     if (is.numeric(x)) {
       # Round to a fixed precision to normalize potential floating point differences
-      # This is for comparison purposes, not altering the data stored in `data`.
       # Stata's default numeric type is float (typically 7-8 decimal digits of precision).
       # Rounding to, say, 7 decimal places for comparison should help match Stata's precision.
-      x = round(as.numeric(x), digits = 7)
+      # INCREASED TO 10 DIGITS FOR MORE STRINGENT COMPARISON
+      x = round(as.numeric(x), digits = 10)
     } else if (is.character(x)) {
       x = as.character(x)
     } else if (is.logical(x)) {
@@ -50,5 +50,4 @@ sfun_strip_stata_attributes = function(x) {
     return(x)
   }
 }
-
 
