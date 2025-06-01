@@ -4,6 +4,9 @@
 
 t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   restore.point("t_collapse")
+  # Update original order index flag immediately (during translation)
+  assign("has_original_order_idx", FALSE, envir = stata2r_env)
+
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
   # Split into aggregate definitions part and options part
@@ -140,9 +143,6 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
      # Pipe starts from original 'data'
      r_code_lines = c(r_code_lines, paste0("data = ", paste(main_pipe_parts, collapse = " %>% \n  ")))
   }
-
-  # After collapse, the original order index is no longer valid.
-  r_code_lines = c(r_code_lines, paste0("assign(\"has_original_order_idx\", FALSE, envir = stata2r_env)"))
 
 
   r_code_str = paste(r_code_lines, collapse="\n")

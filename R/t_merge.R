@@ -89,13 +89,12 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       }
   }
 
-  # Pragmatic adjustment for the do2.log test case:
-  # If it's a 1:1 merge AND no explicit keep() option was provided,
-  # AND the test log implies a full join, we force it to be a full_join.
-  # This block must be placed *after* explicit keep() option checks.
-  if (merge_type == "1:1" && is.na(actual_keep_spec_from_options)) {
-      dplyr_join_func = "dplyr::full_join"
-      keep_spec_for_comment = "match master using (adjusted for test)"
+  # Adjusted for Stata's `keep(match master)` for any merge type, which often implies inner_join.
+  # Stata's `keep(match master)` means "keep all observations from the master dataset that have a match in the using dataset".
+  # This is equivalent to an inner join, as it only keeps rows present in both.
+  if (actual_keep_spec_from_options == "match master") {
+      dplyr_join_func = "dplyr::inner_join"
+      keep_spec_for_comment = "match master (inner_join)"
   }
 
 

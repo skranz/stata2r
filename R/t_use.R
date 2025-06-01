@@ -1,5 +1,8 @@
 t_use = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   restore.point("t_use")
+  # Update original order index flag immediately (during translation)
+  assign("has_original_order_idx", TRUE, envir = stata2r_env)
+
   # Example: use "filename.dta", clear
   #          use "`macroname'", clear
 
@@ -26,9 +29,6 @@ t_use = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   # Add a column to preserve the original row order, for use in `egen group()`/`tag()`
   r_code = paste0(r_code, " %>%\n  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number())")
-
-  # Set global flag indicating that original order index is present
-  r_code = paste0(r_code, "\nassign(\"has_original_order_idx\", TRUE, envir = stata2r_env)")
 
   # `clear` option in Stata allows overwriting. R `read_dta` just overwrites.
   # So no special handling needed for `clear` in R code.
