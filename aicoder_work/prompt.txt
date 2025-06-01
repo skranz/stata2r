@@ -2946,7 +2946,8 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   if (egen_func_name == "mean") {
     calc_expr = paste0("mean(", r_egen_args_conditional, ", na.rm = TRUE)")
   } else if (egen_func_name == "total" || egen_func_name == "sum") {
-    calc_expr = paste0("sum(", r_egen_args_conditional, ", na.rm = TRUE)")
+    # Changed from base R sum to collapse::fsum for potential precision matching
+    calc_expr = paste0("collapse::fsum(", r_egen_args_conditional, ", na.rm = TRUE)")
   } else if (egen_func_name == "count") {
     calc_expr = paste0("sum(!is.na(", r_egen_args_conditional, "))")
   } else if (egen_func_name == "rank") {
@@ -5701,9 +5702,9 @@ data = data %>%
 
  11 do:  egen total_i = total(i)
  11 r:  data = data %>% 
-  dplyr::mutate(`total_i` = sum(`i`, na.rm = TRUE)) 
+  dplyr::mutate(`total_i` = collapse::fsum(`i`, na.rm = TRUE)) 
 data = data %>% 
-  dplyr::mutate(`total_i` = sum(`i`, na.rm = TRUE))
+  dplyr::mutate(`total_i` = collapse::fsum(`i`, na.rm = TRUE))
 
  12 do:  bysort group: egen rank_i = rank(i)
  12 r:  data = data %>% 
@@ -5989,9 +5990,9 @@ assign("has_original_order_idx", TRUE, envir = stata2r_env)
 
  35 do:  egen total_sum = total(sum_mean)
  35 r:  data = data %>% 
-  dplyr::mutate(`total_sum` = sum(`sum_mean`, na.rm = TRUE)) 
+  dplyr::mutate(`total_sum` = collapse::fsum(`sum_mean`, na.rm = TRUE)) 
 data = data %>% 
-  dplyr::mutate(`total_sum` = sum(`sum_mean`, na.rm = TRUE))
+  dplyr::mutate(`total_sum` = collapse::fsum(`sum_mean`, na.rm = TRUE))
 
 Error: After Stata line  35 , R data set differs from Stata reference.
 
