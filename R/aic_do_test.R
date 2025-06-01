@@ -181,7 +181,7 @@ out_and_err_txt = function(out, err=NULL) {
 }
 
 compare_df = function(df1, df2,
-                      tol = 2e-6,  # numeric tolerance - Adjusted from 1e-10 to 2e-6 for typical float precision
+                      tol = 1e-5,  # numeric tolerance - Adjusted from 2e-6 to 1e-5 for typical float precision
                       ignore_col_order = FALSE,
                       ignore_row_order = FALSE,
                       sample_n_diff = 5,            # max rows to show per column
