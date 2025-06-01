@@ -274,7 +274,8 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       if (final_r_var_type_is_string) {
           final_value_expr = paste0("as.character(", final_value_expr, ")")
       } else if (final_r_var_type_is_labelled_numeric) {
-          final_value_expr = paste0("as.integer(", final_value_expr, ")")
+          # Changed to as.numeric to match Stata's default float type for new numeric variables
+          final_value_expr = paste0("as.numeric(", final_value_expr, ")")
       }
 
 
@@ -312,4 +313,5 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
+
 
