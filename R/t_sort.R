@@ -18,7 +18,8 @@ t_sort = function(rest_of_cmd, cmd_obj, cmd_df, line_num, type = "sort") {
   if (type == "sort") {
     # Plain sort is ascending for all variables
     # Using dplyr::arrange with !!!dplyr::syms for consistency and robustness
-    sort_vars_r = paste0('!!!dplyr::syms(c("', paste(vars, collapse='", "'), '"))')
+    # Add stata2r_original_order_idx as the final tie-breaker
+    sort_vars_r = paste0('!!!dplyr::syms(c("', paste(vars, collapse='", "'), '", "stata2r_original_order_idx"))')
     r_code_str = paste0("data = dplyr::arrange(data, ", sort_vars_r, ")")
 
   } else if (type == "gsort") {
@@ -39,6 +40,8 @@ t_sort = function(rest_of_cmd, cmd_obj, cmd_df, line_num, type = "sort") {
         arrange_expressions[i] = paste0("!!!dplyr::syms(\"", var_spec, "\")")
       }
     }
+    # Add stata2r_original_order_idx as the final tie-breaker to ensure stable sort for ties
+    arrange_expressions = c(arrange_expressions, '!!!dplyr::syms("stata2r_original_order_idx")')
     r_code_str = paste0("data = dplyr::arrange(data, ", paste(arrange_expressions, collapse = ", "), ")")
   } else {
     r_code_str = paste0("# Unknown sort type: ", type)
@@ -46,5 +49,4 @@ t_sort = function(rest_of_cmd, cmd_obj, cmd_df, line_num, type = "sort") {
 
   return(r_code_str)
 }
-
 
