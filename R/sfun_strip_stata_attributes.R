@@ -28,11 +28,8 @@ sfun_strip_stata_attributes = function(x) {
     # This also handles cases where a variable might have been an R factor or other
     # specific class that Stata doesn't have a direct equivalent for.
     if (is.numeric(x)) {
-      # Round to a fixed precision to normalize potential floating point differences
-      # Stata's default numeric type is float (typically 7-8 decimal digits of precision).
-      # Rounding to, say, 7 decimal places for comparison should help match Stata's precision.
-      # INCREASED TO 10 DIGITS FOR MORE STRINGENT COMPARISON
-      x = round(as.numeric(x), digits = 10)
+      # Removed explicit rounding. Let `compare_df`'s tolerance handle precision differences.
+      x = as.numeric(x)
     } else if (is.character(x)) {
       x = as.character(x)
     } else if (is.logical(x)) {
