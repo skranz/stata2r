@@ -105,7 +105,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Context for _n/_N etc. in arguments is the group context if by_prefix is used.
   r_egen_args = translate_stata_expression_with_r_values(egen_args_str, line_num, cmd_df, context)
    if (is.na(r_egen_args) || r_egen_args == "") {
-        # This might be ok if the function takes no arguments e.g. egen group_id = group()
+        # This might be ok if the function takes no arguments e.g. egen group()
         if (egen_func_name != "group") { # group() takes implicit args from by() or option
              warning(paste0("Failed to translate egen arguments: ", egen_args_str))
         }
@@ -142,11 +142,11 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   } else if (egen_func_name == "rank") {
     if (!cmd_obj$is_by_prefix) { # If rank is called without bysort prefix
       needs_temp_sort_and_merge = TRUE
-      # calc_expr will be used inside the temporary sorted data.frame. Variables must be prefixed with `.`
+      # calc_expr will be used inside the temporary sorted data.frame. `r_egen_args_conditional` is already correct.
       if (is_fieldstrustmissings) {
-        calc_expr = paste0("as.numeric(base::rank(dplyr::if_else(is.na(.`", stringi::stri_replace_all_fixed(r_egen_args, "`", ""), "`), Inf, .`", stringi::stri_replace_all_fixed(r_egen_args, "`", ""), "`), ties.method = 'average', na.last = 'keep'))")
+        calc_expr = paste0("as.numeric(base::rank(dplyr::if_else(is.na(", r_egen_args_conditional, "), Inf, ", r_egen_args_conditional, "), ties.method = 'average', na.last = 'keep'))")
       } else {
-        calc_expr = paste0("as.numeric(base::rank(.`", stringi::stri_replace_all_fixed(r_egen_args, "`", ""), "`, ties.method = 'average', na.last = 'keep'))")
+        calc_expr = paste0("as.numeric(base::rank(", r_egen_args_conditional, ", ties.method = 'average', na.last = 'keep'))")
       }
     } else { # With bysort prefix
       if (is_fieldstrustmissings) {
