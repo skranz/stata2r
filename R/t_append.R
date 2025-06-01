@@ -56,6 +56,9 @@ t_append = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   # Ensure NAs in newly created character columns are converted to "" after bind_rows
   r_code_lines = c(r_code_lines, paste0("data = sfun_normalize_string_nas(data)"))
 
+  # Update stata2r_original_order_idx to reflect the new row order/count
+  r_code_lines = c(r_code_lines, "if (isTRUE(stata2r_env$has_original_order_idx)) { data = dplyr::mutate(data, stata2r_original_order_idx = dplyr::row_number()) }")
+
   # Clean up temporary variables
   r_code_lines = c(r_code_lines, paste0("rm(", temp_using_data_var, ", ", temp_master_data_var, ")"))
 
@@ -72,10 +75,6 @@ t_append = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
        r_code_str = paste0(r_code_str, paste0(" # Other options ignored: ", options_str_cleaned))
   }
 
-  # Update stata2r_original_order_idx to reflect the new row order/count
-  r_code_str = paste0(r_code_str, " %>% \n  { if (isTRUE(stata2r_env$has_original_order_idx)) dplyr::mutate(., stata2r_original_order_idx = dplyr::row_number()) else . }")
-
   return(r_code_str)
 }
-
 
