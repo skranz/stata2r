@@ -2,12 +2,13 @@
 # Stata: label define lblname value "label" [value "label" ...] [, add|modify|replace]
 # Stata: label values varlist lblname
 # Stata: label variable varname "label"
+# Stata: label data "label"
 
 t_label = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   restore.point("t_label")
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
-  # Determine subcommand: define, values, variable
+  # Determine subcommand: define, values, variable, data
   if (stringi::stri_startswith_fixed(rest_of_cmd_trimmed, "define ")) {
     return(t_label_define(rest_of_cmd_trimmed, cmd_obj, cmd_df, line_num))
   } else if (stringi::stri_startswith_fixed(rest_of_cmd_trimmed, "values ")) {
@@ -16,6 +17,8 @@ t_label = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
     return(t_label_variable(stringi::stri_sub(rest_of_cmd_trimmed, nchar("variable ")+1), cmd_obj, cmd_df, line_num))
   } else if (stringi::stri_startswith_fixed(rest_of_cmd_trimmed, "var ")) { # Handle abbreviation for 'variable'
     return(t_label_variable(stringi::stri_sub(rest_of_cmd_trimmed, nchar("var ")+1), cmd_obj, cmd_df, line_num))
+  } else if (stringi::stri_startswith_fixed(rest_of_cmd_trimmed, "data ")) { # Handle label data
+    return(t_label_data(stringi::stri_sub(rest_of_cmd_trimmed, nchar("data ")+1), cmd_obj, cmd_df, line_num))
   } else {
     return(paste0("# Unknown label subcommand: ", rest_of_cmd))
   }
@@ -170,4 +173,32 @@ t_label_variable = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   return(paste(r_code_lines, collapse="\n"))
 }
 
+t_label_data = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
+  restore.point("t_label_data")
+  # label data "label"
+  # rest_of_cmd is now just "label" (can be quoted or not, but usually quoted)
+  label_match = stringi::stri_match_first_regex(rest_of_cmd, "^\\s*(?:\"([^\"]*)\"|'([^']*)')\\s*$")
+  
+  label_str = NA_character_
+  if (!is.na(label_match[1,1])) {
+    label_str_double_quoted = label_match[1,2]
+    label_str_single_quoted = label_match[1,3]
+    label_str = if (!is.na(label_str_double_quoted)) label_str_double_quoted else label_str_single_quoted
+  } else {
+    # If not quoted, take the whole rest_of_cmd as the label (unlikely but possible)
+    label_str = rest_of_cmd
+  }
+
+  if (is.na(label_str)) {
+    return(paste0("# Failed to parse label data command: ", rest_of_cmd))
+  }
+  
+  # Escape double quotes within the label string for R string literal
+  label_str_escaped = stringi::stri_replace_all_fixed(label_str, '"', '\\"')
+
+  r_code_lines = c(
+      paste0("attr(data, \"label\") = \"", label_str_escaped, "\"")
+  )
+  return(paste(r_code_lines, collapse="\n"))
+}
 
