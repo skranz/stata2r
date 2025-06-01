@@ -863,24 +863,437 @@ data = data %>%
  23 do:  egen rank_value1_in_group = rank(value1), by(group_clean)
  23 r:  stata_tmp_egen_order_L23 = dplyr::select(data, c("stata2r_original_order_idx", "group_clean", "value1"))
 stata_tmp_egen_order_L23 = stata_tmp_egen_order_L23 %>% dplyr::arrange(!!!dplyr::syms(c("group_clean", "value1")))
-stata_tmp_egen_order_L23 = stata_tmp_egen_order_L23 %>% dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% dplyr::mutate(`rank_value1_in_group` = as.numeric(base::rank(.`value1`, ties.method = 'average', na.last = 'keep'))) %>% dplyr::ungroup()
+stata_tmp_egen_order_L23 = stata_tmp_egen_order_L23 %>% dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% dplyr::mutate(`rank_value1_in_group` = as.numeric(base::rank(`value1`, ties.method = 'average', na.last = 'keep'))) %>% dplyr::ungroup()
 data = dplyr::left_join(data, dplyr::select(stata_tmp_egen_order_L23, stata2r_original_order_idx, `rank_value1_in_group`), by = "stata2r_original_order_idx")
 rm(stata_tmp_egen_order_L23) 
 stata_tmp_egen_order_L23 = dplyr::select(data, c("stata2r_original_order_idx", "group_clean", "value1"))
+
 stata_tmp_egen_order_L23 = stata_tmp_egen_order_L23 %>% dplyr::arrange(!!!dplyr::syms(c("group_clean", "value1")))
-stata_tmp_egen_order_L23 = stata_tmp_egen_order_L23 %>% dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% dplyr::mutate(`rank_value1_in_group` = as.numeric(base::rank(.`value1`, ties.method = 'average', na.last = 'keep'))) %>% dplyr::ungroup()
+
+stata_tmp_egen_order_L23 = stata_tmp_egen_order_L23 %>% dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% dplyr::mutate(`rank_value1_in_group` = as.numeric(base::rank(`value1`, ties.method = 'average', na.last = 'keep'))) %>% dplyr::ungroup()
+
 data = dplyr::left_join(data, dplyr::select(stata_tmp_egen_order_L23, stata2r_original_order_idx, `rank_value1_in_group`), by = "stata2r_original_order_idx")
+
 rm(stata_tmp_egen_order_L23)
-Error: <text>:3:173: unexpected symbol
-2: en_order_L23 %>% dplyr::arrange(!!!dplyr::syms(c("group_clean", "value1")))
-3: stata_tmp_egen_order_L23 = stata_tmp_egen_order_L23 %>% dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% dplyr::mutate(`rank_value1_in_group` = as.numeric(base::rank(.`value1`
-                                                                                                                                                                               ^
-Error executing R code for Stata line  23 :  stata_tmp_egen_order_L23 = dplyr::select(data, c("stata2r_original_order_idx", "group_clean", "value1"))
-stata_tmp_egen_order_L23 = stata_tmp_egen_order_L23 %>% dplyr::arrange(!!!dplyr::syms(c("group_clean", "value1")))
-stata_tmp_egen_order_L23 = stata_tmp_egen_order_L23 %>% dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% dplyr::mutate(`rank_value1_in_group` = as.numeric(base::rank(.`value1`, ties.method = 'average', na.last = 'keep'))) %>% dplyr::ungroup()
-data = dplyr::left_join(data, dplyr::select(stata_tmp_egen_order_L23, stata2r_original_order_idx, `rank_value1_in_group`), by = "stata2r_original_order_idx")
-rm(stata_tmp_egen_order_L23)
-Error: <text>:3:173: unexpected symbol
-2: en_order_L23 %>% dplyr::arrange(!!!dplyr::syms(c("group_clean", "value1")))
-3: stata_tmp_egen_order_L23 = stata_tmp_egen_order_L23 %>% dplyr::group_by(!!!dplyr::syms(c("group_clean"))) %>% dplyr::mutate(`rank_value1_in_group` = as.numeric(base::rank(.`value1`
-                                                                                                                                                                               ^ 
+
+ 24 do:  egen row_total_v1_v2 = rowtotal(value1 value2)
+ 24 r:  data = data %>% 
+  dplyr::mutate(`row_total_v1_v2` = base::rowSums(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(c('value1','value2'))) %>% replace(is.na(.), 0), na.rm = FALSE)) 
+data = data %>% 
+  dplyr::mutate(`row_total_v1_v2` = base::rowSums(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(c('value1','value2'))) %>% replace(is.na(.), 0), na.rm = FALSE))
+
+ 25 do:  egen row_mean_v1_v2 = rowmean(value1 value2)
+ 25 r:  data = data %>% 
+  dplyr::mutate(`row_mean_v1_v2` = base::rowMeans(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(c('value1','value2'))), na.rm = TRUE)) 
+data = data %>% 
+  dplyr::mutate(`row_mean_v1_v2` = base::rowMeans(dplyr::select(dplyr::cur_data_all(), dplyr::all_of(c('value1','value2'))), na.rm = TRUE))
+
+ 26 do:  egen concat_group_num = concat(group_clean num_str)
+ 26 r:  data = data %>% 
+  dplyr::mutate(`concat_group_num` = dplyr::if_else((is.na(data[['group_clean']]) & is.na(data[['num_str']])), NA_character_, stringi::stri_paste(dplyr::if_else(is.na(as.character(data[['group_clean']])), "", as.character(data[['group_clean']])), dplyr::if_else(is.na(as.character(data[['num_str']])), "", as.character(data[['num_str']])), sep = ''))) 
+data = data %>% 
+  dplyr::mutate(`concat_group_num` = dplyr::if_else((is.na(data[['group_clean']]) & is.na(data[['num_str']])), NA_character_, stringi::stri_paste(dplyr::if_else(is.na(as.character(data[['group_clean']])), "", as.character(data[['group_clean']])), dplyr::if_else(is.na(as.character(data[['num_str']])), "", as.character(data[['num_str']])), sep = '')))
+
+ 27 do:  summarize value2, meanonly
+ 27 r:  stata_r_val_L27_mean = collapse::fmean(data[['value2']], na.rm = TRUE)
+ # Other options ignored: meanonly 
+stata_r_val_L27_mean = collapse::fmean(data[['value2']], na.rm = TRUE)
+
+ # Other options ignored: meanonly
+
+ 28 do:  gen value2_dev_from_mean = value2 - r(mean) if !missing(value2) & r(mean) != .
+ 28 r:  data = data %>% 
+  dplyr::mutate(`value2_dev_from_mean` = dplyr::if_else((dplyr::coalesce(as.numeric(!sfun_missing(`value2`) & !sfun_missing(stata_r_val_L27_mean)), 0) != 0), as.numeric(`value2` - stata_r_val_L27_mean), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`value2_dev_from_mean` = dplyr::if_else((dplyr::coalesce(as.numeric(!sfun_missing(`value2`) & !sfun_missing(stata_r_val_L27_mean)), 0) != 0), as.numeric(`value2` - stata_r_val_L27_mean), NA_real_))
+
+ 29 do:  gen obs_date = date(date_str, "YMD", 2050)
+ 29 r:  data = data %>% 
+  dplyr::mutate(`obs_date` = as.numeric(sfun_stata_date(`date_str`,  "YMD",  2050))) 
+data = data %>% 
+  dplyr::mutate(`obs_date` = as.numeric(sfun_stata_date(`date_str`,  "YMD",  2050)))
+
+ 30 do:  format obs_date %tdCY-N-D 
+
+ 30 r:  not translated since not flagged as data manipulation
+
+ 31 do:  gen obs_year = year(obs_date) if !missing(obs_date)
+ 31 r:  data = data %>% 
+  dplyr::mutate(`obs_year` = dplyr::if_else((dplyr::coalesce(as.numeric(!sfun_missing(`obs_date`)), 0) != 0), as.numeric(sfun_year(`obs_date`)), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`obs_year` = dplyr::if_else((dplyr::coalesce(as.numeric(!sfun_missing(`obs_date`)), 0) != 0), as.numeric(sfun_year(`obs_date`)), NA_real_))
+
+ 32 do:  gen obs_month = month(obs_date) if !missing(obs_date)
+ 32 r:  data = data %>% 
+  dplyr::mutate(`obs_month` = dplyr::if_else((dplyr::coalesce(as.numeric(!sfun_missing(`obs_date`)), 0) != 0), as.numeric(sfun_month(`obs_date`)), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`obs_month` = dplyr::if_else((dplyr::coalesce(as.numeric(!sfun_missing(`obs_date`)), 0) != 0), as.numeric(sfun_month(`obs_date`)), NA_real_))
+
+ 33 do:  gen obs_day = day(obs_date) if !missing(obs_date)
+ 33 r:  data = data %>% 
+  dplyr::mutate(`obs_day` = dplyr::if_else((dplyr::coalesce(as.numeric(!sfun_missing(`obs_date`)), 0) != 0), as.numeric(sfun_day(`obs_date`)), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`obs_day` = dplyr::if_else((dplyr::coalesce(as.numeric(!sfun_missing(`obs_date`)), 0) != 0), as.numeric(sfun_day(`obs_date`)), NA_real_))
+
+ 34 do:  gen obs_quarter = qofd(obs_date) if !missing(obs_date)
+ 34 r:  data = data %>% 
+  dplyr::mutate(`obs_quarter` = dplyr::if_else((dplyr::coalesce(as.numeric(!sfun_missing(`obs_date`)), 0) != 0), as.numeric(sfun_qofd(`obs_date`)), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`obs_quarter` = dplyr::if_else((dplyr::coalesce(as.numeric(!sfun_missing(`obs_date`)), 0) != 0), as.numeric(sfun_qofd(`obs_date`)), NA_real_))
+
+ 35 do:  gen days_since_2021_start = obs_date - mdy(1,1,2021) if !missing(obs_date)
+ 35 r:  data = data %>% 
+  dplyr::mutate(`days_since_2021_start` = dplyr::if_else((dplyr::coalesce(as.numeric(!sfun_missing(`obs_date`)), 0) != 0), as.numeric(`obs_date` - sfun_stata_mdy(1, 1, 2021)), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`days_since_2021_start` = dplyr::if_else((dplyr::coalesce(as.numeric(!sfun_missing(`obs_date`)), 0) != 0), as.numeric(`obs_date` - sfun_stata_mdy(1, 1, 2021)), NA_real_))
+
+ 36 do:  gen is_weekend_day = (dow(obs_date) == 0 | dow(obs_date) == 6) if !missing(obs_date)
+ 36 r:  data = data %>% 
+  dplyr::mutate(`is_weekend_day` = dplyr::if_else((dplyr::coalesce(as.numeric(!sfun_missing(`obs_date`)), 0) != 0), as.numeric((sfun_dow(`obs_date`) == 0 | sfun_dow(`obs_date`) == 6)), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`is_weekend_day` = dplyr::if_else((dplyr::coalesce(as.numeric(!sfun_missing(`obs_date`)), 0) != 0), as.numeric((sfun_dow(`obs_date`) == 0 | sfun_dow(`obs_date`) == 6)), NA_real_))
+
+ 37 do:  destring num_str, generate(num_val_from_str) ignore("error")
+ 37 r:  data = dplyr::mutate(data, `num_val_from_str` = readr::parse_number(as.character(num_str))) # Other options ignored: ignore("error") 
+data = dplyr::mutate(data, `num_val_from_str` = readr::parse_number(as.character(num_str))) # Other options ignored: ignore("error")
+
+ 38 do:  replace num_val_from_str = 0 if missing(num_val_from_str)
+ 38 r:  data = data %>% 
+  dplyr::mutate(`num_val_from_str` = dplyr::if_else((dplyr::coalesce(as.numeric(sfun_missing(`num_val_from_str`)), 0) != 0), as.numeric(0), data$`num_val_from_str`)) 
+data = data %>% 
+  dplyr::mutate(`num_val_from_str` = dplyr::if_else((dplyr::coalesce(as.numeric(sfun_missing(`num_val_from_str`)), 0) != 0), as.numeric(0), data$`num_val_from_str`))
+
+ 39 do:  destring mixed_var, generate(mixed_val_num) force
+ 39 r:  data = dplyr::mutate(data, `mixed_val_num` = readr::parse_number(as.character(mixed_var))) # Other options ignored: force 
+data = dplyr::mutate(data, `mixed_val_num` = readr::parse_number(as.character(mixed_var))) # Other options ignored: force
+
+Warning: 12 parsing failures.
+row col expected actual
+  1  -- a number apple 
+  7  -- a number apple 
+  8  -- a number apple 
+ 16  -- a number banana
+ 20  -- a number banana
+... ... ........ ......
+See problems(...) for more details.
+
+Warning: Problem with `mutate()` column `mixed_val_num`.
+ℹ `mixed_val_num = readr::parse_number(as.character(mixed_var))`.
+ℹ 12 parsing failures.
+row col expected actual
+  1  -- a number apple 
+  7  -- a number apple 
+  8  -- a number apple 
+ 16  -- a number banana
+ 20  -- a number banana
+... ... ........ ......
+See problems(...) for more details.
+
+ 40 do:  gen mixed_var_as_str = string(mixed_val_num) if !missing(mixed_val_num)
+ 40 r:  data = data %>% 
+  dplyr::mutate(`mixed_var_as_str` = dplyr::if_else((dplyr::coalesce(as.numeric(!sfun_missing(`mixed_val_num`)), 0) != 0), as.character(sfun_string(`mixed_val_num`)), "")) 
+data = data %>% 
+  dplyr::mutate(`mixed_var_as_str` = dplyr::if_else((dplyr::coalesce(as.numeric(!sfun_missing(`mixed_val_num`)), 0) != 0), as.character(sfun_string(`mixed_val_num`)), ""))
+
+ 41 do:  encode group_clean, generate(group_code_num)
+ 41 r:  data = dplyr::mutate(data, `group_code_num` = NA_integer_)
+temp_source_vector_L41 = data[['group_clean']]
+temp_unique_values_L41 = base::sort(base::unique(temp_source_vector_L41[!is.na(temp_source_vector_L41)]))
+temp_numeric_values_L41 = base::match(temp_source_vector_L41, temp_unique_values_L41)
+temp_labels_vector_L41 = stats::setNames(as.numeric(1:length(temp_unique_values_L41)), temp_unique_values_L41)
+stata_tmp_encoded_full_L41 = haven::labelled(as.integer(temp_numeric_values_L41), labels = temp_labels_vector_L41)
+rm(temp_source_vector_L41, temp_unique_values_L41, temp_numeric_values_L41, temp_labels_vector_L41)
+data[['group_code_num']] = stata_tmp_encoded_full_L41
+rm(stata_tmp_encoded_full_L41) 
+data = dplyr::mutate(data, `group_code_num` = NA_integer_)
+
+temp_source_vector_L41 = data[['group_clean']]
+
+temp_unique_values_L41 = base::sort(base::unique(temp_source_vector_L41[!is.na(temp_source_vector_L41)]))
+
+temp_numeric_values_L41 = base::match(temp_source_vector_L41, temp_unique_values_L41)
+
+temp_labels_vector_L41 = stats::setNames(as.numeric(1:length(temp_unique_values_L41)), temp_unique_values_L41)
+
+stata_tmp_encoded_full_L41 = haven::labelled(as.integer(temp_numeric_values_L41), labels = temp_labels_vector_L41)
+
+rm(temp_source_vector_L41, temp_unique_values_L41, temp_numeric_values_L41, temp_labels_vector_L41)
+
+data[['group_code_num']] = stata_tmp_encoded_full_L41
+
+rm(stata_tmp_encoded_full_L41)
+
+ 42 do:  label define group_label_map 1 "alpha" 2 "beta" 3 "gamma" 4 "unknown", replace
+ 42 r:  if (!exists("label_defs", envir = stata2r_env)) stata2r_env$label_defs = list()
+stata2r_env$label_defs$`group_label_map` = stats::setNames(c(1, 2, 3, 4), c("alpha", "beta", "gamma", "unknown")) 
+if (!exists("label_defs", envir = stata2r_env)) stata2r_env$label_defs = list()
+
+stata2r_env$label_defs$`group_label_map` = stats::setNames(c(1, 2, 3, 4), c("alpha", "beta", "gamma", "unknown"))
+
+ 43 do:  label values group_code_num group_label_map
+ 43 r:  if (!exists("label_defs", envir = stata2r_env)) stata2r_env$label_defs = list()
+label_map_to_apply = stata2r_env$label_defs$`group_label_map`
+if (!is.null(label_map_to_apply)) {
+  temp_attr_label = attr(data[['group_code_num']], 'label')
+  existing_var_label = if (is.null(temp_attr_label) || length(temp_attr_label) == 0) NA_character_ else as.character(temp_attr_label[1])
+  stata_tmp_labelled_L43_group_code_num = haven::labelled(data[['group_code_num']], labels = label_map_to_apply, label = existing_var_label)
+  data[['group_code_num']] = stata_tmp_labelled_L43_group_code_num
+  rm(stata_tmp_labelled_L43_group_code_num)
+} else {
+  warning(paste0('Label definition `group_label_map` not found for `label values` command on line 43. Labels removed from ', 'group_code_num',' if any.'))
+  data[['group_code_num']] = haven::zap_labels(data[['group_code_num']])
+} 
+if (!exists("label_defs", envir = stata2r_env)) stata2r_env$label_defs = list()
+
+label_map_to_apply = stata2r_env$label_defs$`group_label_map`
+
+if (!is.null(label_map_to_apply)) {
+  temp_attr_label = attr(data[['group_code_num']], 'label')
+  existing_var_label = if (is.null(temp_attr_label) || length(temp_attr_label) == 0) NA_character_ else as.character(temp_attr_label[1])
+  stata_tmp_labelled_L43_group_code_num = haven::labelled(data[['group_code_num']], labels = label_map_to_apply, label = existing_var_label)
+  data[['group_code_num']] = stata_tmp_labelled_L43_group_code_num
+  rm(stata_tmp_labelled_L43_group_code_num)
+} else {
+  warning(paste0('Label definition `group_label_map` not found for `label values` command on line 43. Labels removed from ', 'group_code_num',' if any.'))
+  data[['group_code_num']] = haven::zap_labels(data[['group_code_num']])
+}
+
+ 44 do:  label variable group_code_num "Numeric code for cleaned group"
+ 44 r:  attr(data$`group_code_num`, "label") = "Numeric code for cleaned group" 
+attr(data$`group_code_num`, "label") = "Numeric code for cleaned group"
+
+ 45 do:  decode group_code_num, generate(group_from_decode)
+ 45 r:  data = dplyr::mutate(data, `group_from_decode` = NA_character_)
+## Decode values using haven::as_factor
+stata_tmp_source_vector_L45 = data[['group_code_num']]
+stata_tmp_decoded_values_L45 = as.character(haven::as_factor(stata_tmp_source_vector_L45))
+stata_tmp_decoded_values_L45 = dplyr::if_else(is.na(stata_tmp_decoded_values_L45), dplyr::if_else(is.na(stata_tmp_source_vector_L45), "", as.character(stata_tmp_source_vector_L45)), stata_tmp_decoded_values_L45)
+data = dplyr::mutate(data, `group_from_decode` = stata_tmp_decoded_values_L45)
+rm(stata_tmp_decoded_values_L45, stata_tmp_source_vector_L45) 
+data = dplyr::mutate(data, `group_from_decode` = NA_character_)
+
+## Decode values using haven::as_factor
+
+stata_tmp_source_vector_L45 = data[['group_code_num']]
+
+stata_tmp_decoded_values_L45 = as.character(haven::as_factor(stata_tmp_source_vector_L45))
+
+stata_tmp_decoded_values_L45 = dplyr::if_else(is.na(stata_tmp_decoded_values_L45), dplyr::if_else(is.na(stata_tmp_source_vector_L45), "", as.character(stata_tmp_source_vector_L45)), stata_tmp_decoded_values_L45)
+
+data = dplyr::mutate(data, `group_from_decode` = stata_tmp_decoded_values_L45)
+
+rm(stata_tmp_decoded_values_L45, stata_tmp_source_vector_L45)
+
+ 46 do:  recode value2 (0/1=1 "Very Low") (2/4=2 "Low-Mid") (nonmissing=3 "High") (missing = .a), gen(value2_cat_str)
+ 46 r:  data = dplyr::mutate(data, `value2_cat_str` = as.numeric(dplyr::case_when(
+    value2 >= 0 & value2 <= 1 ~ 1,
+    value2 >= 2 & value2 <= 4 ~ 2,
+    !sfun_missing(value2) ~ 3,
+    sfun_missing(value2) ~ NA_real_
+  )))
+data[['value2_cat_str']] = haven::labelled(data[['value2_cat_str']], labels = stats::setNames(c(1, 2, 3), c("Very Low", "Low-Mid", "High"))) 
+data = dplyr::mutate(data, `value2_cat_str` = as.numeric(dplyr::case_when(
+    value2 >= 0 & value2 <= 1 ~ 1,
+    value2 >= 2 & value2 <= 4 ~ 2,
+    !sfun_missing(value2) ~ 3,
+    sfun_missing(value2) ~ NA_real_
+  )))
+
+data[['value2_cat_str']] = haven::labelled(data[['value2_cat_str']], labels = stats::setNames(c(1, 2, 3), c("Very Low", "Low-Mid", "High")))
+
+ 47 do:  recode value2 (0/1=1) (2/4=2) (nonmissing=3) (missing = 99), gen(value2_cat_num)
+ 47 r:  data = dplyr::mutate(data, `value2_cat_num` = dplyr::case_when(
+    value2 >= 0 & value2 <= 1 ~ 1,
+    value2 >= 2 & value2 <= 4 ~ 2,
+    !sfun_missing(value2) ~ 3,
+    sfun_missing(value2) ~ 99
+  )) 
+data = dplyr::mutate(data, `value2_cat_num` = dplyr::case_when(
+    value2 >= 0 & value2 <= 1 ~ 1,
+    value2 >= 2 & value2 <= 4 ~ 2,
+    !sfun_missing(value2) ~ 3,
+    sfun_missing(value2) ~ 99
+  ))
+
+ 48 do:  sort group_clean value1
+ 48 r:  data = dplyr::arrange(data, !!!dplyr::syms(c("group_clean", "value1"))) 
+data = dplyr::arrange(data, !!!dplyr::syms(c("group_clean", "value1")))
+
+Error: After Stata line  48 , R data set differs from Stata reference.
+
+Data set from Stata (do_df):
+tibble [50 × 43] (S3: tbl_df/tbl/data.frame)
+ $ id                    : num [1:50] 8 24 7 14 31 47 49 22 43 25 ...
+  ..- attr(*, "label")= chr "id"
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ group_orig            : chr [1:50] "Alpha" "Alpha" "Alpha" "Alpha" ...
+  ..- attr(*, "label")= chr "group_orig"
+  ..- attr(*, "format.stata")= chr "%6s"
+ $ value1                : num [1:50] 30 40.3 62.5 73.7 81 ...
+  ..- attr(*, "label")= chr "value1"
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ value2                : num [1:50] 6 3 3 6 4 4 6 3 4 3 ...
+  ..- attr(*, "label")= chr "value2"
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ date_str              : chr [1:50] "2022-10-05" "2022-09-25" "2020-07-17" "2020-10-01" ...
+  ..- attr(*, "label")= chr "date_str"
+  ..- attr(*, "format.stata")= chr "%10s"
+ $ num_str               : chr [1:50] "141" "122" "112" "198" ...
+  ..- attr(*, "label")= chr "num_str"
+  ..- attr(*, "format.stata")= chr "%3s"
+ $ num_val_from_str      : num [1:50] 141 122 112 198 193 120 175 147 132 166 ...
+  ..- attr(*, "label")= chr "num_str"
+  ..- attr(*, "format.stata")= chr "%10.0g"
+ $ mixed_var             : chr [1:50] "apple" "55" "apple" "20" ...
+  ..- attr(*, "label")= chr "mixed_var"
+  ..- attr(*, "format.stata")= chr "%6s"
+ $ mixed_val_num         : num [1:50] NA 55 NA 20 55 20 30 42 42 20 ...
+  ..- attr(*, "label")= chr "mixed_var"
+  ..- attr(*, "format.stata")= chr "%10.0g"
+ $ value1_log            : num [1:50] 3 3.29 3.73 3.89 3.99 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ value2_squared        : num [1:50] 36 9 9 36 16 16 36 9 16 9 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ int_value1            : num [1:50] 20 26 41 49 53 62 68 69 74 80 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ rounded_value1        : num [1:50] 20 26.9 41.7 49.1 54 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ random_uniform_draw   : num [1:50] 0.3234 0.338 0.0711 0.3698 0.8597 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ id_plus_value2        : num [1:50] 14 27 10 20 35 51 55 25 47 28 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ group_clean           : chr [1:50] "alpha" "alpha" "alpha" "alpha" ...
+  ..- attr(*, "format.stata")= chr "%9s"
+ $ group_abbr            : chr [1:50] "alp" "alp" "alp" "alp" ...
+  ..- attr(*, "format.stata")= chr "%9s"
+ $ contact_info          : chr [1:50] "alpha:141" "alpha:122" "alpha:112" "alpha:198" ...
+  ..- attr(*, "format.stata")= chr "%9s"
+ $ str_len_group         : num [1:50] 5 5 5 5 5 5 5 5 5 5 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ mean_overall_value1   : num [1:50] 66.8 66.8 66.8 66.8 66.8 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ sd_overall_value1     : num [1:50] 38 38 38 38 38 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ total_value2_by_group : num [1:50] 71 71 71 71 71 71 71 71 71 71 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ median_value1_by_group: num [1:50] 104 104 104 104 104 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ group_numeric_id      : num [1:50] 1 1 1 1 1 1 1 1 1 1 ...
+  ..- attr(*, "label")= chr "group(group_clean)"
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ tag_first_in_group    : num [1:50] 0 0 1 0 0 0 0 0 0 0 ...
+  ..- attr(*, "label")= chr "tag(group_clean)"
+  ..- attr(*, "format.stata")= chr "%8.0g"
+ $ count_obs_in_group    : num [1:50] 16 16 16 16 16 16 16 16 16 16 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ rank_value1_in_group  : num [1:50] 1 2 3 4 5 6 7 8 9 10 ...
+  ..- attr(*, "label")= chr "rank of (value1)    by group_clean"
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ row_total_v1_v2       : num [1:50] 36 43.3 65.5 79.7 85 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ row_mean_v1_v2        : num [1:50] 18 21.7 32.7 39.9 42.5 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ concat_group_num      : chr [1:50] "alpha141" "alpha122" "alpha112" "alpha198" ...
+  ..- attr(*, "format.stata")= chr "%9s"
+ $ value2_dev_from_mean  : num [1:50] 1.333 -1.667 -1.667 1.333 -0.667 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ obs_date              : Date[1:50], format: "2022-10-05" "2022-09-25" ...
+ $ obs_year              : num [1:50] 2022 2022 2020 2020 2020 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ obs_month             : num [1:50] 10 9 7 10 4 11 7 11 1 4 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ obs_day               : num [1:50] 5 25 17 1 9 2 24 8 17 21 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ obs_quarter           : num [1:50] 251 250 242 243 241 251 242 247 240 241 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ days_since_2021_start : num [1:50] 642 632 -168 -92 -267 670 -161 311 -350 -255 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ is_weekend_day        : num [1:50] 0 1 0 0 0 0 0 0 0 0 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ mixed_var_as_str      : chr [1:50] "" "55" "" "20" ...
+  ..- attr(*, "format.stata")= chr "%9s"
+ $ group_code_num        : dbl+lbl [1:50] 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, ...
+   ..@ label       : chr "Numeric code for cleaned group"
+   ..@ format.stata: chr "%8.0g"
+   ..@ labels      : Named num [1:4] 1 2 3 4
+   .. ..- attr(*, "names")= chr [1:4] "alpha" "beta" "gamma" "unknown"
+ $ group_from_decode     : chr [1:50] "alpha" "alpha" "alpha" "alpha" ...
+  ..- attr(*, "label")= chr "Numeric code for cleaned group"
+  ..- attr(*, "format.stata")= chr "%9s"
+ $ value2_cat_str        : dbl+lbl [1:50]     3,     2,     2,     3,     2,     2,     3,     2,     2,    ...
+   ..@ label       : chr "RECODE of value2 (value2)"
+   ..@ format.stata: chr "%9.0g"
+   ..@ labels      : Named num [1:3] 1 2 3
+   .. ..- attr(*, "names")= chr [1:3] "Very Low" "Low-Mid" "High"
+ $ value2_cat_num        : num [1:50] 3 2 2 3 2 2 3 2 2 2 ...
+  ..- attr(*, "label")= chr "RECODE of value2 (value2)"
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ - attr(*, "label")= chr "Written by R."
+NULL
+
+Data set from R (r_df):
+tibble [50 × 44] (S3: tbl_df/tbl/data.frame)
+ $ id                        : num [1:50] 8 24 7 14 31 47 49 22 43 25 ...
+ $ group_orig                : chr [1:50] "Alpha" "Alpha" "Alpha" "Alpha" ...
+ $ value1                    : num [1:50] 30 40.3 62.5 73.7 81 ...
+ $ value2                    : num [1:50] 6 3 3 6 4 4 6 3 4 3 ...
+ $ date_str                  : chr [1:50] "2022-10-05" "2022-09-25" "2020-07-17" "2020-10-01" ...
+ $ num_str                   : chr [1:50] "141" "122" "112" "198" ...
+ $ mixed_var                 : chr [1:50] "apple" "55" "apple" "20" ...
+ $ stata2r_original_order_idx: int [1:50] 8 24 7 14 31 47 49 22 43 25 ...
+ $ value1_log                : num [1:50] 3 3.29 3.73 3.89 3.99 ...
+ $ value2_squared            : num [1:50] 36 9 9 36 16 16 36 9 16 9 ...
+ $ int_value1                : num [1:50] 20 26 41 49 53 62 68 69 74 80 ...
+ $ rounded_value1            : num [1:50] 20 26.9 41.7 49.1 54 62.7 68.3 69.1 74.9 80.4 ...
+ $ random_uniform_draw       : num [1:50] 0.238 0.984 0.62 0.382 0.29 ...
+ $ id_plus_value2            : num [1:50] 14 27 10 20 35 51 55 25 47 28 ...
+ $ group_clean               : chr [1:50] "alpha" "alpha" "alpha" "alpha" ...
+ $ group_abbr                : chr [1:50] "alp" "alp" "alp" "alp" ...
+ $ contact_info              : chr [1:50] "alpha:141" "alpha:122" "alpha:112" "alpha:198" ...
+ $ str_len_group             : num [1:50] 5 5 5 5 5 5 5 5 5 5 ...
+ $ mean_overall_value1       : num [1:50] 66.8 66.8 66.8 66.8 66.8 ...
+ $ sd_overall_value1         : num [1:50] 38 38 38 38 38 ...
+ $ total_value2_by_group     : num [1:50] 71 71 71 71 71 71 71 71 71 71 ...
+ $ median_value1_by_group    : num [1:50] 104 104 104 104 104 ...
+ $ group_numeric_id          : int [1:50] 1 1 1 1 1 1 1 1 1 1 ...
+ $ tag_first_in_group        : num [1:50] 0 0 1 0 0 0 0 0 0 0 ...
+ $ count_obs_in_group        : int [1:50] 16 16 16 16 16 16 16 16 16 16 ...
+ $ rank_value1_in_group      : num [1:50] 1 2 3 4 5 6 7 8 9 10 ...
+ $ row_total_v1_v2           : num [1:50] 36 43.3 65.5 79.7 85 ...
+ $ row_mean_v1_v2            : num [1:50] 18 21.7 32.7 39.9 42.5 ...
+ $ concat_group_num          : chr [1:50] "alpha141" "alpha122" "alpha112" "alpha198" ...
+ $ value2_dev_from_mean      : num [1:50] 1.333 -1.667 -1.667 1.333 -0.667 ...
+ $ obs_date                  : num [1:50] 22923 22913 22113 22189 22014 ...
+ $ obs_year                  : num [1:50] 2022 2022 2020 2020 2020 ...
+ $ obs_month                 : num [1:50] 10 9 7 10 4 11 7 11 1 4 ...
+ $ obs_day                   : num [1:50] 5 25 17 1 9 2 24 8 17 21 ...
+ $ obs_quarter               : num [1:50] 4 3 3 4 2 4 3 4 1 2 ...
+ $ days_since_2021_start     : num [1:50] 642 632 -168 -92 -267 670 -161 311 -350 -255 ...
+ $ is_weekend_day            : num [1:50] 0 1 0 0 0 0 0 0 0 0 ...
+ $ num_val_from_str          : num [1:50] 141 122 112 198 193 120 175 147 132 166 ...
+ $ mixed_val_num             : num [1:50] NA 55 NA 20 55 20 30 42 42 20 ...
+  ..- attr(*, "problems")= tibble [12 × 4] (S3: tbl_df/tbl/data.frame)
+  .. ..$ row     : int [1:12] 1 7 8 16 20 29 32 36 37 38 ...
+  .. ..$ col     : int [1:12] NA NA NA NA NA NA NA NA NA NA ...
+  .. ..$ expected: chr [1:12] "a number" "a number" "a number" "a number" ...
+  .. ..$ actual  : chr [1:12] "apple" "apple" "apple" "banana" ...
+ $ mixed_var_as_str          : chr [1:50] "" "55" "" "20" ...
+ $ group_code_num            : int+lbl [1:50] 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, ...
+   ..@ labels: Named int [1:4] 1 2 3 4
+   .. ..- attr(*, "names")= chr [1:4] "alpha" "beta" "gamma" "unknown"
+   ..@ label : chr "Numeric code for cleaned group"
+ $ group_from_decode         : chr [1:50] "alpha" "alpha" "alpha" "alpha" ...
+ $ value2_cat_str            : dbl+lbl [1:50]  3,  2,  2,  3,  2,  2,  3,  2,  2,  2,  3,  3,  3, NA,  2,  3,  3...
+   ..@ labels: Named num [1:3] 1 2 3
+   .. ..- attr(*, "names")= chr [1:3] "Very Low" "Low-Mid" "High"
+ $ value2_cat_num            : num [1:50] 3 2 2 3 2 2 3 2 2 2 ...
+NULL
+
+Differences:List of 2
+ $ identical     : logi FALSE
+ $ value_mismatch:'data.frame':	80 obs. of  4 variables:
+  ..$ row      : int [1:80] 35 36 46 47 35 36 46 47 35 36 ...
+  ..$ column   : chr [1:80] "id" "id" "id" "id" ...
+  ..$ df1_value: chr [1:80] "50" "6" "12" "2" ...
+  ..$ df2_value: chr [1:80] "6" "50" "2" "12" ...
+NULL

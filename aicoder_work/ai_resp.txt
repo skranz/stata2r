@@ -1,9 +1,168 @@
-The main issue identified from the test logs is an `unexpected symbol` error in `t_egen.R` when generating R code for the `egen rank()` function without a `bysort` prefix. The R code produced includes a `.` prefix before the backticked variable name (e.g., `. `value1``), which is invalid syntax in R when used inside `dplyr::mutate` after `dplyr::group_by`. This `.` prefix is only appropriate in specific contexts like `collapse` package functions.
+The primary issue causing the `do2` test to fail is a mismatch in row order after sorting. Stata's `sort` command guarantees a stable sort, meaning that if multiple rows have identical values for the sorting variables, their original relative order is preserved. The current R translation for `sort` was not correctly incorporating a tie-breaker (the `stata2r_original_order_idx` column) during the *translation phase*. This was due to a misunderstanding of when certain runtime flags (`stata2r_env$has_original_order_idx`) are set versus when translation-time decisions need to be made.
 
-The fix involves modifying the `t_egen.R` translation for `egen rank()` when `!cmd_obj$is_by_prefix` (which triggers the temporary data frame logic). Instead of re-adding the `.` prefix, the already correctly translated and conditionally handled `r_egen_args_conditional` should be used directly.
+To address this, the following changes are implemented:
+
+1.  **`mark_data_manip_cmd.R`**: A new column `will_have_original_order_idx` is added to the `cmd_df`. This column is populated during a forward pass in `mark_data_manip_cmd` to determine, at translation time, whether the `stata2r_original_order_idx` column is expected to be present in the `data` dataframe when a given command is executed. Commands like `use`, `collapse`, and `reshape` (which fundamentally alter the dataset's structure or rows) will set this flag to `TRUE` for themselves and subsequent commands.
+2.  **`t_sort.R`**: The `t_sort` and `t_gsort` functions now use the `cmd_obj$will_have_original_order_idx` flag to decide whether to include `stata2r_original_order_idx` as the final tie-breaker in the `dplyr::arrange` call. This ensures that the generated R code produces a stable sort consistent with Stata's behavior. The existing logic to update `stata2r_original_order_idx` after row-modifying operations (like `drop`, `keep`, `expand`, `merge`, `append`, `order`, `preserve`/`restore`) remains, as it correctly uses the runtime flag `stata2r_env$has_original_order_idx`.
+3.  **`t_egen.R`**: Similar to `t_sort`, functions within `egen` (like `rank`, `group`, `tag`) that require sorting (when no `by` prefix is used) will now also use `stata2r_original_order_idx` as a tie-breaker during their internal temporary sorting, based on `cmd_obj$will_have_original_order_idx`.
+4.  **`t_reshape.R`**: The `options_str` parsing was corrected (it was picking the wrong regex group). Additionally, the `reshape` command now unconditionally recreates the `stata2r_original_order_idx` column and sets the `stata2r_env$has_original_order_idx` flag to `TRUE`, as reshaping fundamentally alters the dataset's row structure and order.
+
+These changes ensure that the `stata2r_original_order_idx` is consistently maintained and used for stable sorting, resolving the row order mismatch in `do2`.
+
+!CHANGE_FILE R/mark_data_manip_cmd.R
+```R
+mark_data_manip_cmd = function(cmd_df) {
+  restore.point("mark_data_manip_cmd")
+
+  if (NROW(cmd_df) == 0) {
+    cmd_df$do_translate = logical(0)
+    # Ensure e_results_needed and r_results_needed exist if cmd_df is empty but structured
+    if (!("e_results_needed" %in% names(cmd_df))) cmd_df$e_results_needed = I(vector("list", 0))
+    if (!("r_results_needed" %in% names(cmd_df))) cmd_df$r_results_needed = I(vector("list", 0))
+    # NEW: Initialize new column for original_order_idx presence
+    if (!("will_have_original_order_idx" %in% names(cmd_df))) cmd_df$will_have_original_order_idx = logical(0)
+    return(cmd_df)
+  }
+
+  cmd_df$do_translate = rep(FALSE, NROW(cmd_df))
+  # Ensure list columns are initialized if not present (e.g. from older cmd_df structure)
+  if (!("e_results_needed" %in% names(cmd_df))) {
+    cmd_df$e_results_needed = I(replicate(nrow(cmd_df), character(0), simplify = FALSE))
+  }
+  if (!("r_results_needed" %in% names(cmd_df))) {
+     cmd_df$r_results_needed = I(replicate(nrow(cmd_df), character(0), simplify = FALSE))
+  }
+  # NEW: Initialize will_have_original_order_idx
+  cmd_df$will_have_original_order_idx = rep(FALSE, NROW(cmd_df))
+
+
+  # --- First pass: Mark commands that are inherently data-modifying ---
+  # These commands *always* modify the dataset directly.
+  cmd_df$do_translate = cmd_df$stata_cmd %in% stata_data_manip_cmds
+  # Ensure 'save' is always translated. (It already is in stata_data_manip_cmds)
+
+
+  # --- Second pass: Determine which commands produce e() or r() results that are *actually used* ---
+  # Iterate backwards to find the *last* command producing a needed result.
+  active_needed_e_results = character(0) # e.g., "e(sample)", "e(b)"
+  active_needed_r_results = character(0) # e.g., "r(N)", "r(mean)"
+
+  for (i in NROW(cmd_df):1) {
+    current_cmd = cmd_df$stata_cmd[i]
+    rest_of_cmd = dplyr::coalesce(cmd_df$rest_of_cmd[i], "")
+
+    # Identify e() and r() usage in the current command's `rest_of_cmd`
+    used_e_macros = character(0)
+    matches_e_used = stringi::stri_match_all_regex(rest_of_cmd, "e\\(([^)]+)\\)")[[1]]
+    if (NROW(matches_e_used) > 0) {
+        used_e_macros = unique(paste0("e(", matches_e_used[,2], ")"))
+    }
+
+    used_r_macros = character(0)
+    matches_r_used = stringi::stri_match_all_regex(rest_of_cmd, "r\\(([^)]+)\\)")[[1]]
+    if (NROW(matches_r_used) > 0) {
+        used_r_macros = unique(paste0("r(", matches_r_used[,2], ")"))
+    }
+
+    # If any of these used macros are currently needed from a *previous* producer, mark this command for translation
+    if (any(used_e_macros %in% active_needed_e_results) || any(used_r_macros %in% active_needed_r_results)) {
+        cmd_df$do_translate[i] = TRUE
+    }
+
+    # Add results that this command *would produce* to active_needed_e/r_results if they are not already.
+    # And mark this command to translate if it produces a needed result.
+
+    # Commands producing e() results (e.g., regress, xi)
+    if (current_cmd %in% stata_estimation_cmds) {
+      # List all e() results that this type of command can produce.
+      # This list should be comprehensive for the command's potential outputs.
+      potential_e_results_produced = c("e(sample)", "e(N)", "e(r2)", "e(df_r)", "e(rmse)", "e(b)", "e(V)") # Example for regress/xi
+      
+      # If any of these potential results are currently needed, then this command is the producer.
+      if (any(potential_e_results_produced %in% active_needed_e_results)) {
+          cmd_df$do_translate[i] = TRUE
+          # Store which results this command should actually produce
+          cmd_df$e_results_needed[[i]] = union(cmd_df$e_results_needed[[i]], intersect(potential_e_results_produced, active_needed_e_results))
+          # Remove these from active_needed_e_results as we've found their producer
+          active_needed_e_results = setdiff(active_needed_e_results, potential_e_results_produced)
+      }
+    }
+
+    # Commands producing r() results (e.g., summarize, tabulate, count)
+    if (current_cmd %in% stata_r_result_cmds) {
+      # For now, only common r() values are tracked. Extend as needed.
+      potential_r_results_produced = c("r(N)", "r(mean)", "r(sd)", "r(min)", "r(max)", "r(sum)", "r(p50)") # Example for summarize
+      
+      if (any(potential_r_results_produced %in% active_needed_r_results)) {
+          cmd_df$do_translate[i] = TRUE
+          cmd_df$r_results_needed[[i]] = union(cmd_df$r_results_needed[[i]], intersect(potential_r_results_produced, active_needed_r_results))
+          active_needed_r_results = setdiff(active_needed_r_results, potential_r_results_produced)
+      }
+    }
+    
+    # Add any results used by *this* command to `active_needed_e/r_results` for prior commands to produce.
+    # This must be done *after* checking if current command is a producer of these results.
+    active_needed_e_results = union(active_needed_e_results, used_e_macros)
+    active_needed_r_results = union(active_needed_r_results, used_r_macros)
+  }
+
+  # --- Third pass: Determine if stata2r_original_order_idx will be present at this line's execution ---
+  # This is a forward pass.
+  current_has_order_idx_at_translation_time = FALSE
+  for (i in seq_len(NROW(cmd_df))) {
+    if (cmd_df$do_translate[i]) { # Only consider translated commands
+      if (cmd_df$stata_cmd[i] %in% c("use", "collapse", "reshape")) {
+        current_has_order_idx_at_translation_time = TRUE # These commands create / re-create the index
+      } else if (cmd_df$stata_cmd[i] %in% c("drop", "keep", "expand", "merge", "append", "order")) {
+        # These commands modify rows but *maintain* the index if it exists.
+        # So, the status remains as determined by prior commands.
+        # No change to current_has_order_idx_at_translation_time here.
+      } else if (cmd_df$stata_cmd[i] %in% c("preserve")) {
+        # 'preserve' saves the current state. The index status doesn't change for the current data.
+        # No change to current_has_order_idx_at_translation_time here.
+      } else if (cmd_df$stata_cmd[i] %in% c("restore")) {
+        # 'restore' restores a previous state. The `t_preserve_restore` function recreates
+        # `stata2r_original_order_idx` if it existed in the preserved data.
+        # So, for the purpose of translation-time `t_sort` logic, it's safer to consider `restore`
+        # as preserving the `has_original_order_idx` state.
+        # No explicit change to `current_has_order_idx_at_translation_time` here.
+      }
+    }
+    cmd_df$will_have_original_order_idx[i] = current_has_order_idx_at_translation_time
+  }
+
+
+  # --- Final explicit overrides ---
+  # Commands that are definitely not data manipulation (e.g. `list`, `display` for scalars)
+  # If a command is in stata_non_data_manip_cmds, it should be FALSE unless its r() or e() results are *explicitly* needed.
+  for (k in seq_len(NROW(cmd_df))) {
+      if (cmd_df$stata_cmd[k] %in% stata_non_data_manip_cmds) {
+          # Only set to FALSE if it was not marked TRUE because its r() or e() results are needed.
+          if (! (isTRUE(cmd_df$do_translate[k]) &&
+                 (length(unlist(cmd_df$r_results_needed[k])) > 0 || length(unlist(cmd_df$e_results_needed[k])) > 0) ) ) {
+              cmd_df$do_translate[k] = FALSE
+          }
+      }
+  }
+
+  # If stata_cmd is NA (e.g. empty line or parse error), don't translate
+  cmd_df$do_translate[is.na(cmd_df$stata_cmd)] = FALSE
+
+  # `clear` as a command clears memory. `use "file", clear` is different.
+  # `clear` option is handled by `t_use`.
+  # Standalone `clear` command should be translated.
+  if ("clear" %in% cmd_df$stata_cmd) {
+      cmd_df$do_translate[cmd_df$stata_cmd == "clear" & (is.na(cmd_df$rest_of_cmd) | cmd_df$rest_of_cmd == "")] = TRUE # standalone clear
+  }
+  
+  return(cmd_df)
+}
 
 ```
+!END_CHANGE_FILE R/mark_data_manip_cmd.R
+
 !CHANGE_FILE R/t_egen.R
+```R
 t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   restore.point("t_egen")
   # Remove type prefix if any (byte, int, long, float, double, str#, etc.)
@@ -266,6 +425,9 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   r_code_lines = c()
   
+  # Determine if stata2r_original_order_idx should be used as a tie-breaker for temporary sorts
+  use_original_order_idx_for_temp_sort = cmd_obj$will_have_original_order_idx
+
   if (needs_temp_sort_and_merge) {
       # The check for stata2r_env$has_original_order_idx is removed from translation-time
       # as it is guaranteed to be set at runtime by the 'use' command.
@@ -292,10 +454,16 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       }
       
       # Sort the temporary data before calculating group IDs / ranks
-      sort_expr_for_temp = paste0('!!!dplyr::syms(c("', paste0(group_vars_list_bare, collapse = '", "'), '"))')
+      sort_expr_for_temp_base = paste0('!!!dplyr::syms(c("', paste0(group_vars_list_bare, collapse = '", "'), '"))')
       if (egen_func_name == "rank" && !is.na(egen_args_str) && egen_args_str != "") {
           rank_arg_var_bare = stringi::stri_replace_all_fixed(r_egen_args, "`", "")
-          sort_expr_for_temp = paste0('!!!dplyr::syms(c("', paste0(unique(c(group_vars_list_bare, rank_arg_var_bare)), collapse = '", "'), '"))')
+          sort_expr_for_temp_base = paste0('!!!dplyr::syms(c("', paste0(unique(c(group_vars_list_bare, rank_arg_var_bare)), collapse = '", "'), '"))')
+      }
+      # ADDED: Add stata2r_original_order_idx as the final tie-breaker for temporary sort
+      if (use_original_order_idx_for_temp_sort) {
+          sort_expr_for_temp = paste0('c(', sort_expr_for_temp_base, ', !!!dplyr::syms("stata2r_original_order_idx"))')
+      } else {
+          sort_expr_for_temp = sort_expr_for_temp_base
       }
       r_code_lines = c(r_code_lines, paste0(temp_df_name, " = ", temp_df_name, " %>% dplyr::arrange(", sort_expr_for_temp, ")"))
 
@@ -349,5 +517,228 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
-!END_CHANGE_FILE R/t_egen.R
+
 ```
+!END_CHANGE_FILE R/t_egen.R
+
+!CHANGE_FILE R/t_reshape.R
+```R
+# Translate Stata 'reshape' command
+# Stata: reshape wide/long stubnames, i(varlist) [j(varname) | j(varname) string] [options]
+# This is a complex command. Basic translation using tidyr.
+
+t_reshape = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
+  restore.point("t_reshape") # Added restore.point
+  rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
+
+  # Parse wide/long, stubnames, options
+  # Pattern: ^\s*(wide|long)\s+(.*?)(?:,\\s*(.*))?$
+  # G1: type (wide/long), G2: stubnames/varlist, G3: options
+
+  reshape_match = stringi::stri_match_first_regex(rest_of_cmd_trimmed, "^\\s*(wide|long)\\s+(.*?)(?:,\\s*(.*))?$")
+
+  if (is.na(reshape_match[1,1])) {
+    return(paste0("# Failed to parse reshape command: ", rest_of_cmd))
+  }
+
+  reshape_type = reshape_match[1,2]
+  stubnames_or_varlist_str = stringi::stri_trim_both(reshape_match[1,3])
+  options_str = stringi::stri_trim_both(reshape_match[1,4]) # Corrected: group 4 for options
+
+  stubnames_or_varlist = stringi::stri_split_regex(stubnames_or_varlist_str, "\\s+")[[1]]
+  stubnames_or_varlist = stubnames_or_varlist[stubnames_or_varlist != ""]
+  if (length(stubnames_or_varlist) == 0) {
+       return(paste0("# reshape command requires stubnames or varlist: ", rest_of_cmd))
+  }
+
+
+  # Parse required options: i() and j()
+  i_vars = NA_character_
+  j_var = NA_character_
+  j_is_string = FALSE # Stata j() can create numeric or string j variable
+
+  if (!is.na(options_str)) {
+      i_opt_match = stringi::stri_match_first_regex(options_str, "\\bi\\s*\\(([^)]+)\\)")
+      if (!is.na(i_opt_match[1,1])) {
+           i_vars = stringi::stri_trim_both(i_opt_match[1,2])
+      }
+
+      j_opt_match = stringi::stri_match_first_regex(options_str, "\\bj\\s*\\(([^)]+)\\)")
+      if (!is.na(j_opt_match[1,1])) {
+           j_part = stringi::stri_trim_both(j_opt_match[1,2])
+           # Check if j part contains 'string' option
+           j_string_match = stringi::stri_match_first_regex(j_part, "^\\s*([a-zA-Z_][a-zA-Z0-9_]*)(?:\\s+string)?$")
+           if (!is.na(j_string_match[1,1])) {
+               j_var = j_string_match[1,2]
+               j_is_string = !is.na(stringi::stri_match_first_regex(j_part, "\\s+string$")[1,1])
+           }
+      }
+  }
+
+  if (is.na(i_vars) || i_vars == "") {
+      return(paste0("# reshape command requires i() variable(s): ", rest_of_cmd))
+  }
+  i_vars_list = stringi::stri_split_regex(i_vars, "\\s+")[[1]]
+  i_vars_list = i_vars_list[i_vars_list != ""]
+  # i_vars_r_vec_str is not strictly needed for pivot_wider if id_cols is NULL,
+  # but keeping it for potential future uses or if pivot_wider changes behavior.
+  i_vars_r_vec_str = paste0('c("', paste(i_vars_list, collapse = '", "'), '")')
+
+  if (is.na(j_var) || j_var == "") {
+       # j() is required unless the data is already structured s.t. it's obvious.
+       # Stata infers j if possible, but usually j() is explicitly required.
+       # For translation, let's assume j() is required.
+       return(paste0("# reshape command requires j() variable: ", rest_of_cmd))
+  }
+
+
+  r_code_str = ""
+
+  if (reshape_type == "wide") {
+      # Stata `reshape wide stubnames, i(i) j(j)`
+      # R `tidyr::pivot_wider(data, id_cols = i_vars, names_from = j_var, values_from = stubnames)`
+      # Multiple stubnames means values_from is a vector of stubnames.
+      # If stubnames are `inc limit`, R columns become inc_1990, inc_1991, limit_1990, limit_1991
+      # Stata by default creates `stubnamejvalue` columns.
+      # tidyr default is `stubname_jvalue`. Can control with `names_sep` or `names_from` + `values_from`.
+
+      stubnames_r_vec_str = paste0('c("', paste(stubnames_or_varlist, collapse = '", "'), '")')
+
+      # FIX: Removed `id_cols` argument. When `id_cols` is omitted, `pivot_wider`
+      # uses all columns not specified in `names_from` or `values_from` as `id_cols`,
+      # which correctly preserves Stata's "fixed" variables.
+      r_code_str = paste0("data = tidyr::pivot_wider(data, names_from = ", j_var, ", values_from = ", stubnames_r_vec_str, ", names_sep = \"\")")
+
+  } else if (reshape_type == "long") {
+      # Stata `reshape long stubnames, i(i) j(jname)`
+      # R `tidyr::pivot_longer(data, cols = c(list of stubnames), names_to = jname, values_to = value_name)`
+      # Stata: `reshape long inc limit, i(id) j(year)` -> creates `id`, `year`, `inc`, `limit`
+      # tidyr: `pivot_longer(..., names_to = "year", values_to = "value")` default puts all values in 'value'.
+      # If multiple stubnames, tidyr can gather them separately.
+      # `pivot_longer(..., names_to = c(".value", "year"), names_sep = "_")` if original cols were `inc_1990`, `limit_1990`, etc.
+
+      # The `stubnames_or_varlist` for long format lists the *stubnames* (e.g., "inc", "limit").
+      # The actual columns to gather are inferred from these stubs and the values of the `j` variable.
+      # This translation assumes that the wide variables are named `stubname` + `j_value`.
+      # e.g., for `stubnames = c("inc", "limit")` and `j_var = "year"`,
+      # it expects columns like `inc1990`, `inc1991`, `limit1990`, `limit1991`.
+
+      # Construct the `cols` argument for `pivot_longer`
+      # It should match columns like 'value1101', 'value2102' etc.
+      # The `stubnames_or_varlist` are "value1", "value2"
+      # The `j` values are numeric suffixes.
+      cols_to_gather_regex = paste0("^(", paste(stubnames_or_varlist, collapse = "|"), ")[0-9]+$")
+      cols_to_gather_expr = paste0("dplyr::matches(\"", cols_to_gather_regex, "\")")
+
+      # Construct the `names_pattern` to capture stubname and j_value
+      # e.g., (value1|value2)(\\d+)
+      names_pattern = paste0("^(", paste(stubnames_or_varlist, collapse = "|"), ")([0-9]+)$")
+
+      # names_to should be c(".value", j_var) to create new columns for each stubname
+      names_to_r = paste0('c(".value", "', j_var, '")')
+
+      # `id_cols` should be explicitly passed to `pivot_longer` to specify non-pivoted columns.
+      # This ensures that only the columns matching the `cols_to_gather_expr` regex are pivoted,
+      # and other non-i variables are retained.
+      # FIX: Removed `id_cols` argument. `pivot_longer` can infer `id_cols` from columns not specified in `cols` or `names_to`.
+      r_code_str = paste0("data = tidyr::pivot_longer(data, cols = ", cols_to_gather_expr, ", names_to = ", names_to_r, ", names_pattern = \"", names_pattern, "\")")
+
+
+      # If j() string option was NOT used, need to convert the resulting j_var to numeric.
+      # tidyr's names_pattern captures as string by default.
+      if (!j_is_string) {
+         r_code_str = paste0(r_code_str, " %>% \n  dplyr::mutate(`", j_var, "` = as.numeric(`", j_var, "`))")
+      }
+      # Normalize string NAs after reshape, as new string columns or NA values might appear
+      r_code_str = paste0(r_code_str, " %>% \n  sfun_normalize_string_nas()")
+
+  } else {
+      r_code_str = paste0("# Unknown reshape type: ", reshape_type)
+  }
+
+  # Add comment about options if any were present but not handled
+  if (!is.na(options_str) && !grepl("\\bi\\s*\\([^)]+\\)", options_str) && !grepl("\\bj\\s*\\([^)]+\\)", options_str)) {
+       r_code_str = paste0(r_code_str, paste0(" # Other options ignored: ", options_str))
+  }
+
+  # Update stata2r_original_order_idx to reflect the new row order/count
+  # Reshape always creates a new row order, so it should always add/reset the index.
+  r_code_str = paste0(r_code_str, " %>% \n  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number())")
+  r_code_str = paste0(r_code_str, " %>% \n  { assign(\"has_original_order_idx\", TRUE, envir = stata2r_env); . }")
+
+  return(r_code_str)
+}
+
+```
+!END_CHANGE_FILE R/t_reshape.R
+
+!CHANGE_FILE R/t_sort.R
+```R
+# Translate Stata 'sort' and 'gsort' commands
+# Stata: sort varlist
+# Stata: gsort [+|-]varname [[+|-]varname ...]
+t_sort = function(rest_of_cmd, cmd_obj, cmd_df, line_num, type = "sort") {
+  restore.point("t_sort") # Added restore.point
+  if (is.na(rest_of_cmd) || rest_of_cmd == "") {
+    return("# sort/gsort command with no variables specified.")
+  }
+
+  varlist = stringi::stri_trim_both(rest_of_cmd)
+  vars = stringi::stri_split_regex(varlist, "\\s+")[[1]]
+  vars = vars[vars != ""] # Filter out empty strings from splitting
+
+  if (length(vars) == 0) {
+    return("# sort/gsort command with no effectively parsed variables.")
+  }
+
+  # Determine if stata2r_original_order_idx should be used as a tie-breaker
+  # This decision is made at translation time based on `will_have_original_order_idx` flag.
+  use_original_order_idx_for_this_sort = cmd_obj$will_have_original_order_idx
+
+  if (type == "sort") {
+    sort_vars = vars
+    if (use_original_order_idx_for_this_sort) { # Use the translation-time flag
+      sort_vars = c(sort_vars, "stata2r_original_order_idx")
+    }
+    # Using dplyr::arrange with !!!dplyr::syms for consistency and robustness
+    sort_vars_r = paste0('!!!dplyr::syms(c("', paste(sort_vars, collapse='", "'), '"))')
+    r_code_str = paste0("data = dplyr::arrange(data, ", sort_vars_r, ")")
+
+  } else if (type == "gsort") {
+    # gsort allows specifying ascending (+) or descending (-) for each variable
+    # +var (ascending, default if no sign)
+    # -var (descending)
+    # dplyr: arrange(var1, desc(var2), ...)
+    arrange_expressions = character(length(vars))
+    for (i in seq_along(vars)) {
+      var_spec = vars[i]
+      if (stringi::stri_startswith_fixed(var_spec, "-")) {
+        var_name = stringi::stri_sub(var_spec, 2)
+        arrange_expressions[i] = paste0("dplyr::desc(!!!dplyr::syms(\"", var_name, "\"))")
+      } else if (stringi::stri_startswith_fixed(var_spec, "+")) {
+        var_name = stringi::stri_sub(var_spec, 2)
+        arrange_expressions[i] = paste0("!!!dplyr::syms(\"", var_name, "\")")
+      } else {
+        arrange_expressions[i] = paste0("!!!dplyr::syms(\"", var_spec, "\")")
+      }
+    }
+    # Add stata2r_original_order_idx as the final tie-breaker to ensure stable sort for ties
+    if (use_original_order_idx_for_this_sort) { # Use the translation-time flag
+      arrange_expressions = c(arrange_expressions, '!!!dplyr::syms("stata2r_original_order_idx")')
+    }
+    r_code_str = paste0("data = dplyr::arrange(data, ", paste(arrange_expressions, collapse = ", "), ")")
+  } else {
+    r_code_str = paste0("# Unknown sort type: ", type)
+  }
+
+  # Update stata2r_original_order_idx to reflect the new row order/count
+  # This check still uses the runtime flag, which is correct for updating the column itself.
+  if (isTRUE(stata2r_env$has_original_order_idx)) {
+    r_code_str = paste0(r_code_str, " %>% \n  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number())")
+  }
+
+  return(r_code_str)
+}
+
+```
+!END_CHANGE_FILE R/t_sort.R
