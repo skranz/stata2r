@@ -6,6 +6,8 @@ mark_data_manip_cmd = function(cmd_df) {
     # Ensure e_results_needed and r_results_needed exist if cmd_df is empty but structured
     if (!("e_results_needed" %in% names(cmd_df))) cmd_df$e_results_needed = I(vector("list", 0))
     if (!("r_results_needed" %in% names(cmd_df))) cmd_df$r_results_needed = I(vector("list", 0))
+    # NEW: Initialize new column for original_order_idx presence
+    if (!("will_have_original_order_idx" %in% names(cmd_df))) cmd_df$will_have_original_order_idx = logical(0)
     return(cmd_df)
   }
 
@@ -17,6 +19,8 @@ mark_data_manip_cmd = function(cmd_df) {
   if (!("r_results_needed" %in% names(cmd_df))) {
      cmd_df$r_results_needed = I(replicate(nrow(cmd_df), character(0), simplify = FALSE))
   }
+  # NEW: Initialize will_have_original_order_idx
+  cmd_df$will_have_original_order_idx = rep(FALSE, NROW(cmd_df))
 
 
   # --- First pass: Mark commands that are inherently data-modifying ---
@@ -88,6 +92,32 @@ mark_data_manip_cmd = function(cmd_df) {
     active_needed_e_results = union(active_needed_e_results, used_e_macros)
     active_needed_r_results = union(active_needed_r_results, used_r_macros)
   }
+
+  # --- Third pass: Determine if stata2r_original_order_idx will be present at this line's execution ---
+  # This is a forward pass.
+  current_has_order_idx_at_translation_time = FALSE
+  for (i in seq_len(NROW(cmd_df))) {
+    if (cmd_df$do_translate[i]) { # Only consider translated commands
+      if (cmd_df$stata_cmd[i] %in% c("use", "collapse", "reshape")) {
+        current_has_order_idx_at_translation_time = TRUE # These commands create / re-create the index
+      } else if (cmd_df$stata_cmd[i] %in% c("drop", "keep", "expand", "merge", "append", "order")) {
+        # These commands modify rows but *maintain* the index if it exists.
+        # So, the status remains as determined by prior commands.
+        # No change to current_has_order_idx_at_translation_time here.
+      } else if (cmd_df$stata_cmd[i] %in% c("preserve")) {
+        # 'preserve' saves the current state. The index status doesn't change for the current data.
+        # No change to current_has_order_idx_at_translation_time here.
+      } else if (cmd_df$stata_cmd[i] %in% c("restore")) {
+        # 'restore' restores a previous state. The `t_preserve_restore` function recreates
+        # `stata2r_original_order_idx` if it existed in the preserved data.
+        # So, for the purpose of translation-time `t_sort` logic, it's safer to consider `restore`
+        # as preserving the `has_original_order_idx` state.
+        # No explicit change to `current_has_order_idx_at_translation_time` here.
+      }
+    }
+    cmd_df$will_have_original_order_idx[i] = current_has_order_idx_at_translation_time
+  }
+
 
   # --- Final explicit overrides ---
   # Commands that are definitely not data manipulation (e.g. `list`, `display` for scalars)

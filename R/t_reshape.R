@@ -18,7 +18,7 @@ t_reshape = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   reshape_type = reshape_match[1,2]
   stubnames_or_varlist_str = stringi::stri_trim_both(reshape_match[1,3])
-  options_str = stringi::stri_trim_both(reshape_match[1,1]) # NA if no options
+  options_str = stringi::stri_trim_both(reshape_match[1,4]) # Corrected: group 4 for options
 
   stubnames_or_varlist = stringi::stri_split_regex(stubnames_or_varlist_str, "\\s+")[[1]]
   stubnames_or_varlist = stubnames_or_varlist[stubnames_or_varlist != ""]
@@ -137,9 +137,9 @@ t_reshape = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   }
 
   # Update stata2r_original_order_idx to reflect the new row order/count
-  if (isTRUE(stata2r_env$has_original_order_idx)) {
-    r_code_str = paste0(r_code_str, " %>% \n  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number())")
-  }
+  # Reshape always creates a new row order, so it should always add/reset the index.
+  r_code_str = paste0(r_code_str, " %>% \n  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number())")
+  r_code_str = paste0(r_code_str, " %>% \n  { assign(\"has_original_order_idx\", TRUE, envir = stata2r_env); . }")
 
   return(r_code_str)
 }

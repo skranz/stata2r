@@ -260,6 +260,9 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   r_code_lines = c()
   
+  # Determine if stata2r_original_order_idx should be used as a tie-breaker for temporary sorts
+  use_original_order_idx_for_temp_sort = cmd_obj$will_have_original_order_idx
+
   if (needs_temp_sort_and_merge) {
       # The check for stata2r_env$has_original_order_idx is removed from translation-time
       # as it is guaranteed to be set at runtime by the 'use' command.
@@ -286,10 +289,16 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       }
       
       # Sort the temporary data before calculating group IDs / ranks
-      sort_expr_for_temp = paste0('!!!dplyr::syms(c("', paste0(group_vars_list_bare, collapse = '", "'), '"))')
+      sort_expr_for_temp_base = paste0('!!!dplyr::syms(c("', paste0(group_vars_list_bare, collapse = '", "'), '"))')
       if (egen_func_name == "rank" && !is.na(egen_args_str) && egen_args_str != "") {
           rank_arg_var_bare = stringi::stri_replace_all_fixed(r_egen_args, "`", "")
-          sort_expr_for_temp = paste0('!!!dplyr::syms(c("', paste0(unique(c(group_vars_list_bare, rank_arg_var_bare)), collapse = '", "'), '"))')
+          sort_expr_for_temp_base = paste0('!!!dplyr::syms(c("', paste0(unique(c(group_vars_list_bare, rank_arg_var_bare)), collapse = '", "'), '"))')
+      }
+      # ADDED: Add stata2r_original_order_idx as the final tie-breaker for temporary sort
+      if (use_original_order_idx_for_temp_sort) {
+          sort_expr_for_temp = paste0('c(', sort_expr_for_temp_base, ', !!!dplyr::syms("stata2r_original_order_idx"))')
+      } else {
+          sort_expr_for_temp = sort_expr_for_temp_base
       }
       r_code_lines = c(r_code_lines, paste0(temp_df_name, " = ", temp_df_name, " %>% dplyr::arrange(", sort_expr_for_temp, ")"))
 
@@ -343,4 +352,5 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 

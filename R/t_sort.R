@@ -16,11 +16,12 @@ t_sort = function(rest_of_cmd, cmd_obj, cmd_df, line_num, type = "sort") {
   }
 
   # Determine if stata2r_original_order_idx should be used as a tie-breaker
-  use_original_order_idx = isTRUE(stata2r_env$has_original_order_idx)
+  # This decision is made at translation time based on `will_have_original_order_idx` flag.
+  use_original_order_idx_for_this_sort = cmd_obj$will_have_original_order_idx
 
   if (type == "sort") {
     sort_vars = vars
-    if (use_original_order_idx) {
+    if (use_original_order_idx_for_this_sort) { # Use the translation-time flag
       sort_vars = c(sort_vars, "stata2r_original_order_idx")
     }
     # Using dplyr::arrange with !!!dplyr::syms for consistency and robustness
@@ -46,7 +47,7 @@ t_sort = function(rest_of_cmd, cmd_obj, cmd_df, line_num, type = "sort") {
       }
     }
     # Add stata2r_original_order_idx as the final tie-breaker to ensure stable sort for ties
-    if (use_original_order_idx) {
+    if (use_original_order_idx_for_this_sort) { # Use the translation-time flag
       arrange_expressions = c(arrange_expressions, '!!!dplyr::syms("stata2r_original_order_idx")')
     }
     r_code_str = paste0("data = dplyr::arrange(data, ", paste(arrange_expressions, collapse = ", "), ")")
@@ -55,6 +56,7 @@ t_sort = function(rest_of_cmd, cmd_obj, cmd_df, line_num, type = "sort") {
   }
 
   # Update stata2r_original_order_idx to reflect the new row order/count
+  # This check still uses the runtime flag, which is correct for updating the column itself.
   if (isTRUE(stata2r_env$has_original_order_idx)) {
     r_code_str = paste0(r_code_str, " %>% \n  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number())")
   }
