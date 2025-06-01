@@ -20,9 +20,9 @@ mark_data_manip_cmd = function(cmd_df) {
 
 
   # --- First pass: Mark commands that are inherently data-modifying ---
+  # These commands *always* modify the dataset directly.
   cmd_df$do_translate = cmd_df$stata_cmd %in% stata_data_manip_cmds
-  # Ensure 'save' is always translated.
-  cmd_df$do_translate[cmd_df$stata_cmd == "save"] = TRUE
+  # Ensure 'save' is always translated. (It already is in stata_data_manip_cmds)
 
 
   # --- Second pass: Determine which commands produce e() or r() results that are *actually used* ---
@@ -55,10 +55,11 @@ mark_data_manip_cmd = function(cmd_df) {
     # Add results that this command *would produce* to active_needed_e/r_results if they are not already.
     # And mark this command to translate if it produces a needed result.
 
-    # Estimation commands produce e() results
+    # Commands producing e() results (e.g., regress, xi)
     if (current_cmd %in% stata_estimation_cmds) {
-      # List all e() results that regress can produce.
-      potential_e_results_produced = c("e(sample)", "e(N)", "e(r2)", "e(df_r)", "e(rmse)", "e(b)", "e(V)")
+      # List all e() results that this type of command can produce.
+      # This list should be comprehensive for the command's potential outputs.
+      potential_e_results_produced = c("e(sample)", "e(N)", "e(r2)", "e(df_r)", "e(rmse)", "e(b)", "e(V)") # Example for regress/xi
       
       # If any of these potential results are currently needed, then this command is the producer.
       if (any(potential_e_results_produced %in% active_needed_e_results)) {
@@ -70,19 +71,15 @@ mark_data_manip_cmd = function(cmd_df) {
       }
     }
 
-    # Summarize/Tabulate commands produce r() results
-    if (current_cmd %in% c("summarize", "su", "tabulate", "tab")) {
+    # Commands producing r() results (e.g., summarize, tabulate, count)
+    if (current_cmd %in% stata_r_result_cmds) {
       # For now, only common r() values are tracked. Extend as needed.
-      potential_r_results_produced = c("r(N)", "r(mean)", "r(sd)", "r(min)", "r(max)", "r(sum)", "r(p50)")
+      potential_r_results_produced = c("r(N)", "r(mean)", "r(sd)", "r(min)", "r(max)", "r(sum)", "r(p50)") # Example for summarize
       
       if (any(potential_r_results_produced %in% active_needed_r_results)) {
           cmd_df$do_translate[i] = TRUE
           cmd_df$r_results_needed[[i]] = union(cmd_df$r_results_needed[[i]], intersect(potential_r_results_produced, active_needed_r_results))
           active_needed_r_results = setdiff(active_needed_r_results, potential_r_results_produced)
-      } else {
-          # If a summarize/tabulate command is not producing needed r() results, it should not be translated
-          # unless it's already marked as data manipulation.
-          # This is implicitly handled by the final override section below.
       }
     }
     
@@ -94,8 +91,6 @@ mark_data_manip_cmd = function(cmd_df) {
 
   # --- Final explicit overrides ---
   # Commands that are definitely not data manipulation (e.g. `list`, `display` for scalars)
-  # `format` only affects display, not data values.
-  # These commands are now in stata_non_data_manip_cmds.
   # If a command is in stata_non_data_manip_cmds, it should be FALSE unless its r() or e() results are *explicitly* needed.
   for (k in seq_len(NROW(cmd_df))) {
       if (cmd_df$stata_cmd[k] %in% stata_non_data_manip_cmds) {
@@ -112,12 +107,12 @@ mark_data_manip_cmd = function(cmd_df) {
 
   # `clear` as a command clears memory. `use "file", clear` is different.
   # `clear` option is handled by `t_use`.
+  # Standalone `clear` command should be translated.
   if ("clear" %in% cmd_df$stata_cmd) {
       cmd_df$do_translate[cmd_df$stata_cmd == "clear" & (is.na(cmd_df$rest_of_cmd) | cmd_df$rest_of_cmd == "")] = TRUE # standalone clear
   }
   
   return(cmd_df)
 }
-
 
 

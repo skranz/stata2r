@@ -126,8 +126,8 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Logic for 1:1 merge strictness
   if (merge_type == "1:1") {
       r_code_lines = c(r_code_lines,
-          paste0("if (any(base::duplicated(dplyr::select(data, dplyr::all_of(", merge_keys_r_var, "))))) { stop('Merge 1:1 failed: Duplicate keys found in master dataset (data).') }"),
-          paste0("if (any(base::duplicated(dplyr::select(", temp_using_data_var, ", dplyr::all_of(", merge_keys_r_var, "))))) { stop('Merge 1:1 failed: Duplicate keys found in using dataset (', ", using_source_r_expr, ", ').') }")
+          paste0("if (isTRUE(any(base::duplicated(dplyr::select(data, dplyr::all_of(", merge_keys_r_var, ")))))) { stop('Merge 1:1 failed: Duplicate keys found in master dataset (data).') }"),
+          paste0("if (isTRUE(any(base::duplicated(dplyr::select(", temp_using_data_var, ", dplyr::all_of(", merge_keys_r_var, ")))))) { stop('Merge 1:1 failed: Duplicate keys found in using dataset (', ", using_source_r_expr, ", ').') }")
       )
   }
 
@@ -197,4 +197,5 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
+
 
