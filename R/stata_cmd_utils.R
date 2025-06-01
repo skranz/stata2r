@@ -6,7 +6,7 @@ stata_cmd_abbreviations = list(
   "a" = "append",
   "br" = "browse",
   "by" = "bysort", # 'by' is often a prefix, but can be 'bysort'
-  "cap" = "capture",
+  "cap" = "capture", # 'capture' is a prefix, but included here for completeness if ever used as a standalone command.
   "cd" = "cd",
   "cl" = "clear", # clear all
   "co" = "collapse",
@@ -56,7 +56,7 @@ stata_cmd_abbreviations = list(
   "ou" = "outsheet",
   "p" = "predict", # predict for generating variables from models
   "pres" = "preserve",
-  # "q" = "quietly", # Quietly is a prefix, handled differently
+  "q" = "quietly", # Quietly is a prefix, handled differently
   "r" = "recode",
   "reg" = "regress", # Example statistical procedure
   "ren" = "rename",
@@ -140,7 +140,7 @@ stata_r_result_cmds = c(
 
 
 # Helper to parse basic Stata command line: cmd + rest
-# Tries to handle `by varlist : command` and `quietly command` prefixes.
+# Tries to handle `capture`, `quietly`, `by` prefixes.
 # Returns:
 #   stata_cmd_original: original first token of the effective command (e.g. "g" for "gen")
 #   stata_cmd: full command name of the effective command (e.g. "generate")
@@ -149,23 +149,51 @@ stata_r_result_cmds = c(
 #   by_group_vars: character vector of grouping variables from by/bysort prefix
 #   by_sort_vars: character vector of sort-only variables (in parentheses) from by/bysort prefix
 #   is_quietly_prefix: logical, TRUE if "quietly" prefix was found
+#   is_capture_prefix: logical, TRUE if "capture" prefix was found
 parse_stata_command_line = function(line_text) {
   restore.point("parse_stata_command_line")
   trimmed_line = stringi::stri_trim_both(line_text)
+  
+  effective_line = trimmed_line
 
+  # Initialize all flags
   is_by_prefix_val = FALSE
   by_group_vars = character(0)
   by_sort_vars = character(0)
-  raw_by_string_from_prefix = NA_character_
-  rest_of_line_for_cmd_parse = trimmed_line
+  is_quietly_prefix_val = FALSE
+  is_capture_prefix_val = FALSE
 
-  # Check for "by ... :" or "bysort ... :" prefix
-  if (dplyr::coalesce(stringi::stri_startswith_fixed(trimmed_line, "by "), FALSE) ||
-      dplyr::coalesce(stringi::stri_startswith_fixed(trimmed_line, "bysort "), FALSE)) {
-    prefix_match = stringi::stri_match_first_regex(trimmed_line, "^(?:by|bysort)\\s+([^:]+?)\\s*:\\s*(.*)$")
+  # 1. Check for "capture" prefix
+  # Regex to match "capture" or "cap" as a whole word prefix followed by space
+  capture_prefix_regex = "^(?:capture|cap)\\s+(.*)$"
+  capture_match = stringi::stri_match_first_regex(effective_line, capture_prefix_regex)
+  if (!is.na(capture_match[1,1])) {
+    first_token_before_space = stringi::stri_extract_first_words(effective_line)
+    if (tolower(first_token_before_space) %in% c("capture", "cap")) {
+      is_capture_prefix_val = TRUE
+      effective_line = stringi::stri_trim_both(capture_match[1,2])
+    }
+  }
+
+  # 2. Check for "quietly" prefix
+  # Regex to match "quietly" or "qui" or "q" as a whole word prefix followed by space
+  quietly_prefix_regex = "^(?:quietly|qui|q)\\s+(.*)$"
+  quietly_match = stringi::stri_match_first_regex(effective_line, quietly_prefix_regex)
+  if (!is.na(quietly_match[1,1])) {
+      first_token_before_space = stringi::stri_extract_first_words(effective_line)
+      if (tolower(first_token_before_space) %in% c("quietly", "qui", "q")) {
+        is_quietly_prefix_val = TRUE
+        effective_line = stringi::stri_trim_both(quietly_match[1,2])
+      }
+  }
+
+  # 3. Check for "by ... :" or "bysort ... :" prefix
+  if (dplyr::coalesce(stringi::stri_startswith_fixed(effective_line, "by "), FALSE) ||
+      dplyr::coalesce(stringi::stri_startswith_fixed(effective_line, "bysort "), FALSE)) {
+    prefix_match = stringi::stri_match_first_regex(effective_line, "^(?:by|bysort)\\s+([^:]+?)\\s*:\\s*(.*)$")
     if (!is.na(prefix_match[1,1])) {
       raw_by_string_from_prefix = stringi::stri_trim_both(prefix_match[1,2])
-      rest_of_line_for_cmd_parse = stringi::stri_trim_both(prefix_match[1,3])
+      effective_line = stringi::stri_trim_both(prefix_match[1,3])
       is_by_prefix_val = TRUE
 
       by_tokens = character(0)
@@ -189,26 +217,8 @@ parse_stata_command_line = function(line_text) {
     }
   }
 
-  # Check for "quietly" prefix on the (potentially by-prefixed) command part
-  is_quietly_prefix_val = FALSE
-  # Regex to match "quietly" or "qui" or "q" as a whole word prefix followed by space
-  quietly_prefix_regex = "^(?:quietly|qui|q)\\s+(.*)$"
-  quietly_match = stringi::stri_match_first_regex(rest_of_line_for_cmd_parse, quietly_prefix_regex)
-
-  if (!is.na(quietly_match[1,1])) {
-      # Check if the matched prefix is indeed "quietly" or its abbreviation
-      # and not just a command starting with "q" that isn't "quietly" (e.g. "query").
-      # The first token before the space:
-      first_token_before_space = stringi::stri_extract_first_words(rest_of_line_for_cmd_parse)
-      if (tolower(first_token_before_space) %in% c("quietly", "qui", "q")) {
-        is_quietly_prefix_val = TRUE
-        rest_of_line_for_cmd_parse = stringi::stri_trim_both(quietly_match[1,2]) # The part after "quietly "
-      }
-  }
-
-
-  # Extract command token from the (now prefix-stripped) line
-  parts = stringi::stri_split_fixed(rest_of_line_for_cmd_parse, " ", n = 2)
+  # Extract command token from the (now prefix-stripped) effective_line
+  parts = stringi::stri_split_fixed(effective_line, " ", n = 2)
   cmd_token_original = stringi::stri_trim_both(parts[[1]][1])
 
   if (is.na(cmd_token_original) || cmd_token_original == "") {
@@ -219,7 +229,8 @@ parse_stata_command_line = function(line_text) {
         is_by_prefix = is_by_prefix_val,
         by_group_vars = character(0),
         by_sort_vars = character(0),
-        is_quietly_prefix = is_quietly_prefix_val # Added
+        is_quietly_prefix = is_quietly_prefix_val,
+        is_capture_prefix = is_capture_prefix_val
       ))
   }
 
@@ -241,7 +252,8 @@ parse_stata_command_line = function(line_text) {
     is_by_prefix = is_by_prefix_val,
     by_group_vars = by_group_vars,
     by_sort_vars = by_sort_vars,
-    is_quietly_prefix = is_quietly_prefix_val # Added
+    is_quietly_prefix = is_quietly_prefix_val,
+    is_capture_prefix = is_capture_prefix_val
   ))
 }
 
@@ -345,5 +357,4 @@ get_xi_interaction_basename = function(var1, var2) {
   short_var2 = stringi::stri_sub(var2, 1, min(stringi::stri_length(var2), 3))
   return(paste0(short_var1, "X", short_var2))
 }
-
 

@@ -21,7 +21,8 @@ do_parse = function(do_code) {
       is_by_prefix = logical(0),
       by_group_vars = character(0),
       by_sort_vars = character(0),
-      is_quietly_prefix = logical(0), # New column
+      is_quietly_prefix = logical(0),
+      is_capture_prefix = logical(0), # NEW: Added capture prefix flag
       do_translate = logical(0),
       stata_translation_error = character(0),
       e_results_needed = I(vector("list", 0)), # New column for e() results
@@ -44,7 +45,8 @@ do_parse = function(do_code) {
       is_by_prefix = parsed_info$is_by_prefix,
       by_group_vars = if (length(parsed_info$by_group_vars)>0) paste(parsed_info$by_group_vars, collapse=",") else "",
       by_sort_vars = if (length(parsed_info$by_sort_vars)>0) paste(parsed_info$by_sort_vars, collapse=",") else "",
-      is_quietly_prefix = parsed_info$is_quietly_prefix, # New field
+      is_quietly_prefix = parsed_info$is_quietly_prefix,
+      is_capture_prefix = parsed_info$is_capture_prefix, # NEW: Assign capture prefix flag
       stata_translation_error = NA_character_,
       will_ignore_row_order_for_comparison = FALSE, # NEW: Initialize here
       stringsAsFactors = FALSE
@@ -59,5 +61,4 @@ do_parse = function(do_code) {
   cmd_df$will_have_original_order_idx = rep(FALSE, NROW(cmd_df)) 
   return(cmd_df)
 }
-
 

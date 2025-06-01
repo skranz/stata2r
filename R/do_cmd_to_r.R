@@ -13,7 +13,8 @@ do_cmd_to_r = function(cmd_obj, line, cmd_df) { # Corrected signature: added cmd
 
   translation_context = list(
     is_by_group = cmd_obj$is_by_prefix,
-    is_quietly_prefix = cmd_obj$is_quietly_prefix # Pass quietly status
+    is_quietly_prefix = cmd_obj$is_quietly_prefix, # Pass quietly status
+    is_capture_prefix = cmd_obj$is_capture_prefix # NEW: Pass capture status
   )
 
   rest_of_cmd_clean = ifelse(is.na(cmd_obj$rest_of_cmd), "", cmd_obj$rest_of_cmd)
@@ -70,5 +71,4 @@ do_cmd_to_r = function(cmd_obj, line, cmd_df) { # Corrected signature: added cmd
   r_obj = data.frame(line=line, r_code = res$r_code, do_code = cmd_obj$do_code, stata_translation_error = res$stata_translation_error, ignore_row_order_for_comparison = cmd_obj$will_ignore_row_order_for_comparison, stringsAsFactors = FALSE)
   return(r_obj)
 }
-
 
