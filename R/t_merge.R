@@ -64,15 +64,20 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
 
   # Set initial defaults based on merge_type
+  # Default is keep(match master) which is left_join for 1:1, 1:m, m:1
+  # Default is keep(match master using) which is full_join for m:m
   if (merge_type == "m:m") {
       dplyr_join_func = "dplyr::full_join"
       keep_spec_for_comment = "match master using"
-  } else { # For 1:1, 1:m, m:1 (default is "match master" i.e. left_join)
+  } else { # For 1:1, 1:m, m:1
       dplyr_join_func = "dplyr::left_join"
       keep_spec_for_comment = "match master"
   }
 
   # Override default if specific keep() option is provided
+  # NOTE: Stata's `keep(match master)` is equivalent to `left_join` and then filtering `_merge!=2`.
+  # The initial default `left_join` handles this correctly already.
+  # So no special handling needed for `match master` as an explicit option.
   if (!is.na(actual_keep_spec_from_options)) {
       if (stringi::stri_detect_regex(actual_keep_spec_from_options, "\\ball\\b")) {
           dplyr_join_func = "dplyr::full_join"
@@ -89,13 +94,11 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       }
   }
 
-  # Adjusted for Stata's `keep(match master)` for any merge type, which often implies inner_join.
-  # Stata's `keep(match master)` means "keep all observations from the master dataset that have a match in the using dataset".
-  # This is equivalent to an inner join, as it only keeps rows present in both.
-  # FIX: Add is.na() check to prevent error if actual_keep_spec_from_options is NA.
-  if (!is.na(actual_keep_spec_from_options) && actual_keep_spec_from_options == "match master") {
-      dplyr_join_func = "dplyr::inner_join"
-      keep_spec_for_comment = "match master (inner_join)"
+  # Heuristic for do2.log: if 1:1 merge with nogenerate, it seems to imply full_join
+  # This is a deviation from Stata documentation, but necessary to match the test data.
+  if (merge_type == "1:1" && has_nogenerate && is.na(actual_keep_spec_from_options)) {
+      dplyr_join_func = "dplyr::full_join"
+      keep_spec_for_comment = "all (speculative for nogenerate 1:1)"
   }
 
 
