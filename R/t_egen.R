@@ -276,7 +276,12 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
           cols_for_temp_calculation = unique(c(cols_for_temp_calculation, rank_arg_var_bare))
       }
       
-      select_cols_for_temp = paste0('c("stata2r_original_order_idx", "', paste(cols_for_temp_calculation, collapse = '", "'), '")')
+      # Add stata2r_original_order_idx to the list of columns to select for temp data, only if it is expected to be present
+      if (use_original_order_idx_for_temp_sort) { 
+          select_cols_for_temp = paste0('c("stata2r_original_order_idx", "', paste(cols_for_temp_calculation, collapse = '", "'), '")')
+      } else {
+          select_cols_for_temp = paste0('c("', paste(cols_for_temp_calculation, collapse = '", "'), '")')
+      }
 
       r_code_lines = c(r_code_lines,
           paste0(temp_df_name, " = dplyr::select(data, ", select_cols_for_temp, ")")
@@ -295,7 +300,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
           vector_of_sort_vars = unique(c(vector_of_sort_vars, rank_arg_var_bare))
       }
       # Add stata2r_original_order_idx as the final tie-breaker for temporary sort
-      if (use_original_order_idx_for_this_sort) {
+      if (use_original_order_idx_for_temp_sort) { 
           vector_of_sort_vars = c(vector_of_sort_vars, "stata2r_original_order_idx")
       }
       # Construct the final arrange expression
