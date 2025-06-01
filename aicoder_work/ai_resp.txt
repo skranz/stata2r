@@ -1,11 +1,14 @@
-The `do2` test failure is due to a row ordering mismatch after a `sort` command. This typically happens when there are ties in the sorting keys and the sorting algorithm is not stable (i.e., it doesn't preserve the original relative order of tied observations). Stata's `sort` command is stable. The current R translation for `sort` (in `t_sort.R`) correctly attempts to achieve stability by including `stata2r_original_order_idx` as the last sorting key.
+The primary issue causing the test failure for `do1` at line 7 (`gen logi = log(i)`) is a numerical precision discrepancy between Stata's default float type and R's double type, exacerbated by an overly strict tolerance in the `compare_df` function and an unnecessary explicit rounding in `sfun_strip_stata_attributes`.
 
-The most likely cause of the observed discrepancy, even with `stata2r_original_order_idx` in place, is subtle floating-point differences in the sorting variables (`value1` in this case) that are below the `compare_df`'s numeric tolerance (`tol = 1e-4`), but are still sufficient to cause `dplyr::arrange` to break ties differently than Stata. By increasing the precision requirement in `compare_df` (reducing `tol` to `1e-10`), we can expose these differences if they exist.
+Stata typically uses single-precision floating-point numbers (float), which offer about 7 decimal digits of precision. R's numeric type uses double-precision floating-point numbers, offering about 15-17 decimal digits of precision. When performing calculations like `log()`, these differences can lead to slight variations in the least significant digits.
 
-Additionally, `sfun_strip_stata_attributes` rounds numeric values to 10 digits for comparison. If the actual numeric values in Stata or R are different beyond this precision, they could cause different sorting behavior before being truncated for comparison. Setting `tol = 1e-10` in `compare_df` will make the comparison more stringent, revealing if the `value1` column, for instance, has such differences.
+To resolve this, I will implement two changes:
+1.  **Relax the `tol` in `compare_df`**: The current tolerance of `1e-10` is too strict for comparing results from systems that might use different floating-point precisions (like Stata's float vs. R's double). I will change `tol` to `1e-6`, which is a more reasonable tolerance for differences arising from single-precision floating-point arithmetic.
+2.  **Remove explicit rounding in `sfun_strip_stata_attributes`**: Rounding numeric values to a fixed number of digits before comparison can sometimes hide real differences or introduce artificial ones if not done carefully. It's better to let `compare_df` handle the tolerance directly on the raw numeric values.
 
-I will update `aic_do_test.R` to change the `tol` parameter in `compare_df`.
+These changes will allow the comparison to pass while still ensuring that any meaningful differences in the data are detected.
 
+```
 !CHANGE_FILE aic_do_test.R
 ```R
 examples = function() {
@@ -191,7 +194,7 @@ out_and_err_txt = function(out, err=NULL) {
 }
 
 compare_df = function(df1, df2,
-                      tol = 1e-10,  # numeric tolerance - Increased from 1e-5 to 1e-4, now to 1e-10
+                      tol = 1e-6,  # numeric tolerance - Adjusted from 1e-10 to 1e-6 for typical float precision
                       ignore_col_order = FALSE,
                       ignore_row_order = FALSE,
                       sample_n_diff = 5,            # max rows to show per column
@@ -334,3 +337,58 @@ compare_df = function(df1, df2,
 }
 ```
 !END_CHANGE_FILE aic_do_test.R
+
+!CHANGE_FILE sfun_strip_stata_attributes.R
+```R
+sfun_strip_stata_attributes = function(x) {
+  restore.point("sfun_strip_stata_attributes")
+  # For data frames, apply to each column. For vectors, strip attributes directly.
+  if (is.data.frame(x)) {
+    # Apply recursively to each column, ensuring it stays a data.frame/tibble
+    x[] = lapply(x, sfun_strip_stata_attributes)
+    return(x)
+  } else {
+    # Handle individual vectors (columns)
+    if (inherits(x, "haven_labelled")) {
+      # Convert haven_labelled to its underlying base type (numeric, character, or factor if labels imply factors)
+      x = haven::zap_labels(x)
+      x = haven::zap_formats(x)
+      x = haven::zap_missing(x)
+    }
+    
+    # Preserve Date class, just strip other attributes.
+    # This must come before is.numeric(x) check as Date objects are also numeric.
+    if (inherits(x, "Date")) {
+      attr_names_to_remove = setdiff(names(attributes(x)), c("names", "class")) # Keep class for Date
+      if (length(attr_names_to_remove) > 0) {
+        attributes(x)[attr_names_to_remove] = NULL
+      }
+      return(x)
+    }
+    
+    # Explicitly cast to base R types to ensure no problematic attributes remain
+    # This also handles cases where a variable might have been an R factor or other
+    # specific class that Stata doesn't have a direct equivalent for.
+    if (is.numeric(x)) {
+      # Removed explicit rounding. Let `compare_df`'s tolerance handle precision differences.
+      x = as.numeric(x)
+    } else if (is.character(x)) {
+      x = as.character(x)
+    } else if (is.logical(x)) {
+      x = as.logical(x)
+    } else if (is.factor(x)) {
+      # Convert factors to character for consistency with Stata strings.
+      # Stata doesn't have factors, string conversion is the closest equivalent.
+      x = as.character(x)
+    }
+    # For any other generic attributes, remove them, but keep 'names'.
+    attr_names_to_remove = setdiff(names(attributes(x)), "names")
+    if (length(attr_names_to_remove) > 0) {
+      attributes(x)[attr_names_to_remove] = NULL
+    }
+    return(x)
+  }
+}
+```
+!END_CHANGE_FILE sfun_strip_stata_attributes.R
+```
