@@ -136,7 +136,8 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   if (egen_func_name == "mean") {
     calc_expr = paste0("mean(", r_egen_args_conditional, ", na.rm = TRUE)")
   } else if (egen_func_name == "total" || egen_func_name == "sum") {
-    calc_expr = paste0("sum(", r_egen_args_conditional, ", na.rm = TRUE)")
+    # Changed from base R sum to collapse::fsum for potential precision matching
+    calc_expr = paste0("collapse::fsum(", r_egen_args_conditional, ", na.rm = TRUE)")
   } else if (egen_func_name == "count") {
     calc_expr = paste0("sum(!is.na(", r_egen_args_conditional, "))")
   } else if (egen_func_name == "rank") {
