@@ -261,9 +261,8 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   r_code_lines = c()
   
   if (needs_temp_sort_and_merge) {
-      if (!isTRUE(stata2r_env$has_original_order_idx)) {
-          return(paste0("# Error: egen ", egen_func_name, " requires original order index (stata2r_original_order_idx) when used without bysort prefix. Add a `use` command to initialize it."))
-      }
+      # The check for stata2r_env$has_original_order_idx is removed from translation-time
+      # as it is guaranteed to be set at runtime by the 'use' command.
       
       temp_df_name = paste0("stata_tmp_egen_order_L", line_num)
       
