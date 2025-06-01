@@ -54,6 +54,12 @@ t_sort = function(rest_of_cmd, cmd_obj, cmd_df, line_num, type = "sort") {
     r_code_str = paste0("# Unknown sort type: ", type)
   }
 
+  # Update stata2r_original_order_idx to reflect the new row order/count
+  if (isTRUE(stata2r_env$has_original_order_idx)) {
+    r_code_str = paste0(r_code_str, " %>% \n  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number())")
+  }
+
   return(r_code_str)
 }
+
 

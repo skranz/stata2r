@@ -22,7 +22,7 @@ aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="", do_file
   # Set global environment variables for path resolution in translation functions
   assign("data_dir", data_dir, envir = stata2r_env)
   assign("working_dir", test_dir, envir = stata2r_env)
-  # Initialize global flag for original order index
+  # Initialize global flag for original order index. This flag will be set to TRUE by t_use or t_collapse.
   assign("has_original_order_idx", FALSE, envir = stata2r_env)
 
   library(stata2r)
@@ -322,4 +322,5 @@ compare_df = function(df1, df2,
   }
   out
 }
+
 

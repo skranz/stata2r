@@ -4,8 +4,7 @@
 
 t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   restore.point("t_collapse")
-  # Update original order index flag immediately (during translation)
-  assign("has_original_order_idx", FALSE, envir = stata2r_env)
+  # REMOVED: assign("has_original_order_idx", FALSE, envir = stata2r_env)
 
   rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
 
@@ -144,6 +143,11 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
      r_code_lines = c(r_code_lines, paste0("data = ", paste(main_pipe_parts, collapse = " %>% \n  ")))
   }
 
+  # Add stata2r_original_order_idx to the new data, as it's a new "original" order.
+  # Also set the global flag to TRUE.
+  r_code_lines = c(r_code_lines, "data = dplyr::mutate(data, stata2r_original_order_idx = dplyr::row_number())")
+  r_code_lines = c(r_code_lines, "assign(\"has_original_order_idx\", TRUE, envir = stata2r_env)")
+
 
   r_code_str = paste(r_code_lines, collapse="\n")
 
@@ -162,4 +166,5 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(r_code_str)
 }
+
 

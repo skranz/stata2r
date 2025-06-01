@@ -8,6 +8,8 @@ t_drop = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   is_if_drop = stringi::stri_startswith_fixed(rest_of_cmd_trimmed, "if ")
   is_in_drop = stringi::stri_startswith_fixed(rest_of_cmd_trimmed, "in ")
 
+  r_code_str = "" # Initialize for the different branches
+
   if (is_if_drop) {
     # drop if condition
     stata_if_cond = stringi::stri_sub(rest_of_cmd_trimmed, from = 4)
@@ -64,6 +66,12 @@ t_drop = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     }
   }
 
+  # Update stata2r_original_order_idx to reflect the new row order/count
+  if (isTRUE(stata2r_env$has_original_order_idx)) {
+    r_code_str = paste0(r_code_str, " %>% \n  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number())")
+  }
+
   return(r_code_str)
 }
+
 

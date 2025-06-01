@@ -197,6 +197,12 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
        r_code_lines = c(r_code_lines, paste0(" # Other options ignored: ", options_str_cleaned))
   }
 
+  # Update stata2r_original_order_idx to reflect the new row order/count
+  if (isTRUE(stata2r_env$has_original_order_idx)) {
+    r_code_lines = c(r_code_lines, "data = dplyr::mutate(data, stata2r_original_order_idx = dplyr::row_number())")
+  }
+
   return(paste(r_code_lines, collapse="\n"))
 }
+
 

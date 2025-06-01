@@ -37,6 +37,8 @@ t_preserve_restore = function(cmd_obj, type = "preserve") { # line_num implicitl
       "if (length(stata_data_preserve_stack_G) > 0) {",
       "  data = stata_data_preserve_stack_G[[1]]",
       "  stata_data_preserve_stack_G = stata_data_preserve_stack_G[-1]",
+      # Update stata2r_original_order_idx after restore, if it exists
+      "  if (isTRUE(stata2r_env$has_original_order_idx)) { data = dplyr::mutate(data, stata2r_original_order_idx = dplyr::row_number()) }",
       paste0("  # Restored data state from Stata line: ", cmd_obj$line),
       "} else {",
       paste0("  warning('Stata restore called on line ", cmd_obj$line, " but preserve stack is empty.')"),

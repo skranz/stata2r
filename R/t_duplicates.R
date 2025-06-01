@@ -86,6 +86,10 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
           paste0("data = dplyr::filter(data, !(", is_duplicate_tmp_var, " & ", filter_cond_expr, "))"),
           paste0("rm(", is_duplicate_tmp_var, ")")
       )
+      # Update stata2r_original_order_idx to reflect the new row order/count
+      if (isTRUE(stata2r_env$has_original_order_idx)) {
+        r_code_lines = c(r_code_lines, "data = dplyr::mutate(data, stata2r_original_order_idx = dplyr::row_number())")
+      }
 
   } else if (subcommand == "tag") {
       gen_var = NA_character_
@@ -166,4 +170,5 @@ t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   return(r_code_str)
 }
+
 
