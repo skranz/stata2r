@@ -232,9 +232,8 @@ file /home/rstudio/aicoder/stata2r/aicoder_work/tests/do2/do_data/do2-21.dta
 file /home/rstudio/aicoder/stata2r/aicoder_work/tests/do2/do_data/do2-22.dta
     saved
 
-. egen rank_value1_in_group = rank(value1), by(group_clean) fieldstrustmissings
-option fieldstrustmissings not allowed
-r(198);
+. egen rank_value1_in_group = rank(value1), by(group_clean)
+(5 missing values generated)
 
 . save "/home/rstudio/aicoder/stata2r/aicoder_work/tests/do2/do_data/do2-23.dta
 > ", replace emptyok

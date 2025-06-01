@@ -42,7 +42,7 @@ egen tag_first_in_group = tag(group_clean)
 save "/home/rstudio/aicoder/stata2r/aicoder_work/tests/do2/do_data/do2-21.dta", replace emptyok
 egen count_obs_in_group = count(id), by(group_clean)
 save "/home/rstudio/aicoder/stata2r/aicoder_work/tests/do2/do_data/do2-22.dta", replace emptyok
-egen rank_value1_in_group = rank(value1), by(group_clean) fieldstrustmissings
+egen rank_value1_in_group = rank(value1), by(group_clean)
 save "/home/rstudio/aicoder/stata2r/aicoder_work/tests/do2/do_data/do2-23.dta", replace emptyok
 egen row_total_v1_v2 = rowtotal(value1 value2)
 save "/home/rstudio/aicoder/stata2r/aicoder_work/tests/do2/do_data/do2-24.dta", replace emptyok

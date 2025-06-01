@@ -132,8 +132,9 @@ aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="", do_file
       cols_to_remove_from_r_for_comp = setdiff(cols_in_r_not_do, c(non_deterministic_cols, "stata2r_original_order_idx"))
 
       if (length(cols_to_remove_from_r_for_comp) > 0) {
-          warning(paste0("Test data inconsistency: Columns ", paste(cols_to_remove_from_r_for_comp, collapse=", "), " exist in R data but not in Stata reference data (", basename(dat_file), "). Removing from R data for comparison."))
-          r_data = dplyr::select(r_data, -dplyr::any_of(cols_to_remove_from_r_for_comp))
+          cat(paste0("Test data inconsistency: Columns ", paste(cols_to_remove_from_r_for_comp, collapse=", "), " exist in R data but not in Stata reference data (", basename(dat_file), "). Make sure that translation functions remove temporary columns from data or store them in separate temporary variables if needed or as attributes of data."))
+          return(FALSE)
+          #r_data = dplyr::select(r_data, -dplyr::any_of(cols_to_remove_from_r_for_comp))
       }
 
       actual_ignore_cols = c(non_deterministic_cols, "stata2r_original_order_idx")
