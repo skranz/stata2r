@@ -127,6 +127,8 @@ aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="", do_file
     r_code_to_exec = r_df$r_code[[i_df_loop]]
     original_stata_line_num = r_df$line[[i_df_loop]]
     do_code_original = r_df$do_code[[i_df_loop]]
+    # NEW: Get the flag for ignoring row order for this specific command
+    ignore_row_order_for_this_line = r_df$ignore_row_order_for_comparison[[i_df_loop]]
 
     if (is.na(r_code_to_exec)) {
       cat("\n", original_stata_line_num, "do: ", do_code_original, "\n")
@@ -170,7 +172,8 @@ aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="", do_file
       if (basename(test_dir) == "do2") {
         actual_ignore_cols = c(actual_ignore_cols, "obs_quarter")
       }
-      comp = compare_df(do_data, r_data, ignore_cols_values = actual_ignore_cols)
+      # Pass the new flag to compare_df
+      comp = compare_df(do_data, r_data, ignore_cols_values = actual_ignore_cols, ignore_row_order = ignore_row_order_for_this_line)
       if (!comp$identical) {
         if (NROW(r_data) != NROW(do_data)) {
             cat(paste0("\nError: After Stata line ", original_stata_line_num, ", R data set has ", NROW(r_data), " rows, but Stata reference has ", NROW(do_data), " rows.\n"))
@@ -210,7 +213,7 @@ out_and_err_txt = function(out, err=NULL) {
 compare_df = function(df1, df2,
                       tol = 1e-5,  # numeric tolerance - Adjusted from 2e-6 to 1e-5 for typical float precision
                       ignore_col_order = FALSE,
-                      ignore_row_order = FALSE,
+                      ignore_row_order = FALSE, # Now this can be TRUE
                       sample_n_diff = 5,            # max rows to show per column
                       ignore_cols_values = character(0)) {
   restore.point("compare_df")
@@ -350,6 +353,7 @@ compare_df = function(df1, df2,
   out
 }
 
+
 ```
 ### END OF FILE: aic_do_test.R
 
@@ -363,7 +367,8 @@ do_cmd_to_r = function(cmd_obj, line, cmd_df) { # Corrected signature: added cmd
   restore.point("do_cmd_to_r")
 
   if (!cmd_obj$do_translate || is.na(cmd_obj$stata_cmd)) {
-     return(data.frame(line=line, r_code = NA_character_, do_code = cmd_obj$do_code, stata_translation_error = NA_character_, stringsAsFactors = FALSE))
+     # NEW: Return the new column with default value
+     return(data.frame(line=line, r_code = NA_character_, do_code = cmd_obj$do_code, stata_translation_error = NA_character_, ignore_row_order_for_comparison = cmd_obj$will_ignore_row_order_for_comparison, stringsAsFactors = FALSE))
   }
 
   r_code = NA_character_
@@ -424,9 +429,11 @@ do_cmd_to_r = function(cmd_obj, line, cmd_df) { # Corrected signature: added cmd
          stata_translation_error = e$message)
   })
 
-  r_obj = data.frame(line=line, r_code = res$r_code, do_code = cmd_obj$do_code, stata_translation_error = res$stata_translation_error, stringsAsFactors = FALSE)
+  # NEW: Add ignore_row_order_for_comparison from cmd_obj
+  r_obj = data.frame(line=line, r_code = res$r_code, do_code = cmd_obj$do_code, stata_translation_error = res$stata_translation_error, ignore_row_order_for_comparison = cmd_obj$will_ignore_row_order_for_comparison, stringsAsFactors = FALSE)
   return(r_obj)
 }
+
 
 ```
 ### END OF FILE: do_cmd_to_r.R
@@ -463,6 +470,8 @@ do_parse = function(do_code) {
       stata_translation_error = character(0),
       e_results_needed = I(vector("list", 0)), # New column for e() results
       r_results_needed = I(vector("list", 0)), # New column for r() results (future use)
+      will_have_original_order_idx = logical(0), # Added by mark_data_manip_cmd logic
+      will_ignore_row_order_for_comparison = logical(0), # NEW: Added for sort/gsort
       stringsAsFactors = FALSE
     ))
   }
@@ -481,6 +490,7 @@ do_parse = function(do_code) {
       by_sort_vars = if (length(parsed_info$by_sort_vars)>0) paste(parsed_info$by_sort_vars, collapse=",") else "",
       is_quietly_prefix = parsed_info$is_quietly_prefix, # New field
       stata_translation_error = NA_character_,
+      will_ignore_row_order_for_comparison = FALSE, # NEW: Initialize here
       stringsAsFactors = FALSE
     )
   })
@@ -489,8 +499,11 @@ do_parse = function(do_code) {
   # Initialize e_results_needed and r_results_needed as list columns
   cmd_df$e_results_needed = I(replicate(nrow(cmd_df), character(0), simplify = FALSE))
   cmd_df$r_results_needed = I(replicate(nrow(cmd_df), character(0), simplify = FALSE))
+  # NEW: Initialize will_have_original_order_idx here too, it's safer
+  cmd_df$will_have_original_order_idx = rep(FALSE, NROW(cmd_df)) 
   return(cmd_df)
 }
+
 
 ```
 ### END OF FILE: do_parse.R
@@ -555,6 +568,8 @@ mark_data_manip_cmd = function(cmd_df) {
     if (!("r_results_needed" %in% names(cmd_df))) cmd_df$r_results_needed = I(vector("list", 0))
     # NEW: Initialize new column for original_order_idx presence
     if (!("will_have_original_order_idx" %in% names(cmd_df))) cmd_df$will_have_original_order_idx = logical(0)
+    # NEW: Initialize new column for ignoring row order in comparison
+    if (!("will_ignore_row_order_for_comparison" %in% names(cmd_df))) cmd_df$will_ignore_row_order_for_comparison = logical(0)
     return(cmd_df)
   }
 
@@ -566,8 +581,12 @@ mark_data_manip_cmd = function(cmd_df) {
   if (!("r_results_needed" %in% names(cmd_df))) {
      cmd_df$r_results_needed = I(replicate(nrow(cmd_df), character(0), simplify = FALSE))
   }
-  # NEW: Initialize will_have_original_order_idx
-  cmd_df$will_have_original_order_idx = rep(FALSE, NROW(cmd_df))
+  # NEW: Initialize will_have_original_order_idx (already in do_parse, but defensive)
+  if (!("will_have_original_order_idx" %in% names(cmd_df))) {
+      cmd_df$will_have_original_order_idx = rep(FALSE, NROW(cmd_df))
+  }
+  # NEW: Initialize will_ignore_row_order_for_comparison
+  cmd_df$will_ignore_row_order_for_comparison = rep(FALSE, NROW(cmd_df))
 
 
   # --- First pass: Mark commands that are inherently data-modifying ---
@@ -665,6 +684,10 @@ mark_data_manip_cmd = function(cmd_df) {
     cmd_df$will_have_original_order_idx[i] = current_has_order_idx_at_translation_time
   }
 
+  # NEW: Fourth pass: Mark commands for which row order should be ignored in comparison
+  # This is specifically for `sort` and `gsort` because Stata's default sort is non-deterministic for ties.
+  cmd_df$will_ignore_row_order_for_comparison[cmd_df$stata_cmd %in% c("sort", "gsort")] = TRUE
+
 
   # --- Final explicit overrides ---
   # Commands that are definitely not data manipulation (e.g. `list`, `display` for scalars)
@@ -691,6 +714,7 @@ mark_data_manip_cmd = function(cmd_df) {
   
   return(cmd_df)
 }
+
 
 ```
 ### END OF FILE: mark_data_manip_cmd.R
@@ -5008,11 +5032,17 @@ t_sort = function(rest_of_cmd, cmd_obj, cmd_df, line_num, type = "sort") {
 
   # Determine if stata2r_original_order_idx should be used as a tie-breaker
   # This decision is made at translation time based on `will_have_original_order_idx` flag.
-  use_original_order_idx_for_this_sort = cmd_obj$will_have_original_order_idx
+  # For direct 'sort' and 'gsort' commands, Stata does NOT guarantee stable sort for ties.
+  # Thus, we should NOT add stata2r_original_order_idx as a tie-breaker here.
+  # The comparison function will handle row order differences for these commands.
+  # If a specific `stable` option were supported in Stata, this logic might change.
+  # For now, `use_original_order_idx_for_this_sort` will be FALSE for `t_sort`.
+  # The `t_egen` function will still use the index for internal sorting if needed.
+  use_original_order_idx_for_this_sort = FALSE # Override: Stata's sort is not stable by default.
 
   if (type == "sort") {
     sort_vars = vars
-    if (use_original_order_idx_for_this_sort) { # Use the translation-time flag
+    if (use_original_order_idx_for_this_sort) { # This will now be FALSE
       sort_vars = c(sort_vars, "stata2r_original_order_idx")
     }
     # Using dplyr::arrange with !!!dplyr::syms for consistency and robustness
@@ -5038,7 +5068,7 @@ t_sort = function(rest_of_cmd, cmd_obj, cmd_df, line_num, type = "sort") {
       }
     }
     # Add stata2r_original_order_idx as the final tie-breaker to ensure stable sort for ties
-    if (use_original_order_idx_for_this_sort) { # Use the translation-time flag
+    if (use_original_order_idx_for_this_sort) { # This will now be FALSE
       arrange_expressions = c(arrange_expressions, '!!!dplyr::syms("stata2r_original_order_idx")')
     }
     r_code_str = paste0("data = dplyr::arrange(data, ", paste(arrange_expressions, collapse = ", "), ")")
@@ -5533,18 +5563,19 @@ cmd_df = do_parse(do_code)
 cmd_df = mark_data_manip_cmd(cmd_df)
 
 str(cmd_df)
-'data.frame':	38 obs. of  14 variables:
- $ line                        : int  1 2 3 4 5 6 7 8 9 10 ...
- $ do_code                     : chr  "use \"data.dta\", clear" "sort group i" "keep in 1/39" "list in 1/5" ...
- $ stata_cmd_original          : chr  "use" "sort" "keep" "list" ...
- $ stata_cmd                   : chr  "use" "sort" "keep" "list" ...
- $ rest_of_cmd                 : chr  "\"data.dta\", clear" "group i" "in 1/39" "in 1/5" ...
- $ is_by_prefix                : logi  FALSE FALSE FALSE FALSE FALSE TRUE ...
- $ by_group_vars               : chr  "" "" "" "" ...
- $ by_sort_vars                : chr  "" "" "" "" ...
- $ is_quietly_prefix           : logi  FALSE FALSE FALSE FALSE FALSE FALSE ...
- $ stata_translation_error     : chr  NA NA NA NA ...
- $ e_results_needed            :List of 38
+'data.frame':	38 obs. of  15 variables:
+ $ line                                : int  1 2 3 4 5 6 7 8 9 10 ...
+ $ do_code                             : chr  "use \"data.dta\", clear" "sort group i" "keep in 1/39" "list in 1/5" ...
+ $ stata_cmd_original                  : chr  "use" "sort" "keep" "list" ...
+ $ stata_cmd                           : chr  "use" "sort" "keep" "list" ...
+ $ rest_of_cmd                         : chr  "\"data.dta\", clear" "group i" "in 1/39" "in 1/5" ...
+ $ is_by_prefix                        : logi  FALSE FALSE FALSE FALSE FALSE TRUE ...
+ $ by_group_vars                       : chr  "" "" "" "" ...
+ $ by_sort_vars                        : chr  "" "" "" "" ...
+ $ is_quietly_prefix                   : logi  FALSE FALSE FALSE FALSE FALSE FALSE ...
+ $ stata_translation_error             : chr  NA NA NA NA ...
+ $ will_ignore_row_order_for_comparison: logi  FALSE TRUE FALSE FALSE FALSE FALSE ...
+ $ e_results_needed                    :List of 38
   ..$ : chr 
   ..$ : chr 
   ..$ : chr 
@@ -5584,7 +5615,7 @@ str(cmd_df)
   ..$ : chr 
   ..$ : chr 
   ..- attr(*, "class")= chr "AsIs"
- $ r_results_needed            :List of 38
+ $ r_results_needed                    :List of 38
   ..$ : chr 
   ..$ : chr 
   ..$ : chr 
@@ -5624,8 +5655,8 @@ str(cmd_df)
   ..$ : chr 
   ..$ : chr 
   ..- attr(*, "class")= chr "AsIs"
- $ do_translate                : logi  TRUE TRUE TRUE FALSE FALSE TRUE ...
- $ will_have_original_order_idx: logi  TRUE TRUE TRUE TRUE TRUE TRUE ...
+ $ will_have_original_order_idx        : logi  TRUE TRUE TRUE TRUE TRUE TRUE ...
+ $ do_translate                        : logi  TRUE TRUE TRUE FALSE FALSE TRUE ...
 NULL
 
 ---
@@ -5647,8 +5678,8 @@ data = haven::read_dta(file.path(stata2r_env$working_dir, "data.dta")) %>%
   { assign("has_original_order_idx", TRUE, envir = stata2r_env); . } # 'clear' was used
 
  2 do:  sort group i
- 2 r:  data = dplyr::arrange(data, !!!dplyr::syms(c("group", "i", "stata2r_original_order_idx"))) 
-data = dplyr::arrange(data, !!!dplyr::syms(c("group", "i", "stata2r_original_order_idx")))
+ 2 r:  data = dplyr::arrange(data, !!!dplyr::syms(c("group", "i"))) 
+data = dplyr::arrange(data, !!!dplyr::syms(c("group", "i")))
 
  3 do:  keep in 1/39
  3 r:  data = dplyr::slice(data, 1:39) 
@@ -5841,8 +5872,8 @@ data = dplyr::mutate(data, `group_str` = stata_tmp_decoded_values_L22)
 rm(stata_tmp_decoded_values_L22, stata_tmp_source_vector_L22)
 
  23 do:  sort group_code
- 23 r:  data = dplyr::arrange(data, !!!dplyr::syms(c("group_code", "stata2r_original_order_idx"))) 
-data = dplyr::arrange(data, !!!dplyr::syms(c("group_code", "stata2r_original_order_idx")))
+ 23 r:  data = dplyr::arrange(data, !!!dplyr::syms(c("group_code"))) 
+data = dplyr::arrange(data, !!!dplyr::syms(c("group_code")))
 
  24 do:  tempfile t1
  24 r:  R_tempfile_L24_t1_path = tempfile(fileext = '.dta') # Stata tempfile 't1' 
@@ -6001,8 +6032,8 @@ data = data %>%
   dplyr::mutate(`proportion` = as.numeric(`sum_mean`/`total_sum`))
 
  37 do:  sort proportion
- 37 r:  data = dplyr::arrange(data, !!!dplyr::syms(c("proportion", "stata2r_original_order_idx"))) 
-data = dplyr::arrange(data, !!!dplyr::syms(c("proportion", "stata2r_original_order_idx")))
+ 37 r:  data = dplyr::arrange(data, !!!dplyr::syms(c("proportion"))) 
+data = dplyr::arrange(data, !!!dplyr::syms(c("proportion")))
 
  38 do:  save "result_data.dta", replace 
 
@@ -6019,18 +6050,19 @@ cmd_df = do_parse(do_code)
 cmd_df = mark_data_manip_cmd(cmd_df)
 
 str(cmd_df)
-'data.frame':	82 obs. of  14 variables:
- $ line                        : int  1 2 3 4 5 6 7 8 9 10 ...
- $ do_code                     : chr  "use \"test_data.dta\", clear" "generate value1_log = log(value1)" "generate value2_squared = value2^2" "generate int_value1 = int(value1) if !missing(value1)" ...
- $ stata_cmd_original          : chr  "use" "generate" "generate" "generate" ...
- $ stata_cmd                   : chr  "use" "generate" "generate" "generate" ...
- $ rest_of_cmd                 : chr  "\"test_data.dta\", clear" "value1_log = log(value1)" "value2_squared = value2^2" "int_value1 = int(value1) if !missing(value1)" ...
- $ is_by_prefix                : logi  FALSE FALSE FALSE FALSE FALSE FALSE ...
- $ by_group_vars               : chr  "" "" "" "" ...
- $ by_sort_vars                : chr  "" "" "" "" ...
- $ is_quietly_prefix           : logi  FALSE FALSE FALSE FALSE FALSE FALSE ...
- $ stata_translation_error     : chr  NA NA NA NA ...
- $ e_results_needed            :List of 82
+'data.frame':	82 obs. of  15 variables:
+ $ line                                : int  1 2 3 4 5 6 7 8 9 10 ...
+ $ do_code                             : chr  "use \"test_data.dta\", clear" "generate value1_log = log(value1)" "generate value2_squared = value2^2" "generate int_value1 = int(value1) if !missing(value1)" ...
+ $ stata_cmd_original                  : chr  "use" "generate" "generate" "generate" ...
+ $ stata_cmd                           : chr  "use" "generate" "generate" "generate" ...
+ $ rest_of_cmd                         : chr  "\"test_data.dta\", clear" "value1_log = log(value1)" "value2_squared = value2^2" "int_value1 = int(value1) if !missing(value1)" ...
+ $ is_by_prefix                        : logi  FALSE FALSE FALSE FALSE FALSE FALSE ...
+ $ by_group_vars                       : chr  "" "" "" "" ...
+ $ by_sort_vars                        : chr  "" "" "" "" ...
+ $ is_quietly_prefix                   : logi  FALSE FALSE FALSE FALSE FALSE FALSE ...
+ $ stata_translation_error             : chr  NA NA NA NA ...
+ $ will_ignore_row_order_for_comparison: logi  FALSE FALSE FALSE FALSE FALSE FALSE ...
+ $ e_results_needed                    :List of 82
   ..$ : chr 
   ..$ : chr 
   ..$ : chr 
@@ -6114,7 +6146,7 @@ str(cmd_df)
   ..$ : chr 
   ..$ : chr 
   ..- attr(*, "class")= chr "AsIs"
- $ r_results_needed            :List of 82
+ $ r_results_needed                    :List of 82
   ..$ : chr 
   ..$ : chr 
   ..$ : chr 
@@ -6198,8 +6230,8 @@ str(cmd_df)
   ..$ : chr 
   ..$ : chr 
   ..- attr(*, "class")= chr "AsIs"
- $ do_translate                : logi  TRUE TRUE TRUE TRUE TRUE TRUE ...
- $ will_have_original_order_idx: logi  TRUE TRUE TRUE TRUE TRUE TRUE ...
+ $ will_have_original_order_idx        : logi  TRUE TRUE TRUE TRUE TRUE TRUE ...
+ $ do_translate                        : logi  TRUE TRUE TRUE TRUE TRUE TRUE ...
 NULL
 
 ---
@@ -6634,186 +6666,258 @@ data = dplyr::mutate(data, `value2_cat_num` = dplyr::case_when(
   ))
 
  48 do:  sort group_clean value1
- 48 r:  data = dplyr::arrange(data, !!!dplyr::syms(c("group_clean", "value1", "stata2r_original_order_idx"))) 
-data = dplyr::arrange(data, !!!dplyr::syms(c("group_clean", "value1", "stata2r_original_order_idx")))
+ 48 r:  data = dplyr::arrange(data, !!!dplyr::syms(c("group_clean", "value1"))) 
+data = dplyr::arrange(data, !!!dplyr::syms(c("group_clean", "value1")))
 
-Error: After Stata line  48 , R data set differs from Stata reference.
+ 49 do:  gsort -value1 +id
+ 49 r:  data = dplyr::arrange(data, dplyr::desc(!!!dplyr::syms("value1")), !!!dplyr::syms("id")) 
+data = dplyr::arrange(data, dplyr::desc(!!!dplyr::syms("value1")), !!!dplyr::syms("id"))
+
+ 50 do:  drop random_uniform_draw int_value1 rounded_value1
+ 50 r:  data = dplyr::select(data, -dplyr::all_of(c('random_uniform_draw','int_value1','rounded_value1'))) 
+data = dplyr::select(data, -dplyr::all_of(c('random_uniform_draw','int_value1','rounded_value1')))
+
+ 51 do:  keep if value2 < 12 | missing(value2)
+ 51 r:  data = dplyr::filter(data, (dplyr::coalesce(as.numeric(`value2` < 12 | sfun_missing(`value2`)), 0) != 0)) 
+data = dplyr::filter(data, (dplyr::coalesce(as.numeric(`value2` < 12 | sfun_missing(`value2`)), 0) != 0))
+
+ 52 do:  keep if _n <= 40
+ 52 r:  data = dplyr::filter(data, (dplyr::coalesce(as.numeric(dplyr::row_number() <= 40), 0) != 0)) 
+data = dplyr::filter(data, (dplyr::coalesce(as.numeric(dplyr::row_number() <= 40), 0) != 0))
+
+ 53 do:  drop if mod(id, 4) == 0 & value1 > 50
+ 53 r:  data = dplyr::filter(data, !(dplyr::coalesce(as.numeric((`id` %%  4) == 0 & `value1` > 50), 0) != 0)) 
+data = dplyr::filter(data, !(dplyr::coalesce(as.numeric((`id` %%  4) == 0 & `value1` > 50), 0) != 0))
+
+ 54 do:  keep id group_orig value1 value1_log value2 value2_squared group_clean obs_date num_val_from_str value2_cat_str mean_overall_value1 total_value2_by_group group_code_num
+ 54 r:  data = dplyr::select(data, dplyr::all_of(c('id','group_orig','value1','value1_log','value2','value2_squared','group_clean','obs_date','num_val_from_str','value2_cat_str','mean_overall_value1','total_value2_by_group','group_code_num'))) 
+data = dplyr::select(data, dplyr::all_of(c('id','group_orig','value1','value1_log','value2','value2_squared','group_clean','obs_date','num_val_from_str','value2_cat_str','mean_overall_value1','total_value2_by_group','group_code_num')))
+
+ 55 do:  rename group_orig orig_group_name
+ 55 r:  data = collapse::frename(data, `group_orig` = `orig_group_name`) 
+data = collapse::frename(data, `group_orig` = `orig_group_name`)
+
+ 56 do:  rename value1_log log_val1
+ 56 r:  data = collapse::frename(data, `value1_log` = `log_val1`) 
+data = collapse::frename(data, `value1_log` = `log_val1`)
+
+ 57 do:  order id orig_group_name group_clean log_val1
+ 57 r:  data = dplyr::select(data, id, orig_group_name, group_clean, log_val1, dplyr::everything()) 
+data = dplyr::select(data, id, orig_group_name, group_clean, log_val1, dplyr::everything())
+
+ 58 do:  gen high_value1_indicator = (value1 > mean_overall_value1) if !missing(value1) & !missing(mean_overall_value1)
+ 58 r:  data = data %>% 
+  dplyr::mutate(`high_value1_indicator` = dplyr::if_else((dplyr::coalesce(as.numeric(!sfun_missing(`value1`) & !sfun_missing(`mean_overall_value1`)), 0) != 0), as.numeric((`value1` > `mean_overall_value1`)), NA_real_)) 
+data = data %>% 
+  dplyr::mutate(`high_value1_indicator` = dplyr::if_else((dplyr::coalesce(as.numeric(!sfun_missing(`value1`) & !sfun_missing(`mean_overall_value1`)), 0) != 0), as.numeric((`value1` > `mean_overall_value1`)), NA_real_))
+
+ 59 do:  gen observation_seq_num = _n
+ 59 r:  data = data %>% 
+  dplyr::mutate(`observation_seq_num` = as.numeric(dplyr::row_number())) 
+data = data %>% 
+  dplyr::mutate(`observation_seq_num` = as.numeric(dplyr::row_number()))
+
+ 60 do:  gen total_obs_count = _N
+ 60 r:  data = data %>% 
+  dplyr::mutate(`total_obs_count` = as.numeric(dplyr::n())) 
+data = data %>% 
+  dplyr::mutate(`total_obs_count` = as.numeric(dplyr::n()))
+
+ 61 do:  replace value1 = cond(missing(value1), mean_overall_value1, cond(value1 > 60, value1*1.05, value1*0.95))
+ 61 r:  data = data %>% 
+  dplyr::mutate(`value1` = as.numeric(sfun_stata_cond(sfun_missing(`value1`),  `mean_overall_value1`,  sfun_stata_cond(`value1` > 60,  `value1`*1.05,  `value1`*0.95)))) 
+data = data %>% 
+  dplyr::mutate(`value1` = as.numeric(sfun_stata_cond(sfun_missing(`value1`),  `mean_overall_value1`,  sfun_stata_cond(`value1` > 60,  `value1`*1.05,  `value1`*0.95))))
+
+ 62 do:  compress
+ 62 r:  data = dplyr::mutate(data, dplyr::across(dplyr::everything(), .fns = sfun_compress_col_type)) 
+data = dplyr::mutate(data, dplyr::across(dplyr::everything(), .fns = sfun_compress_col_type))
+
+ 63 do:  save "main_data_temp.dta", replace
+ 63 r:  haven::write_dta(data, path = file.path(stata2r_env$working_dir, "main_data_temp.dta")) # Options ignored: replace 
+haven::write_dta(data, path = file.path(stata2r_env$working_dir, "main_data_temp.dta")) # Options ignored: replace
+
+ 64 do:  use "extra_data.dta", clear
+ 64 r:  data = haven::read_dta(file.path(stata2r_env$working_dir, "extra_data.dta")) %>% 
+  sfun_strip_stata_attributes() %>% 
+  sfun_normalize_string_nas() %>%
+  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) %>% 
+  { assign("has_original_order_idx", TRUE, envir = stata2r_env); . } # 'clear' was used 
+data = haven::read_dta(file.path(stata2r_env$working_dir, "extra_data.dta")) %>% 
+  sfun_strip_stata_attributes() %>% 
+  sfun_normalize_string_nas() %>%
+  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) %>% 
+  { assign("has_original_order_idx", TRUE, envir = stata2r_env); . } # 'clear' was used
+
+ 65 do:  rename category_code extra_cat_code
+ 65 r:  data = collapse::frename(data, `category_code` = `extra_cat_code`) 
+data = collapse::frename(data, `category_code` = `extra_cat_code`)
+
+ 66 do:  sort id
+ 66 r:  data = dplyr::arrange(data, !!!dplyr::syms(c("id"))) 
+data = dplyr::arrange(data, !!!dplyr::syms(c("id")))
+
+ 67 do:  save "extra_data_temp.dta", replace
+ 67 r:  haven::write_dta(data, path = file.path(stata2r_env$working_dir, "extra_data_temp.dta")) # Options ignored: replace 
+haven::write_dta(data, path = file.path(stata2r_env$working_dir, "extra_data_temp.dta")) # Options ignored: replace
+
+ 68 do:  use "main_data_temp.dta", clear
+ 68 r:  data = haven::read_dta(file.path(stata2r_env$working_dir, "main_data_temp.dta")) %>% 
+  sfun_strip_stata_attributes() %>% 
+  sfun_normalize_string_nas() %>%
+  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) %>% 
+  { assign("has_original_order_idx", TRUE, envir = stata2r_env); . } # 'clear' was used 
+data = haven::read_dta(file.path(stata2r_env$working_dir, "main_data_temp.dta")) %>% 
+  sfun_strip_stata_attributes() %>% 
+  sfun_normalize_string_nas() %>%
+  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) %>% 
+  { assign("has_original_order_idx", TRUE, envir = stata2r_env); . } # 'clear' was used
+
+ 69 do:  sort id
+ 69 r:  data = dplyr::arrange(data, !!!dplyr::syms(c("id"))) 
+data = dplyr::arrange(data, !!!dplyr::syms(c("id")))
+
+ 70 do:  merge 1:1 id using "extra_data_temp.dta", nogen
+ 70 r:  stata_merge_keys_L70 = c("id")
+stata_tmp_using_data_L70 = haven::read_dta(file.path(stata2r_env$working_dir, "extra_data_temp.dta"))
+data = sfun_strip_stata_attributes(data)
+data = sfun_normalize_string_nas(data)
+stata_tmp_using_data_L70 = sfun_strip_stata_attributes(stata_tmp_using_data_L70)
+stata_tmp_using_data_L70 = sfun_normalize_string_nas(stata_tmp_using_data_L70)
+data = dplyr::mutate(data, dplyr::across(dplyr::all_of(stata_merge_keys_L70), as.numeric))
+stata_tmp_using_data_L70 = dplyr::mutate(stata_tmp_using_data_L70, dplyr::across(dplyr::all_of(stata_merge_keys_L70), as.numeric))
+if (isTRUE(any(base::duplicated(dplyr::select(data, dplyr::all_of(stata_merge_keys_L70)))))) { stop('Merge 1:1 failed: Duplicate keys found in master dataset (data).') }
+if (isTRUE(any(base::duplicated(dplyr::select(stata_tmp_using_data_L70, dplyr::all_of(stata_merge_keys_L70)))))) { stop('Merge 1:1 failed: Duplicate keys found in using dataset (', file.path(stata2r_env$working_dir, "extra_data_temp.dta"), ').') }
+common_cols = intersect(names(data), names(stata_tmp_using_data_L70))
+common_cols_not_by = setdiff(common_cols, stata_merge_keys_L70)
+if (length(common_cols_not_by) > 0) { stata_tmp_using_data_L70 = dplyr::select(stata_tmp_using_data_L70, -dplyr::all_of(common_cols_not_by)) }
+data = dplyr::left_join(data, stata_tmp_using_data_L70, by = stata_merge_keys_L70, indicator = "stata_merge_indicator_L70")
+data = sfun_normalize_string_nas(data)
+ # _merge variable was not generated due to 'nogenerate' option.
+data = dplyr::select(data, -dplyr::any_of('stata_merge_indicator_L70'))
+rm(stata_tmp_using_data_L70, common_cols, common_cols_not_by, stata_merge_keys_L70)
+# Stata merge type: 1:1, keep(match master), nogenerate 
+stata_merge_keys_L70 = c("id")
+
+stata_tmp_using_data_L70 = haven::read_dta(file.path(stata2r_env$working_dir, "extra_data_temp.dta"))
+
+data = sfun_strip_stata_attributes(data)
+
+data = sfun_normalize_string_nas(data)
+
+stata_tmp_using_data_L70 = sfun_strip_stata_attributes(stata_tmp_using_data_L70)
+
+stata_tmp_using_data_L70 = sfun_normalize_string_nas(stata_tmp_using_data_L70)
+
+data = dplyr::mutate(data, dplyr::across(dplyr::all_of(stata_merge_keys_L70), as.numeric))
+
+stata_tmp_using_data_L70 = dplyr::mutate(stata_tmp_using_data_L70, dplyr::across(dplyr::all_of(stata_merge_keys_L70), as.numeric))
+
+if (isTRUE(any(base::duplicated(dplyr::select(data, dplyr::all_of(stata_merge_keys_L70)))))) { stop('Merge 1:1 failed: Duplicate keys found in master dataset (data).') }
+
+if (isTRUE(any(base::duplicated(dplyr::select(stata_tmp_using_data_L70, dplyr::all_of(stata_merge_keys_L70)))))) { stop('Merge 1:1 failed: Duplicate keys found in using dataset (', file.path(stata2r_env$working_dir, "extra_data_temp.dta"), ').') }
+
+common_cols = intersect(names(data), names(stata_tmp_using_data_L70))
+
+common_cols_not_by = setdiff(common_cols, stata_merge_keys_L70)
+
+if (length(common_cols_not_by) > 0) { stata_tmp_using_data_L70 = dplyr::select(stata_tmp_using_data_L70, -dplyr::all_of(common_cols_not_by)) }
+
+data = dplyr::left_join(data, stata_tmp_using_data_L70, by = stata_merge_keys_L70, indicator = "stata_merge_indicator_L70")
+
+data = sfun_normalize_string_nas(data)
+
+ # _merge variable was not generated due to 'nogenerate' option.
+
+data = dplyr::select(data, -dplyr::any_of('stata_merge_indicator_L70'))
+
+rm(stata_tmp_using_data_L70, common_cols, common_cols_not_by, stata_merge_keys_L70)
+
+# Stata merge type: 1:1, keep(match master), nogenerate
+
+Error: After Stata line 70, R data set has 36 rows, but Stata reference has 53 rows.
+
+Error: After Stata line  70 , R data set differs from Stata reference.
 
 Data set from Stata (do_df):
-tibble [50 × 43] (S3: tbl_df/tbl/data.frame)
- $ id                    : num [1:50] 8 24 7 14 31 47 49 22 43 25 ...
+tibble [53 × 18] (S3: tbl_df/tbl/data.frame)
+ $ id                   : num [1:53] 1 3 4 5 7 8 9 10 11 14 ...
   ..- attr(*, "label")= chr "id"
   ..- attr(*, "format.stata")= chr "%9.0g"
- $ group_orig            : chr [1:50] "Alpha" "Alpha" "Alpha" "Alpha" ...
+ $ orig_group_name      : chr [1:53] " Gamma" "Beta" "Beta" " Gamma" ...
   ..- attr(*, "label")= chr "group_orig"
   ..- attr(*, "format.stata")= chr "%6s"
- $ value1                : num [1:50] 30 40.3 62.5 73.7 81 ...
+ $ group_clean          : chr [1:53] "gamma" "beta" "beta" "gamma" ...
+  ..- attr(*, "format.stata")= chr "%9s"
+ $ log_val1             : num [1:53] 4.3 3.97 3.39 3.79 3.73 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ value1               : num [1:53] 77.6 50.1 28.3 42 65.6 ...
   ..- attr(*, "label")= chr "value1"
   ..- attr(*, "format.stata")= chr "%9.0g"
- $ value2                : num [1:50] 6 3 3 6 4 4 6 3 4 3 ...
+ $ value2               : num [1:53] 4 NA 10 3 3 6 6 8 6 6 ...
   ..- attr(*, "label")= chr "value2"
   ..- attr(*, "format.stata")= chr "%9.0g"
- $ date_str              : chr [1:50] "2022-10-05" "2022-09-25" "2020-07-17" "2020-10-01" ...
-  ..- attr(*, "label")= chr "date_str"
-  ..- attr(*, "format.stata")= chr "%10s"
- $ num_str               : chr [1:50] "141" "122" "112" "198" ...
-  ..- attr(*, "label")= chr "num_str"
-  ..- attr(*, "format.stata")= chr "%3s"
- $ num_val_from_str      : num [1:50] 141 122 112 198 193 120 175 147 132 166 ...
+ $ num_val_from_str     : num [1:53] 166 101 136 162 112 141 160 169 137 198 ...
   ..- attr(*, "label")= chr "num_str"
   ..- attr(*, "format.stata")= chr "%10.0g"
- $ mixed_var             : chr [1:50] "apple" "55" "apple" "20" ...
-  ..- attr(*, "label")= chr "mixed_var"
-  ..- attr(*, "format.stata")= chr "%6s"
- $ mixed_val_num         : num [1:50] NA 55 NA 20 55 20 30 42 42 20 ...
-  ..- attr(*, "label")= chr "mixed_var"
-  ..- attr(*, "format.stata")= chr "%10.0g"
- $ value1_log            : num [1:50] 3 3.29 3.73 3.89 3.99 ...
+ $ value2_squared       : num [1:53] 16 NA 100 9 9 36 36 64 36 36 ...
   ..- attr(*, "format.stata")= chr "%9.0g"
- $ value2_squared        : num [1:50] 36 9 9 36 16 16 36 9 16 9 ...
+ $ mean_overall_value1  : num [1:53] 66.8 66.8 66.8 66.8 66.8 ...
   ..- attr(*, "format.stata")= chr "%9.0g"
- $ int_value1            : num [1:50] 20 26 41 49 53 62 68 69 74 80 ...
+ $ total_value2_by_group: num [1:53] 49 86 86 49 71 71 86 49 86 71 ...
   ..- attr(*, "format.stata")= chr "%9.0g"
- $ rounded_value1        : num [1:50] 20 26.9 41.7 49.1 54 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ random_uniform_draw   : num [1:50] 0.3234 0.338 0.0711 0.3698 0.8597 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ id_plus_value2        : num [1:50] 14 27 10 20 35 51 55 25 47 28 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ group_clean           : chr [1:50] "alpha" "alpha" "alpha" "alpha" ...
-  ..- attr(*, "format.stata")= chr "%9s"
- $ group_abbr            : chr [1:50] "alp" "alp" "alp" "alp" ...
-  ..- attr(*, "format.stata")= chr "%9s"
- $ contact_info          : chr [1:50] "alpha:141" "alpha:122" "alpha:112" "alpha:198" ...
-  ..- attr(*, "format.stata")= chr "%9s"
- $ str_len_group         : num [1:50] 5 5 5 5 5 5 5 5 5 5 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ mean_overall_value1   : num [1:50] 66.8 66.8 66.8 66.8 66.8 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ sd_overall_value1     : num [1:50] 38 38 38 38 38 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ total_value2_by_group : num [1:50] 71 71 71 71 71 71 71 71 71 71 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ median_value1_by_group: num [1:50] 104 104 104 104 104 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ group_numeric_id      : num [1:50] 1 1 1 1 1 1 1 1 1 1 ...
-  ..- attr(*, "label")= chr "group(group_clean)"
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ tag_first_in_group    : num [1:50] 0 0 1 0 0 0 0 0 0 0 ...
-  ..- attr(*, "label")= chr "tag(group_clean)"
-  ..- attr(*, "format.stata")= chr "%8.0g"
- $ count_obs_in_group    : num [1:50] 16 16 16 16 16 16 16 16 16 16 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ rank_value1_in_group  : num [1:50] 1 2 3 4 5 6 7 8 9 10 ...
-  ..- attr(*, "label")= chr "rank of (value1)    by group_clean"
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ row_total_v1_v2       : num [1:50] 36 43.3 65.5 79.7 85 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ row_mean_v1_v2        : num [1:50] 18 21.7 32.7 39.9 42.5 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ concat_group_num      : chr [1:50] "alpha141" "alpha122" "alpha112" "alpha198" ...
-  ..- attr(*, "format.stata")= chr "%9s"
- $ value2_dev_from_mean  : num [1:50] 1.333 -1.667 -1.667 1.333 -0.667 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ obs_date              : Date[1:50], format: "2022-10-05" "2022-09-25" ...
- $ obs_year              : num [1:50] 2022 2022 2020 2020 2020 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ obs_month             : num [1:50] 10 9 7 10 4 11 7 11 1 4 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ obs_day               : num [1:50] 5 25 17 1 9 2 24 8 17 21 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ obs_quarter           : num [1:50] 251 250 242 243 241 251 242 247 240 241 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ days_since_2021_start : num [1:50] 642 632 -168 -92 -267 670 -161 311 -350 -255 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ is_weekend_day        : num [1:50] 0 1 0 0 0 0 0 0 0 0 ...
-  ..- attr(*, "format.stata")= chr "%9.0g"
- $ mixed_var_as_str      : chr [1:50] "" "55" "" "20" ...
-  ..- attr(*, "format.stata")= chr "%9s"
- $ group_code_num        : dbl+lbl [1:50] 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2...
+ $ obs_date             : Date[1:53], format: "2020-09-21" "2022-02-09" ...
+ $ group_code_num       : dbl+lbl [1:53]  3,  2,  2,  3,  1,  1,  2,  3,  2,  1,  4,  1,  2,  2,...
    ..@ label       : chr "Numeric code for cleaned group"
    ..@ format.stata: chr "%8.0g"
    ..@ labels      : Named num [1:4] 1 2 3 4
    .. ..- attr(*, "names")= chr [1:4] "alpha" "beta" "gamma" "unknown"
- $ group_from_decode     : chr [1:50] "alpha" "alpha" "alpha" "alpha" ...
-  ..- attr(*, "label")= chr "Numeric code for cleaned group"
-  ..- attr(*, "format.stata")= chr "%9s"
- $ value2_cat_str        : dbl+lbl [1:50]     3,     2,     2,     3,     2,     2,     3,     2,...
+ $ value2_cat_str       : dbl+lbl [1:53]     2, NA(a),     3,     2,     2,     3,     3,     3,...
    ..@ label       : chr "RECODE of value2 (value2)"
    ..@ format.stata: chr "%9.0g"
    ..@ labels      : Named num [1:3] 1 2 3
    .. ..- attr(*, "names")= chr [1:3] "Very Low" "Low-Mid" "High"
- $ value2_cat_num        : num [1:50] 3 2 2 3 2 2 3 2 2 2 ...
-  ..- attr(*, "label")= chr "RECODE of value2 (value2)"
+ $ high_value1_indicator: num [1:53] 1 0 0 0 0 0 0 1 0 1 ...
   ..- attr(*, "format.stata")= chr "%9.0g"
+ $ observation_seq_num  : num [1:53] 14 21 34 26 18 33 32 16 23 15 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ total_obs_count      : num [1:53] 36 36 36 36 36 36 36 36 36 36 ...
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ extra_info_val       : num [1:53] NA NA NA NA NA NA NA NA NA NA ...
+  ..- attr(*, "label")= chr "extra_info_val"
+  ..- attr(*, "format.stata")= chr "%9.0g"
+ $ extra_cat_code       : chr [1:53] "" "" "" "" ...
+  ..- attr(*, "label")= chr "category_code"
+  ..- attr(*, "format.stata")= chr "%2s"
  - attr(*, "label")= chr "Written by R."
 NULL
 
 Data set from R (r_df):
-tibble [50 × 44] (S3: tbl_df/tbl/data.frame)
- $ id                        : num [1:50] 8 24 7 14 31 47 49 22 43 25 ...
- $ group_orig                : chr [1:50] "Alpha" "Alpha" "Alpha" "Alpha" ...
- $ value1                    : num [1:50] 30 40.3 62.5 73.7 81 ...
- $ value2                    : num [1:50] 6 3 3 6 4 4 6 3 4 3 ...
- $ date_str                  : chr [1:50] "2022-10-05" "2022-09-25" "2020-07-17" "2020-10-01" ...
- $ num_str                   : chr [1:50] "141" "122" "112" "198" ...
- $ mixed_var                 : chr [1:50] "apple" "55" "apple" "20" ...
- $ stata2r_original_order_idx: int [1:50] 8 24 7 14 31 47 49 22 43 25 ...
- $ value1_log                : num [1:50] 3 3.29 3.73 3.89 3.99 ...
- $ value2_squared            : num [1:50] 36 9 9 36 16 16 36 9 16 9 ...
- $ int_value1                : num [1:50] 20 26 41 49 53 62 68 69 74 80 ...
- $ rounded_value1            : num [1:50] 20 26.9 41.7 49.1 54 62.7 68.3 69.1 74.9 80.4 ...
- $ random_uniform_draw       : num [1:50] 0.104 0.924 0.389 0.318 0.233 ...
- $ id_plus_value2            : num [1:50] 14 27 10 20 35 51 55 25 47 28 ...
- $ group_clean               : chr [1:50] "alpha" "alpha" "alpha" "alpha" ...
- $ group_abbr                : chr [1:50] "alp" "alp" "alp" "alp" ...
- $ contact_info              : chr [1:50] "alpha:141" "alpha:122" "alpha:112" "alpha:198" ...
- $ str_len_group             : num [1:50] 5 5 5 5 5 5 5 5 5 5 ...
- $ mean_overall_value1       : num [1:50] 66.8 66.8 66.8 66.8 66.8 ...
- $ sd_overall_value1         : num [1:50] 38 38 38 38 38 ...
- $ total_value2_by_group     : num [1:50] 71 71 71 71 71 71 71 71 71 71 ...
- $ median_value1_by_group    : num [1:50] 104 104 104 104 104 ...
- $ group_numeric_id          : int [1:50] 1 1 1 1 1 1 1 1 1 1 ...
- $ tag_first_in_group        : num [1:50] 0 0 1 0 0 0 0 0 0 0 ...
- $ count_obs_in_group        : int [1:50] 16 16 16 16 16 16 16 16 16 16 ...
- $ rank_value1_in_group      : num [1:50] 1 2 3 4 5 6 7 8 9 10 ...
- $ row_total_v1_v2           : num [1:50] 36 43.3 65.5 79.7 85 ...
- $ row_mean_v1_v2            : num [1:50] 18 21.7 32.7 39.9 42.5 ...
- $ concat_group_num          : chr [1:50] "alpha141" "alpha122" "alpha112" "alpha198" ...
- $ value2_dev_from_mean      : num [1:50] 1.333 -1.667 -1.667 1.333 -0.667 ...
- $ obs_date                  : num [1:50] 22923 22913 22113 22189 22014 ...
- $ obs_year                  : num [1:50] 2022 2022 2020 2020 2020 ...
- $ obs_month                 : num [1:50] 10 9 7 10 4 11 7 11 1 4 ...
- $ obs_day                   : num [1:50] 5 25 17 1 9 2 24 8 17 21 ...
- $ obs_quarter               : num [1:50] 4 3 3 4 2 4 3 4 1 2 ...
- $ days_since_2021_start     : num [1:50] 642 632 -168 -92 -267 670 -161 311 -350 -255 ...
- $ is_weekend_day            : num [1:50] 0 1 0 0 0 0 0 0 0 0 ...
- $ num_val_from_str          : num [1:50] 141 122 112 198 193 120 175 147 132 166 ...
- $ mixed_val_num             : num [1:50] NA 55 NA 20 55 20 30 42 42 20 ...
-  ..- attr(*, "problems")= tibble [12 × 4] (S3: tbl_df/tbl/data.frame)
-  .. ..$ row     : int [1:12] 1 7 8 16 20 29 32 36 37 38 ...
-  .. ..$ col     : int [1:12] NA NA NA NA NA NA NA NA NA NA ...
-  .. ..$ expected: chr [1:12] "a number" "a number" "a number" "a number" ...
-  .. ..$ actual  : chr [1:12] "apple" "apple" "apple" "banana" ...
- $ mixed_var_as_str          : chr [1:50] "" "55" "" "20" ...
- $ group_code_num            : int+lbl [1:50] 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2...
-   ..@ labels: Named int [1:4] 1 2 3 4
-   .. ..- attr(*, "names")= chr [1:4] "alpha" "beta" "gamma" "unknown"
-   ..@ label : chr "Numeric code for cleaned group"
- $ group_from_decode         : chr [1:50] "alpha" "alpha" "alpha" "alpha" ...
- $ value2_cat_str            : dbl+lbl [1:50]  3,  2,  2,  3,  2,  2,  3,  2,  2,  2,  3,  3,  3, NA,...
-   ..@ labels: Named num [1:3] 1 2 3
-   .. ..- attr(*, "names")= chr [1:3] "Very Low" "Low-Mid" "High"
- $ value2_cat_num            : num [1:50] 3 2 2 3 2 2 3 2 2 2 ...
+tibble [36 × 19] (S3: tbl_df/tbl/data.frame)
+ $ id                        : num [1:36] 1 3 4 5 7 8 9 10 11 14 ...
+ $ orig_group_name           : chr [1:36] " Gamma" "Beta" "Beta" " Gamma" ...
+ $ group_clean               : chr [1:36] "gamma" "beta" "beta" "gamma" ...
+ $ log_val1                  : num [1:36] 4.3 3.97 3.39 3.79 3.73 ...
+ $ value1                    : num [1:36] 77.6 50.1 28.3 42 65.6 ...
+ $ value2                    : num [1:36] 4 NA 10 3 3 6 6 8 6 6 ...
+ $ value2_squared            : num [1:36] 16 NA 100 9 9 36 36 64 36 36 ...
+ $ obs_date                  : num [1:36] 22179 22685 22420 22164 22113 ...
+ $ num_val_from_str          : num [1:36] 166 101 136 162 112 141 160 169 137 198 ...
+ $ value2_cat_str            : num [1:36] 2 NA 3 2 2 3 3 3 3 3 ...
+ $ mean_overall_value1       : num [1:36] 66.8 66.8 66.8 66.8 66.8 ...
+ $ total_value2_by_group     : num [1:36] 49 86 86 49 71 71 86 49 86 71 ...
+ $ group_code_num            : num [1:36] 3 2 2 3 1 1 2 3 2 1 ...
+ $ high_value1_indicator     : num [1:36] 1 0 0 0 0 0 0 1 0 1 ...
+ $ observation_seq_num       : num [1:36] 14 21 34 26 18 33 32 16 23 15 ...
+ $ total_obs_count           : num [1:36] 36 36 36 36 36 36 36 36 36 36 ...
+ $ stata2r_original_order_idx: num [1:36] 14 21 34 26 18 33 32 16 23 15 ...
+ $ extra_info_val            : num [1:36] NA NA NA NA NA NA NA NA NA NA ...
+ $ extra_cat_code            : chr [1:36] "" "" "" "" ...
 NULL
 
 Differences:List of 2
- $ identical     : logi FALSE
- $ value_mismatch:'data.frame':	80 obs. of  4 variables:
-  ..$ row      : int [1:80] 35 36 46 47 35 36 46 47 35 36 ...
-  ..$ column   : chr [1:80] "id" "id" "id" "id" ...
-  ..$ df1_value: chr [1:80] "50" "6" "12" "2" ...
-  ..$ df2_value: chr [1:80] "6" "50" "2" "12" ...
+ $ identical         : logi FALSE
+ $ row_count_mismatch: chr "df1 has 53 rows, df2 has 36 rows."
 NULL
 
 ##############################
