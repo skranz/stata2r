@@ -72,7 +72,9 @@ t_expand = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Determine if r_n_expr or final_r_subset_cond need `with(data, ...)`
   # Simple heuristic: if expression is not just a number.
   # For r_n_expr:
-  n_expr_with_context = if (grepl("[a-zA-Z_]", r_n_expr) && !grepl("^\\d+(\\.\\d*)?$", r_n_expr)) {
+  # FIX: Add !is.na(r_n_expr) to grepl condition to prevent NA result.
+  is_complex_n_expr = !is.na(r_n_expr) && grepl("[a-zA-Z_]", r_n_expr) && !grepl("^\\d+(\\.\\d*)?$", r_n_expr)
+  n_expr_with_context = if (is_complex_n_expr) {
                             paste0("with(data, ", r_n_expr, ")")
                           } else {
                             r_n_expr
@@ -81,7 +83,7 @@ t_expand = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   cond_expr_with_context = if (!is.na(final_r_subset_cond) && final_r_subset_cond != "") {
                              paste0("(dplyr::coalesce(as.numeric(with(data, ", final_r_subset_cond, ")), 0) != 0)")
                            } else {
-                             NA_character_ # or "TRUE" if it's to be used directly
+                             "TRUE" # If no condition, it always applies.
                            }
 
 

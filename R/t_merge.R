@@ -92,7 +92,8 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Adjusted for Stata's `keep(match master)` for any merge type, which often implies inner_join.
   # Stata's `keep(match master)` means "keep all observations from the master dataset that have a match in the using dataset".
   # This is equivalent to an inner join, as it only keeps rows present in both.
-  if (actual_keep_spec_from_options == "match master") {
+  # FIX: Add is.na() check to prevent error if actual_keep_spec_from_options is NA.
+  if (!is.na(actual_keep_spec_from_options) && actual_keep_spec_from_options == "match master") {
       dplyr_join_func = "dplyr::inner_join"
       keep_spec_for_comment = "match master (inner_join)"
   }
@@ -185,6 +186,7 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   r_code_lines = c(r_code_lines, merge_comment_line)
 
   options_str_cleaned = options_str
+  # FIX: Add is.na() check here to prevent operating on NA options_str_cleaned
   if (!is.na(options_str_cleaned)) {
       options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "\\bkeep\\s*\\([^)]+\\)", "")
       options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "\\bno(?:generate|gen)\\b", "")
@@ -197,5 +199,4 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
-
 
