@@ -288,19 +288,20 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
           r_code_lines = c(r_code_lines, paste0(temp_df_name, " = dplyr::mutate(", temp_df_name, ", .stata_egen_cond_L", line_num, " = dplyr::coalesce(as.numeric(with(", temp_df_name, ", ", r_subset_cond_for_temp_df, ")), 0) != 0)"))
       }
       
-      # Sort the temporary data before calculating group IDs / ranks
-      sort_expr_for_temp_base = paste0('!!!dplyr::syms(c("', paste0(group_vars_list_bare, collapse = '", "'), '"))')
+      # Build the vector of column names for sorting
+      vector_of_sort_vars = group_vars_list_bare
       if (egen_func_name == "rank" && !is.na(egen_args_str) && egen_args_str != "") {
           rank_arg_var_bare = stringi::stri_replace_all_fixed(r_egen_args, "`", "")
-          sort_expr_for_temp_base = paste0('!!!dplyr::syms(c("', paste0(unique(c(group_vars_list_bare, rank_arg_var_bare)), collapse = '", "'), '"))')
+          vector_of_sort_vars = unique(c(vector_of_sort_vars, rank_arg_var_bare))
       }
-      # ADDED: Add stata2r_original_order_idx as the final tie-breaker for temporary sort
-      if (use_original_order_idx_for_temp_sort) {
-          sort_expr_for_temp = paste0('c(', sort_expr_for_temp_base, ', !!!dplyr::syms("stata2r_original_order_idx"))')
-      } else {
-          sort_expr_for_temp = sort_expr_for_temp_base
+      # Add stata2r_original_order_idx as the final tie-breaker for temporary sort
+      if (use_original_order_idx_for_this_sort) {
+          vector_of_sort_vars = c(vector_of_sort_vars, "stata2r_original_order_idx")
       }
-      r_code_lines = c(r_code_lines, paste0(temp_df_name, " = ", temp_df_name, " %>% dplyr::arrange(", sort_expr_for_temp, ")"))
+      # Construct the final arrange expression
+      arrange_expr_str = paste0('!!!dplyr::syms(c("', paste(vector_of_sort_vars, collapse = '", "'), '"))')
+
+      r_code_lines = c(r_code_lines, paste0(temp_df_name, " = ", temp_df_name, " %>% dplyr::arrange(", arrange_expr_str, ")"))
 
       # Calculate the new variable
       r_code_lines = c(r_code_lines, paste0(temp_df_name, " = ", temp_df_name, " %>% dplyr::group_by(!!!dplyr::syms(c(\"", paste0(group_vars_list_bare, collapse = '", "'), "\"))) %>% dplyr::mutate(", full_mutate_expr, ") %>% dplyr::ungroup()"))
@@ -352,5 +353,4 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste(r_code_lines, collapse="\n"))
 }
-
 
