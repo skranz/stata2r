@@ -26,6 +26,8 @@ do_parse = function(do_code) {
       stata_translation_error = character(0),
       e_results_needed = I(vector("list", 0)), # New column for e() results
       r_results_needed = I(vector("list", 0)), # New column for r() results (future use)
+      will_have_original_order_idx = logical(0), # Added by mark_data_manip_cmd logic
+      will_ignore_row_order_for_comparison = logical(0), # NEW: Added for sort/gsort
       stringsAsFactors = FALSE
     ))
   }
@@ -44,6 +46,7 @@ do_parse = function(do_code) {
       by_sort_vars = if (length(parsed_info$by_sort_vars)>0) paste(parsed_info$by_sort_vars, collapse=",") else "",
       is_quietly_prefix = parsed_info$is_quietly_prefix, # New field
       stata_translation_error = NA_character_,
+      will_ignore_row_order_for_comparison = FALSE, # NEW: Initialize here
       stringsAsFactors = FALSE
     )
   })
@@ -52,6 +55,9 @@ do_parse = function(do_code) {
   # Initialize e_results_needed and r_results_needed as list columns
   cmd_df$e_results_needed = I(replicate(nrow(cmd_df), character(0), simplify = FALSE))
   cmd_df$r_results_needed = I(replicate(nrow(cmd_df), character(0), simplify = FALSE))
+  # NEW: Initialize will_have_original_order_idx here too, it's safer
+  cmd_df$will_have_original_order_idx = rep(FALSE, NROW(cmd_df)) 
   return(cmd_df)
 }
+
 

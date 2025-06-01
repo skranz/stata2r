@@ -100,6 +100,8 @@ aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="", do_file
     r_code_to_exec = r_df$r_code[[i_df_loop]]
     original_stata_line_num = r_df$line[[i_df_loop]]
     do_code_original = r_df$do_code[[i_df_loop]]
+    # NEW: Get the flag for ignoring row order for this specific command
+    ignore_row_order_for_this_line = r_df$ignore_row_order_for_comparison[[i_df_loop]]
 
     if (is.na(r_code_to_exec)) {
       cat("\n", original_stata_line_num, "do: ", do_code_original, "\n")
@@ -143,7 +145,8 @@ aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="", do_file
       if (basename(test_dir) == "do2") {
         actual_ignore_cols = c(actual_ignore_cols, "obs_quarter")
       }
-      comp = compare_df(do_data, r_data, ignore_cols_values = actual_ignore_cols)
+      # Pass the new flag to compare_df
+      comp = compare_df(do_data, r_data, ignore_cols_values = actual_ignore_cols, ignore_row_order = ignore_row_order_for_this_line)
       if (!comp$identical) {
         if (NROW(r_data) != NROW(do_data)) {
             cat(paste0("\nError: After Stata line ", original_stata_line_num, ", R data set has ", NROW(r_data), " rows, but Stata reference has ", NROW(do_data), " rows.\n"))
@@ -183,7 +186,7 @@ out_and_err_txt = function(out, err=NULL) {
 compare_df = function(df1, df2,
                       tol = 1e-5,  # numeric tolerance - Adjusted from 2e-6 to 1e-5 for typical float precision
                       ignore_col_order = FALSE,
-                      ignore_row_order = FALSE,
+                      ignore_row_order = FALSE, # Now this can be TRUE
                       sample_n_diff = 5,            # max rows to show per column
                       ignore_cols_values = character(0)) {
   restore.point("compare_df")
@@ -322,4 +325,5 @@ compare_df = function(df1, df2,
   }
   out
 }
+
 

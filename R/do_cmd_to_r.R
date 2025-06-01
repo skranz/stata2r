@@ -4,7 +4,8 @@ do_cmd_to_r = function(cmd_obj, line, cmd_df) { # Corrected signature: added cmd
   restore.point("do_cmd_to_r")
 
   if (!cmd_obj$do_translate || is.na(cmd_obj$stata_cmd)) {
-     return(data.frame(line=line, r_code = NA_character_, do_code = cmd_obj$do_code, stata_translation_error = NA_character_, stringsAsFactors = FALSE))
+     # NEW: Return the new column with default value
+     return(data.frame(line=line, r_code = NA_character_, do_code = cmd_obj$do_code, stata_translation_error = NA_character_, ignore_row_order_for_comparison = cmd_obj$will_ignore_row_order_for_comparison, stringsAsFactors = FALSE))
   }
 
   r_code = NA_character_
@@ -65,7 +66,9 @@ do_cmd_to_r = function(cmd_obj, line, cmd_df) { # Corrected signature: added cmd
          stata_translation_error = e$message)
   })
 
-  r_obj = data.frame(line=line, r_code = res$r_code, do_code = cmd_obj$do_code, stata_translation_error = res$stata_translation_error, stringsAsFactors = FALSE)
+  # NEW: Add ignore_row_order_for_comparison from cmd_obj
+  r_obj = data.frame(line=line, r_code = res$r_code, do_code = cmd_obj$do_code, stata_translation_error = res$stata_translation_error, ignore_row_order_for_comparison = cmd_obj$will_ignore_row_order_for_comparison, stringsAsFactors = FALSE)
   return(r_obj)
 }
+
 

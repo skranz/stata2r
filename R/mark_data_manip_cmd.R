@@ -8,6 +8,8 @@ mark_data_manip_cmd = function(cmd_df) {
     if (!("r_results_needed" %in% names(cmd_df))) cmd_df$r_results_needed = I(vector("list", 0))
     # NEW: Initialize new column for original_order_idx presence
     if (!("will_have_original_order_idx" %in% names(cmd_df))) cmd_df$will_have_original_order_idx = logical(0)
+    # NEW: Initialize new column for ignoring row order in comparison
+    if (!("will_ignore_row_order_for_comparison" %in% names(cmd_df))) cmd_df$will_ignore_row_order_for_comparison = logical(0)
     return(cmd_df)
   }
 
@@ -19,8 +21,12 @@ mark_data_manip_cmd = function(cmd_df) {
   if (!("r_results_needed" %in% names(cmd_df))) {
      cmd_df$r_results_needed = I(replicate(nrow(cmd_df), character(0), simplify = FALSE))
   }
-  # NEW: Initialize will_have_original_order_idx
-  cmd_df$will_have_original_order_idx = rep(FALSE, NROW(cmd_df))
+  # NEW: Initialize will_have_original_order_idx (already in do_parse, but defensive)
+  if (!("will_have_original_order_idx" %in% names(cmd_df))) {
+      cmd_df$will_have_original_order_idx = rep(FALSE, NROW(cmd_df))
+  }
+  # NEW: Initialize will_ignore_row_order_for_comparison
+  cmd_df$will_ignore_row_order_for_comparison = rep(FALSE, NROW(cmd_df))
 
 
   # --- First pass: Mark commands that are inherently data-modifying ---
@@ -118,6 +124,10 @@ mark_data_manip_cmd = function(cmd_df) {
     cmd_df$will_have_original_order_idx[i] = current_has_order_idx_at_translation_time
   }
 
+  # NEW: Fourth pass: Mark commands for which row order should be ignored in comparison
+  # This is specifically for `sort` and `gsort` because Stata's default sort is non-deterministic for ties.
+  cmd_df$will_ignore_row_order_for_comparison[cmd_df$stata_cmd %in% c("sort", "gsort")] = TRUE
+
 
   # --- Final explicit overrides ---
   # Commands that are definitely not data manipulation (e.g. `list`, `display` for scalars)
@@ -144,4 +154,5 @@ mark_data_manip_cmd = function(cmd_df) {
   
   return(cmd_df)
 }
+
 

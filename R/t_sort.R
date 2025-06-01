@@ -17,11 +17,17 @@ t_sort = function(rest_of_cmd, cmd_obj, cmd_df, line_num, type = "sort") {
 
   # Determine if stata2r_original_order_idx should be used as a tie-breaker
   # This decision is made at translation time based on `will_have_original_order_idx` flag.
-  use_original_order_idx_for_this_sort = cmd_obj$will_have_original_order_idx
+  # For direct 'sort' and 'gsort' commands, Stata does NOT guarantee stable sort for ties.
+  # Thus, we should NOT add stata2r_original_order_idx as a tie-breaker here.
+  # The comparison function will handle row order differences for these commands.
+  # If a specific `stable` option were supported in Stata, this logic might change.
+  # For now, `use_original_order_idx_for_this_sort` will be FALSE for `t_sort`.
+  # The `t_egen` function will still use the index for internal sorting if needed.
+  use_original_order_idx_for_this_sort = FALSE # Override: Stata's sort is not stable by default.
 
   if (type == "sort") {
     sort_vars = vars
-    if (use_original_order_idx_for_this_sort) { # Use the translation-time flag
+    if (use_original_order_idx_for_this_sort) { # This will now be FALSE
       sort_vars = c(sort_vars, "stata2r_original_order_idx")
     }
     # Using dplyr::arrange with !!!dplyr::syms for consistency and robustness
@@ -47,7 +53,7 @@ t_sort = function(rest_of_cmd, cmd_obj, cmd_df, line_num, type = "sort") {
       }
     }
     # Add stata2r_original_order_idx as the final tie-breaker to ensure stable sort for ties
-    if (use_original_order_idx_for_this_sort) { # Use the translation-time flag
+    if (use_original_order_idx_for_this_sort) { # This will now be FALSE
       arrange_expressions = c(arrange_expressions, '!!!dplyr::syms("stata2r_original_order_idx")')
     }
     r_code_str = paste0("data = dplyr::arrange(data, ", paste(arrange_expressions, collapse = ", "), ")")
