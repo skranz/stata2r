@@ -6,7 +6,7 @@ translate_stata_expression_with_r_values = function(stata_expr, line_num, cmd_df
   # --- Handle r() values from summarize/tabulate ---
   # Find the most recent summarize/tabulate command before the current line that was translated
   most_recent_r_producer_line_idx = NA_integer_
-  for (i in (line_num - 1):1) {
+  for (i in rev(seq_len(line_num - 1L))) {
     if (cmd_df$stata_cmd[i] %in% c("summarize", "su", "tabulate", "tab") && cmd_df$do_translate[i]) {
       most_recent_r_producer_line_idx = i
       break
@@ -33,7 +33,7 @@ translate_stata_expression_with_r_values = function(stata_expr, line_num, cmd_df
 
   # --- Handle e() values from estimation commands ---
   most_recent_e_producer_line_idx = NA_integer_
-  for (i in (line_num - 1):1) {
+  for (i in rev(seq_len(line_num - 1L))) {
     if (cmd_df$stata_cmd[i] %in% stata_estimation_cmds && cmd_df$do_translate[i]) {
       most_recent_e_producer_line_idx = i
       break

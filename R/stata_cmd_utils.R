@@ -153,7 +153,7 @@ stata_r_result_cmds = c(
 parse_stata_command_line = function(line_text) {
   restore.point("parse_stata_command_line")
   trimmed_line = stringi::stri_trim_both(line_text)
-  
+
   effective_line = trimmed_line
 
   # Initialize all flags
@@ -306,7 +306,7 @@ resolve_stata_filename = function(raw_filename_token, cmd_df, line_num, default_
     macro_name = stringi::stri_sub(unquoted_content, 2, -2)
 
     found_def_line = NA_integer_
-    for (i in (line_num - 1):1) {
+    for (i in rev(seq_len(line_num - 1L))) {
         if (cmd_df$stata_cmd[i] == "tempfile") {
             defined_macros = get_tempfile_macros(cmd_df$rest_of_cmd[i])
             if (macro_name %in% defined_macros) {

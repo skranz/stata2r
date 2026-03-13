@@ -111,7 +111,7 @@ aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="", do_file
       res = aicoder::run_with_log(code_str=r_code_to_exec, env=env)
       cat("\n", original_stata_line_num,"do: ", do_code_original)
       cat("\n", original_stata_line_num, "r: ", r_code_to_exec, "\n")
-      cat(res$log)
+      #cat(res$log)
 
       if (res$has_error) {
         cat("\nError executing R code for Stata line ", original_stata_line_num, ": ", res$log, "\n")
