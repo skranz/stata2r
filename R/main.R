@@ -2,7 +2,7 @@
 
 # do_code is a text file with one line per stata command line
 # there are no comments
-do_to_r = function(do_code, return_df = FALSE) {
+do_to_r = function(do_code, return_df = FALSE, timevar = NULL, panelvar = NULL, tdelta = 1,...) {
   restore.point("do_to_r")
   do_code = stringi::stri_split_fixed(do_code, "\n")
 
@@ -29,6 +29,9 @@ do_to_r = function(do_code, return_df = FALSE) {
     # r_obj$do_cmd = do_code[i] # This is redundant, do_code is already in r_obj$do_code
     r_obj
   }))
+
+  r_df = s2r_resolve_ts_operators(r_df, timevar, panelvar, tdelta)
+
   if (return_df) return(r_df)
 
 
