@@ -12,14 +12,13 @@ But eveything is work in progress.
 
 I try to write this package to a super large extend with AI. The idea is to have test Stata code (see e.g. `aicoder_work/tests`) run it, try to translate with the software and check if generated data set in R is same as in Stata. If not tell the AI to correct the package. 
 
-My development style is still the outdated style from the 2024/25s, i.e. I copy & paste to a Chatbot and initiate the tests myself...
+So basically the [Ralph Wiggum Loop](https://ghuntley.com/loop/) is:
 
-I guess letting a fully automatic agent do the work for some hours in a [Ralph Wiggum Loop](https://ghuntley.com/loop/) would also work fine.
-
-I guess one could add the test creation also to the loop. It might then simply be:
 
 1. Run the tests
 2. If some tests fail correct the code and go back to 1.
 3. Make new tests and go back to 1
 
-Currently, I am still in the loop. As it already worked quite well with quite few iterations, probably not necessary to go fully agentic.
+I am still using a traditional coding style of amateur coders from the 2024/25s, i.e. I am still in the loop and do copy & paste with an AI Chatbot, initiate the tests myself, etc.
+
+Letting a fully automatic agent do the work for some hours would be the modern thing to do and probably work fine. But then setting up the secure agent environment also takes time...
