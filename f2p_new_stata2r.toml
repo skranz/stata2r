@@ -28,13 +28,13 @@ template = '''
 {{R}}
 
 
-################################################
-# cmdpart utils from package repboxUtils
-################################################
+
+# R files with cmdpart utils from package repboxUtils
+
 
 {{cmdpart}}
 
-# Example do log files
+# Example do log files from stata2r
 
 {{DO}}
 
@@ -197,6 +197,17 @@ file_template = '''
 [[R]]
 include_files  = '''
 R/*.R
+R/*.r
+'''
+
+exclude_files = '''
+R/aic_stata2r.R
+R/aic_stata_ex.R
+'''
+
+[[cmdpart]]
+include_files  = '''
+/home/rstudio/repbox/repboxUtils/*.R
 R/*.r
 '''
 

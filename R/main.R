@@ -2,7 +2,7 @@
 
 # do_code is a text file with one line per stata command line
 # there are no comments
-do_to_r = function(do_code, return_df = FALSE, timevar = NULL, panelvar = NULL, tdelta = 1,...) {
+do_to_r = function(do_code, return_df = FALSE, timevar = NULL, panelvar = NULL, tdelta = 1,..., handle_erb=TRUE) {
   restore.point("do_to_r")
   do_code = stringi::stri_split_fixed(do_code, "\n")
 
@@ -23,10 +23,6 @@ do_to_r = function(do_code, return_df = FALSE, timevar = NULL, panelvar = NULL, 
     # r_obj will be a single row tibble
     # at least with the field r_code
     r_obj = do_cmd_to_r(cmd_obj=cmd_obj,line=i, cmd_df=cmd_df)
-    # The 'line' and 'do_code' columns are already part of r_obj from do_cmd_to_r
-    # No need to re-assign r_obj$line and r_obj$do_cmd as it's already there.
-    # r_obj$line = i # This is redundant
-    # r_obj$do_cmd = do_code[i] # This is redundant, do_code is already in r_obj$do_code
     r_obj
   }))
 

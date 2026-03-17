@@ -1,0 +1,124 @@
+#' Detect dependencies between state consumers (e.g., e(sample)) and providers (regressions)
+#'
+#' @param cmdlines Character vector of Stata command lines
+#' @param is_est Optional boolean vector indicating which commands are estimations.
+#'               If NULL, it guesses based on the command string.
+#' @return A data.frame mapping which commands use state, and which provide it.
+#' @export
+s2r_detect_state_dependencies <- function(cmdlines, is_est = NULL) {
+
+  if (is.null(is_est)) {
+    # Guess estimation commands if not provided
+    is_est <- stringi::stri_detect_regex(
+      trimws(cmdlines),
+      "^(reg|areg|reghdfe|xtreg|ivreg|probit|logit|dprobit|qreg|tobit)"
+    )
+  }
+
+  n <- length(cmdlines)
+  res <- data.frame(
+    uses_e_sample = rep(FALSE, n),
+    provider_idx  = rep(NA_integer_, n),
+    is_provider   = rep(FALSE, n)
+  )
+
+  # Fast exit if no state macros are used anywhere
+  has_any <- stringi::stri_detect_regex(
+    stringi::stri_join(cmdlines, collapse = "\n"),
+    "\\b(e|r)\\(|_b\\[|_se\\["
+  )
+  if (!has_any) return(res)
+
+  res$uses_e_sample <- stringi::stri_detect_regex(cmdlines, "\\be\\(sample\\)")
+
+  # Forward fill the index of the last estimation command
+  est_idx <- ifelse(is_est, seq_along(cmdlines), NA_integer_)
+  valid <- which(!is.na(est_idx))
+  if (length(valid) > 0) {
+    reps <- diff(c(valid, length(est_idx) + 1))
+    est_idx[valid[1]:length(est_idx)] <- rep(est_idx[valid], reps)
+  }
+
+  res$provider_idx <- est_idx
+
+  # A command is a provider if its index is targeted by a downstream consumer
+  needed_providers <- unique(res$provider_idx[res$uses_e_sample])
+  needed_providers <- needed_providers[!is.na(needed_providers)]
+
+  res$is_provider[needed_providers] <- TRUE
+
+  return(res)
+}
+
+#' Extract variables from a Stata estimation command line
+#' @export
+s2r_extract_reg_vars <- function(cmdline) {
+  # 1. Strip trailing options, if, and in
+  cmd <- stringi::stri_replace_first_regex(cmdline, ",.*$", "")
+  cmd <- stringi::stri_replace_first_regex(cmd, "\\bif\\b.*$", "")
+  cmd <- stringi::stri_replace_first_regex(cmd, "\\bin\\b.*$", "")
+
+  tokens <- unlist(stringi::stri_split_regex(trimws(cmd), "\\s+"))
+  vars <- if (length(tokens) > 1) tokens[-1] else character(0)
+
+  # 2. Extract absorb() variables (reghdfe/areg)
+  absorb_match <- stringi::stri_extract_first_regex(cmdline, "absorb\\([^)]+\\)")
+  if (!is.na(absorb_match)) {
+    abs_vars <- stringi::stri_replace_all_regex(absorb_match, "(absorb\\(|\\))", "")
+    vars <- c(vars, unlist(stringi::stri_split_regex(trimws(abs_vars), "\\s+")))
+  }
+
+  # 3. Clean syntax prefixes (i., c., L1., etc.) and interactions (#, *)
+  vars <- unlist(stringi::stri_split_regex(vars, "(#|\\*)"))
+  vars <- stringi::stri_replace_all_regex(vars, "^[icLFDSO0-9\\.]+", "", opts_regex = list(case_insensitive = TRUE))
+  vars <- unique(trimws(vars))
+  vars <- vars[vars != ""]
+
+  return(vars)
+}
+
+#' Runtime Helper: Get stored state
+#' @export
+s2r_e <- function(name) {
+  env <- getOption("s2r.env", default = new.env(parent = emptyenv()))
+  if (name == "sample") return(env$sample)
+  return(env[[name]])
+}
+
+#' Runtime Helper: Store e(sample) natively by calculating complete cases
+#' @export
+s2r_store_e_sample <- function(dat, vars) {
+  env <- getOption("s2r.env", default = new.env(parent = emptyenv()))
+  options(s2r.env = env)
+
+  vars_exist <- intersect(vars, colnames(dat))
+  if (length(vars_exist) > 0) {
+    env$sample <- as.integer(complete.cases(dat[, vars_exist, drop = FALSE]))
+  } else {
+    env$sample <- rep(1L, nrow(dat))
+  }
+  invisible(dat)
+}
+
+
+s2r_replace_erb_calls = function(cmdline) {
+    # Safely replace e(sample) so stata2r translates it as a normal variable mutation
+    stringi::stri_replace_all_regex(cmdlines, "\\be\\(sample\\)", "s2r_e('sample')")
+}
+
+s2r_add_store_erb_to_r_code = function(r_df, state_dep, cmdlines = r_df$s_code) {
+  restore.point("s2r_add_store_erb_to_r_code")
+  for (i in seq_along(cmdlines)) {
+    if (state_deps$is_provider[i]) {
+      # Generate the s2r_store_e_sample() call for the provider
+      vars <- s2r_extract_reg_vars(cmdlines[i])
+      vars_str <- paste0("'", paste(vars, collapse="', '"), "'")
+      r_df$r_code[i] <- paste0("s2r_store_e_sample(dat, c(", vars_str, "))")
+    } else if (state_deps$provider_idx[i] == i) {
+      # It's an estimation command, but NO downstream mod needs it.
+      # Blank it out so it doesn't clutter the R data prep pipeline.
+      r_df$r_code[i] <- ""
+    }
+  }
+  r_df
+}
