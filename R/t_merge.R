@@ -66,18 +66,26 @@ scmd_merge = function(data, merge_type, varlist, file_path, keep_opt = NA_charac
   else if (!is.na(keep_opt) && grepl("\\bmatch\\b", keep_opt)) join_func = dplyr::inner_join
   else if (!is.na(keep_opt) && grepl("\\busing\\b", keep_opt)) join_func = dplyr::right_join
 
-  data = join_func(data, using_data, by = merge_keys, indicator = ".stata_merge_indicator")
+  # Track origins for Stata's _merge indicator
+  if (!has_nogenerate) {
+    data$.stata_in_master = 1L
+    using_data$.stata_in_using = 1L
+  }
+
+  data = join_func(data, using_data, by = merge_keys)
   data = sfun_normalize_string_nas(data)
 
   if (!has_nogenerate) {
     data$`_merge` = dplyr::case_when(
-      data$.stata_merge_indicator == "left_only" ~ 1L,
-      data$.stata_merge_indicator == "right_only" ~ 2L,
-      data$.stata_merge_indicator == "both" ~ 3L,
+      !is.na(data$.stata_in_master) & is.na(data$.stata_in_using) ~ 1L,
+      is.na(data$.stata_in_master) & !is.na(data$.stata_in_using) ~ 2L,
+      !is.na(data$.stata_in_master) & !is.na(data$.stata_in_using) ~ 3L,
       TRUE ~ NA_integer_
     )
+    # Clean up tracking cols
+    data$.stata_in_master = NULL
+    data$.stata_in_using = NULL
   }
 
-  data$.stata_merge_indicator = NULL
   return(data)
 }

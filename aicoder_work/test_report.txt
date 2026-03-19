@@ -1,4 +1,4 @@
-In total 0 of 2 tests failed.
+In total 1 of 3 tests failed.
 
 
 ---
@@ -8,7 +8,7 @@ All R files could be sourced.
 
 
 ---
-Outcome of test 'do5': ok
+Outcome of test 'do1': ok
 
 
 Details:
@@ -17,20 +17,38 @@ cmd_df = do_parse(do_code)
 cmd_df = mark_data_manip_cmd(cmd_df)
 
 str(cmd_df)
-'data.frame':	20 obs. of  16 variables:
+'data.frame':	38 obs. of  16 variables:
  $ line                                : int  1 2 3 4 5 6 7 8 9 10 ...
- $ do_code                             : chr  "use \"data.dta\", clear" "keep ti id group_c" "keep if id >= 1" "keep if ti >= log(5)" ...
- $ stata_cmd_original                  : chr  "use" "keep" "keep" "keep" ...
- $ stata_cmd                           : chr  "use" "keep" "keep" "keep" ...
- $ rest_of_cmd                         : chr  "\"data.dta\", clear" "ti id group_c" "if id >= 1" "if ti >= log(5)" ...
- $ is_by_prefix                        : logi  FALSE FALSE FALSE FALSE FALSE FALSE ...
+ $ do_code                             : chr  "use \"data.dta\", clear" "sort group i" "keep in 1/39" "list in 1/5" ...
+ $ stata_cmd_original                  : chr  "use" "sort" "keep" "list" ...
+ $ stata_cmd                           : chr  "use" "sort" "keep" "list" ...
+ $ rest_of_cmd                         : chr  "\"data.dta\", clear" "group i" "in 1/39" "in 1/5" ...
+ $ is_by_prefix                        : logi  FALSE FALSE FALSE FALSE FALSE TRUE ...
  $ by_group_vars                       : chr  "" "" "" "" ...
  $ by_sort_vars                        : chr  "" "" "" "" ...
  $ is_quietly_prefix                   : logi  FALSE FALSE FALSE FALSE FALSE FALSE ...
  $ is_capture_prefix                   : logi  FALSE FALSE FALSE FALSE FALSE FALSE ...
  $ stata_translation_error             : chr  NA NA NA NA ...
- $ will_ignore_row_order_for_comparison: logi  FALSE FALSE FALSE FALSE FALSE FALSE ...
- $ e_results_needed                    :List of 20
+ $ will_ignore_row_order_for_comparison: logi  FALSE TRUE FALSE FALSE FALSE FALSE ...
+ $ e_results_needed                    :List of 38
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
   ..$ : chr 
   ..$ : chr 
   ..$ : chr 
@@ -52,7 +70,351 @@ str(cmd_df)
   ..$ : chr 
   ..$ : chr 
   ..- attr(*, "class")= chr "AsIs"
- $ r_results_needed                    :List of 20
+ $ r_results_needed                    :List of 38
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..- attr(*, "class")= chr "AsIs"
+ $ will_have_original_order_idx        : logi  TRUE TRUE TRUE TRUE TRUE TRUE ...
+ $ do_translate                        : logi  TRUE TRUE TRUE FALSE FALSE TRUE ...
+NULL
+
+---
+#Translate Stata to R commands... ... translation done.
+---
+# Run translated R commands and compare results
+
+
+ 1 do:  use "data.dta", clear
+ 1 r:  data = scmd_use(file_path = file.path(stata2r_env$working_dir, "data.dta"), clear = TRUE)
+assign("has_original_order_idx", TRUE, envir = stata2r_env) 
+
+ 2 do:  sort group i
+ 2 r:  data = scmd_sort(data = data, varlist_str = "group i", type = "sort") 
+
+ 3 do:  keep in 1/39
+ 3 r:  data = scmd_keep(data = data, r_in_range = "1:39") 
+
+ 4 do:  list in 1/5 
+
+ 4 r:  not translated since not flagged as data manipulation
+
+ 5 do:  display _n 
+
+ 5 r:  not translated since not flagged as data manipulation
+
+ 6 do:  by group: gen seq = _n
+ 6 r:  data = scmd_generate(data = data, new_var = "seq", r_expr_str = "dplyr::row_number()", group_vars = c('group'), is_string = FALSE, force_integer = FALSE) 
+
+ 7 do:  gen logi = log(i)
+ 7 r:  data = scmd_generate(data = data, new_var = "logi", r_expr_str = "log(`i`)", is_string = FALSE, force_integer = FALSE) 
+
+ 8 do:  gen sqrt_i = sqrt(i)
+ 8 r:  data = scmd_generate(data = data, new_var = "sqrt_i", r_expr_str = "sqrt(`i`)", is_string = FALSE, force_integer = FALSE) 
+
+ 9 do:  gen group_num = cond(group=="A",1,cond(group=="B",2,3))
+ 9 r:  data = scmd_generate(data = data, new_var = "group_num", r_expr_str = "sfun_stata_cond(`group`==\"A\", 1, sfun_stata_cond(`group`==\"B\", 2, 3))", is_string = FALSE, force_integer = FALSE) 
+
+ 10 do:  egen mean_i_grp = mean(i), by(group)
+ 10 r:  data = scmd_egen(data = data, new_var = "mean_i_grp", func_name = "mean", calc_expr = "mean(`i`, na.rm = TRUE)", group_vars = c('group'), needs_temp_sort = FALSE, is_row = FALSE) 
+
+ 11 do:  egen total_i = total(i)
+ 11 r:  data = scmd_egen(data = data, new_var = "total_i", func_name = "total", calc_expr = "collapse::fsum(`i`, na.rm = TRUE)", needs_temp_sort = FALSE, is_row = FALSE) 
+
+ 12 do:  bysort group: egen rank_i = rank(i)
+ 12 r:  data = scmd_egen(data = data, new_var = "rank_i", func_name = "rank", calc_expr = "as.numeric(base::rank(`i`, ties.method = 'average', na.last = 'keep'))", group_vars = c('group'), needs_temp_sort = FALSE, is_row = FALSE) 
+
+ 13 do:  gen flag = (i>20) if group=="A"
+ 13 r:  data = scmd_generate(data = data, new_var = "flag", r_expr_str = "(`i`>20)", r_if_cond = "`group`==\"A\"", is_string = FALSE, force_integer = FALSE) 
+
+ 14 do:  replace flag = 0 if missing(flag)
+ 14 r:  data = scmd_replace(data = data, var_to_replace = "flag", r_expr_str = "0", r_if_cond = "sfun_missing(`flag`)", is_string = FALSE, force_integer = FALSE) 
+
+ 15 do:  keep if flag==1 | group=="B"
+ 15 r:  data = scmd_keep(data = data, r_if_cond = "`flag`==1 | `group`==\"B\"") 
+
+ 16 do:  drop if i>35
+ 16 r:  data = scmd_drop(data = data, r_if_cond = "`i`>35") 
+
+ 17 do:  collapse (mean) i (sum) total_i_sum = i, by(group)
+ 17 r:  data = scmd_collapse(data = data, agg_exprs_list = list(`i` = "collapse::fmean(`i`, na.rm = TRUE)", `total_i_sum` = "collapse::fsum(`i`, na.rm = TRUE)"), group_vars = c('group'))
+assign("has_original_order_idx", TRUE, envir = stata2r_env) 
+
+ 18 do:  rename i mean_i_overall
+ 18 r:  data = scmd_rename(data = data, old_var = "i", new_var = "mean_i_overall") 
+
+ 19 do:  expand 2 if group=="C"
+ 19 r:  data = scmd_expand(data = data, r_n_expr_str = "2", r_if_cond = "`group`==\"C\"")
+if (isTRUE(stata2r_env$has_original_order_idx)) { data = dplyr::mutate(data, stata2r_original_order_idx = dplyr::row_number()) } 
+
+ 20 do:  duplicates drop
+ 20 r:  data = scmd_duplicates(data = data, subcommand = "drop")
+if (isTRUE(stata2r_env$has_original_order_idx)) { data = dplyr::mutate(data, stata2r_original_order_idx = dplyr::row_number()) } 
+
+ 21 do:  encode group, gen(group_code)
+ 21 r:  data = scmd_encode(data = data, varname = "group", gen_var = "group_code") 
+
+ 22 do:  decode group_code, gen(group_str)
+ 22 r:  data = scmd_decode(data = data, varname = "group_code", gen_var = "group_str") 
+
+ 23 do:  sort group_code
+ 23 r:  data = scmd_sort(data = data, varlist_str = "group_code", type = "sort") 
+
+ 24 do:  tempfile t1
+ 24 r:  R_tempfile_L24_t1_path = tempfile(fileext = '.dta') 
+
+ 25 do:  save "`t1'"
+ 25 r:  data = scmd_save(data = data, file_path = R_tempfile_L24_t1_path) 
+
+ 26 do:  keep if group_code==1
+ 26 r:  data = scmd_keep(data = data, r_if_cond = "`group_code`==1") 
+
+ 27 do:  merge 1:m group_code using "`t1'", keep(match master) nogenerate
+ 27 r:  data = scmd_merge(data = data, merge_type = "1:m", varlist = "group_code", file_path = R_tempfile_L24_t1_path, keep_opt = "match master", has_nogenerate = TRUE)
+if (isTRUE(stata2r_env$has_original_order_idx)) { data = dplyr::mutate(data, stata2r_original_order_idx = dplyr::row_number()) } 
+
+ 28 do:  append using "`t1'"
+ 28 r:  data = scmd_append(data = data, file_path = R_tempfile_L24_t1_path)
+if (isTRUE(stata2r_env$has_original_order_idx)) { data = dplyr::mutate(data, stata2r_original_order_idx = dplyr::row_number()) } 
+
+ 29 do:  gen id = _n
+ 29 r:  data = scmd_generate(data = data, new_var = "id", r_expr_str = "dplyr::row_number()", is_string = FALSE, force_integer = FALSE) 
+
+ 30 do:  bysort group_code (mean_i_overall): gen diff_mean = mean_i_overall - mean_i_overall[_n-1]
+ 30 r:  data = scmd_generate(data = data, new_var = "diff_mean", r_expr_str = "`mean_i_overall` - dplyr::lag(`mean_i_overall`, n = 1)", group_vars = c('group_code'), is_string = FALSE, force_integer = FALSE) 
+
+ 31 do:  recode group_code (1=10)(2=20)(3=30)
+ 31 r:  data = scmd_recode(data = data, varlist_str = "group_code", rules_templates = c(".VAR. %in% c(1) ~ 10", ".VAR. %in% c(2) ~ 20", ".VAR. %in% c(3) ~ 30"), is_string = FALSE) 
+
+ 32 do:  drop if missing(mean_i_overall)
+ 32 r:  data = scmd_drop(data = data, r_if_cond = "sfun_missing(`mean_i_overall`)") 
+
+ 33 do:  order id group_code mean_i_overall
+ 33 r:  data = scmd_order(data = data, varlist_str = "id group_code mean_i_overall") 
+
+ 34 do:  collapse (sum) sum_mean = mean_i_overall, by(group_code)
+ 34 r:  data = scmd_collapse(data = data, agg_exprs_list = list(`sum_mean` = "collapse::fsum(`mean_i_overall`, na.rm = TRUE)"), group_vars = c('group_code'))
+assign("has_original_order_idx", TRUE, envir = stata2r_env) 
+
+ 35 do:  egen total_sum = total(sum_mean)
+ 35 r:  data = scmd_egen(data = data, new_var = "total_sum", func_name = "total", calc_expr = "collapse::fsum(`sum_mean`, na.rm = TRUE)", needs_temp_sort = FALSE, is_row = FALSE) 
+
+ 36 do:  gen proportion = sum_mean/total_sum
+ 36 r:  data = scmd_generate(data = data, new_var = "proportion", r_expr_str = "`sum_mean`/`total_sum`", is_string = FALSE, force_integer = FALSE) 
+
+ 37 do:  sort proportion
+ 37 r:  data = scmd_sort(data = data, varlist_str = "proportion", type = "sort") 
+
+ 38 do:  save "result_data.dta", replace 
+
+ 38 r:  not translated since not flagged as data manipulation
+
+
+---
+Outcome of test 'do2': not ok
+
+
+Details:
+
+cmd_df = do_parse(do_code)
+cmd_df = mark_data_manip_cmd(cmd_df)
+
+str(cmd_df)
+'data.frame':	82 obs. of  16 variables:
+ $ line                                : int  1 2 3 4 5 6 7 8 9 10 ...
+ $ do_code                             : chr  "use \"test_data.dta\", clear" "generate value1_log = log(value1)" "generate value2_squared = value2^2" "generate int_value1 = int(value1) if !missing(value1)" ...
+ $ stata_cmd_original                  : chr  "use" "generate" "generate" "generate" ...
+ $ stata_cmd                           : chr  "use" "generate" "generate" "generate" ...
+ $ rest_of_cmd                         : chr  "\"test_data.dta\", clear" "value1_log = log(value1)" "value2_squared = value2^2" "int_value1 = int(value1) if !missing(value1)" ...
+ $ is_by_prefix                        : logi  FALSE FALSE FALSE FALSE FALSE FALSE ...
+ $ by_group_vars                       : chr  "" "" "" "" ...
+ $ by_sort_vars                        : chr  "" "" "" "" ...
+ $ is_quietly_prefix                   : logi  FALSE FALSE FALSE FALSE FALSE FALSE ...
+ $ is_capture_prefix                   : logi  FALSE FALSE FALSE FALSE FALSE FALSE ...
+ $ stata_translation_error             : chr  NA NA NA NA ...
+ $ will_ignore_row_order_for_comparison: logi  FALSE FALSE FALSE FALSE FALSE FALSE ...
+ $ e_results_needed                    :List of 82
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..- attr(*, "class")= chr "AsIs"
+ $ r_results_needed                    :List of 82
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr "r(mean)"
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
+  ..$ : chr 
   ..$ : chr 
   ..$ : chr 
   ..$ : chr 
@@ -84,94 +446,94 @@ NULL
 # Run translated R commands and compare results
 
 
- 1 do:  use "data.dta", clear
- 1 r:  data = haven::read_dta(file.path(stata2r_env$working_dir, "data.dta")) %>% 
-  sfun_strip_stata_attributes() %>% 
-  sfun_normalize_string_nas() %>%
-  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) %>% 
-  { assign("has_original_order_idx", TRUE, envir = stata2r_env); . } # 'clear' was used 
+ 1 do:  use "test_data.dta", clear
+ 1 r:  data = scmd_use(file_path = file.path(stata2r_env$working_dir, "test_data.dta"), clear = TRUE)
+assign("has_original_order_idx", TRUE, envir = stata2r_env) 
 
- 2 do:  keep ti id group_c
- 2 r:  data = scmd_keep(data = data, varlist_str = "ti id group_c") 
+ 2 do:  generate value1_log = log(value1)
+ 2 r:  data = scmd_generate(data = data, new_var = "value1_log", r_expr_str = "log(`value1`)", is_string = FALSE, force_integer = FALSE) 
 
- 3 do:  keep if id >= 1
- 3 r:  data = scmd_keep(data = data, r_if_cond = "`id` >= 1") 
+ 3 do:  generate value2_squared = value2^2
+ 3 r:  data = scmd_generate(data = data, new_var = "value2_squared", r_expr_str = "`value2`^2", is_string = FALSE, force_integer = FALSE) 
 
- 4 do:  keep if ti >= log(5)
- 4 r:  data = scmd_keep(data = data, r_if_cond = "`ti` >= log(5)") 
+ 4 do:  generate int_value1 = int(value1) if !missing(value1)
+ 4 r:  data = scmd_generate(data = data, new_var = "int_value1", r_expr_str = "trunc(`value1`)", r_if_cond = "!sfun_missing(`value1`)", is_string = FALSE, force_integer = FALSE) 
 
- 5 do:  use "data.dta", clear
- 5 r:  data = haven::read_dta(file.path(stata2r_env$working_dir, "data.dta")) %>% 
-  sfun_strip_stata_attributes() %>% 
-  sfun_normalize_string_nas() %>%
-  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) %>% 
-  { assign("has_original_order_idx", TRUE, envir = stata2r_env); . } # 'clear' was used 
+ 5 do:  generate rounded_value1 = round(value1, 0.1) if !missing(value1)
+ 5 r:  data = scmd_generate(data = data, new_var = "rounded_value1", r_expr_str = "sfun_stata_round(`value1`,  0.1)", r_if_cond = "!sfun_missing(`value1`)", is_string = FALSE, force_integer = FALSE) 
 
- 6 do:  keep in 1/6
- 6 r:  data = scmd_keep(data = data, r_in_range = "1:6") 
+ 6 do:  generate random_uniform_draw = runiform()
+ 6 r:  data = scmd_generate(data = data, new_var = "random_uniform_draw", r_expr_str = "stats::`runif`(dplyr::n())", is_string = FALSE, force_integer = FALSE) 
 
- 7 do:  use "data.dta", clear
- 7 r:  data = haven::read_dta(file.path(stata2r_env$working_dir, "data.dta")) %>% 
-  sfun_strip_stata_attributes() %>% 
-  sfun_normalize_string_nas() %>%
-  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) %>% 
-  { assign("has_original_order_idx", TRUE, envir = stata2r_env); . } # 'clear' was used 
+ 7 do:  generate id_plus_value2 = id + value2 if value2 < 7 & !missing(value2)
+ 7 r:  data = scmd_generate(data = data, new_var = "id_plus_value2", r_expr_str = "sfun_stata_add(`id`, `value2`)", r_if_cond = "`value2` < 7 & !sfun_missing(`value2`)", is_string = FALSE, force_integer = FALSE) 
 
- 8 do:  keep if tim <= id / 2
- 8 r:  data = scmd_keep(data = data, r_if_cond = "`tim` <= `id` / 2") 
+ 8 do:  replace value1_log = 0 if missing(value1_log) & !missing(value1)
+ 8 r:  data = scmd_replace(data = data, var_to_replace = "value1_log", r_expr_str = "0", r_if_cond = "sfun_missing(`value1_log`) & !sfun_missing(`value1`)", is_string = FALSE, force_integer = FALSE) 
 
- 9 do:  use "data.dta", clear
- 9 r:  data = haven::read_dta(file.path(stata2r_env$working_dir, "data.dta")) %>% 
-  sfun_strip_stata_attributes() %>% 
-  sfun_normalize_string_nas() %>%
-  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) %>% 
-  { assign("has_original_order_idx", TRUE, envir = stata2r_env); . } # 'clear' was used 
+ 9 do:  replace value1 = value1 * 1.5 if group_orig == "Alpha" & !missing(value1) & !missing(group_orig)
+ 9 r:  data = scmd_replace(data = data, var_to_replace = "value1", r_expr_str = "`value1` * 1.5", r_if_cond = "`group_orig` == \"Alpha\" & !sfun_missing(`value1`) & !sfun_missing(`group_orig`)", is_string = FALSE, force_integer = FALSE) 
 
- 10 do:  keep if id <= 3
- 10 r:  data = scmd_keep(data = data, r_if_cond = "`id` <= 3") 
+ 10 do:  gen group_clean = strtrim(stritrim(lower(group_orig)))
+ 10 r:  data = scmd_generate(data = data, new_var = "group_clean", r_expr_str = "stringi::`stri_trim_right`(sfun_stritrim(stringi::`stri_trans_tolower`(`group_orig`)))", is_string = TRUE, force_integer = FALSE) 
 
- 11 do:  use "data.dta", clear
- 11 r:  data = haven::read_dta(file.path(stata2r_env$working_dir, "data.dta")) %>% 
-  sfun_strip_stata_attributes() %>% 
-  sfun_normalize_string_nas() %>%
-  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) %>% 
-  { assign("has_original_order_idx", TRUE, envir = stata2r_env); . } # 'clear' was used 
+ 11 do:  replace group_clean = "unknown" if missing(group_clean)
+ 11 r:  data = scmd_replace(data = data, var_to_replace = "group_clean", r_expr_str = "\"unknown\"", r_if_cond = "sfun_missing(`group_clean`)", is_string = TRUE, force_integer = FALSE) 
 
- 12 do:  drop group_c
- 12 r:  data = scmd_drop(data = data, varlist_str = "group_c") 
+ 12 do:  gen group_abbr = substr(group_clean, 1, 3) if group_clean != "unknown"
+ 12 r:  data = scmd_generate(data = data, new_var = "group_abbr", r_expr_str = "stringi::`stri_sub`(`group_clean`, `from` =  1, length =  3)", r_if_cond = "`group_clean` != \"unknown\"", is_string = TRUE, force_integer = FALSE) 
 
- 13 do:  drop if id <= 1
- 13 r:  data = scmd_drop(data = data, r_if_cond = "`id` <= 1") 
+ 13 do:  gen contact_info = group_clean + ":" + num_str
+ 13 r:  data = scmd_generate(data = data, new_var = "contact_info", r_expr_str = "sfun_stata_add(sfun_stata_add(`group_clean`, \":\") , `num_str`)", is_string = TRUE, force_integer = FALSE) 
 
- 14 do:  drop if ti >= log(5)+id
- 14 r:  data = scmd_drop(data = data, r_if_cond = "`ti` >= sfun_stata_add(log(5), `id`)") 
+ 14 do:  gen str_len_group = strlen(group_clean)
+ 14 r:  data = scmd_generate(data = data, new_var = "str_len_group", r_expr_str = "stringi::`stri_length`(`group_clean`)", is_string = FALSE, force_integer = FALSE) 
 
- 15 do:  use "data.dta", clear
- 15 r:  data = haven::read_dta(file.path(stata2r_env$working_dir, "data.dta")) %>% 
-  sfun_strip_stata_attributes() %>% 
-  sfun_normalize_string_nas() %>%
-  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) %>% 
-  { assign("has_original_order_idx", TRUE, envir = stata2r_env); . } # 'clear' was used 
+ 15 do:  replace contact_info = subinstr(contact_info, "beta", "delta", 1) if strpos(contact_info, "beta") > 0
+ 15 r:  data = scmd_replace(data = data, var_to_replace = "contact_info", r_expr_str = "sfun_subinstr(`contact_info`,  \"beta\",  \"delta\",  1)", r_if_cond = "sfun_strpos(`contact_info`,  \"beta\") > 0", is_string = TRUE, force_integer = FALSE) 
 
- 16 do:  drop in 1/6
- 16 r:  data = scmd_drop(data = data, r_in_range = "1:6") 
+ 16 do:  egen mean_overall_value1 = mean(value1)
+ 16 r:  data = scmd_egen(data = data, new_var = "mean_overall_value1", func_name = "mean", calc_expr = "mean(`value1`, na.rm = TRUE)", needs_temp_sort = FALSE, is_row = FALSE) 
 
- 17 do:  use "data.dta", clear
- 17 r:  data = haven::read_dta(file.path(stata2r_env$working_dir, "data.dta")) %>% 
-  sfun_strip_stata_attributes() %>% 
-  sfun_normalize_string_nas() %>%
-  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) %>% 
-  { assign("has_original_order_idx", TRUE, envir = stata2r_env); . } # 'clear' was used 
+ 17 do:  egen sd_overall_value1 = sd(value1)
+ 17 r:  data = scmd_egen(data = data, new_var = "sd_overall_value1", func_name = "sd", calc_expr = "stats::sd(`value1`, na.rm = TRUE)", needs_temp_sort = FALSE, is_row = FALSE) 
 
- 18 do:  drop if tim >= id / 2
- 18 r:  data = scmd_drop(data = data, r_if_cond = "`tim` >= `id` / 2") 
+ 18 do:  egen total_value2_by_group = total(value2), by(group_clean)
+ 18 r:  data = scmd_egen(data = data, new_var = "total_value2_by_group", func_name = "total", calc_expr = "collapse::fsum(`value2`, na.rm = TRUE)", group_vars = c('group_clean'), needs_temp_sort = FALSE, is_row = FALSE) 
 
- 19 do:  use "data.dta", clear
- 19 r:  data = haven::read_dta(file.path(stata2r_env$working_dir, "data.dta")) %>% 
-  sfun_strip_stata_attributes() %>% 
-  sfun_normalize_string_nas() %>%
-  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number()) %>% 
-  { assign("has_original_order_idx", TRUE, envir = stata2r_env); . } # 'clear' was used 
+ 19 do:  egen median_value1_by_group = median(value1), by(group_clean)
+ 19 r:  data = scmd_egen(data = data, new_var = "median_value1_by_group", func_name = "median", calc_expr = "stats::median(`value1`, na.rm = TRUE)", group_vars = c('group_clean'), needs_temp_sort = FALSE, is_row = FALSE) 
 
- 20 do:  drop if id <= 3
- 20 r:  data = scmd_drop(data = data, r_if_cond = "`id` <= 3") 
+ 20 do:  egen group_numeric_id = group(group_clean)
+ 20 r:  data = scmd_egen(data = data, new_var = "group_numeric_id", func_name = "group", calc_expr = "dplyr::cur_group_id()", args_str = "group_clean", needs_temp_sort = TRUE, is_row = FALSE) 
+
+ 21 do:  egen tag_first_in_group = tag(group_clean)
+ 21 r:  data = scmd_egen(data = data, new_var = "tag_first_in_group", func_name = "tag", calc_expr = "as.numeric(dplyr::row_number() == 1)", args_str = "group_clean", needs_temp_sort = TRUE, is_row = FALSE) 
+
+ 22 do:  egen count_obs_in_group = count(id), by(group_clean)
+ 22 r:  data = scmd_egen(data = data, new_var = "count_obs_in_group", func_name = "count", calc_expr = "sum(!is.na(`id`))", group_vars = c('group_clean'), needs_temp_sort = FALSE, is_row = FALSE) 
+
+ 23 do:  egen rank_value1_in_group = rank(value1), by(group_clean)
+ 23 r:  data = scmd_egen(data = data, new_var = "rank_value1_in_group", func_name = "rank", calc_expr = "as.numeric(base::rank(`value1`, ties.method = 'average', na.last = 'keep'))", group_vars = c('group_clean'), needs_temp_sort = TRUE, is_row = FALSE) 
+
+ 24 do:  egen row_total_v1_v2 = rowtotal(value1 value2)
+ 24 r:  data = scmd_egen(data = data, new_var = "row_total_v1_v2", func_name = "rowtotal", calc_expr = ".ROWOP_rowtotal_PLACEHOLDER.", args_str = "value1 value2", needs_temp_sort = FALSE, is_row = TRUE) 
+
+ 25 do:  egen row_mean_v1_v2 = rowmean(value1 value2)
+ 25 r:  data = scmd_egen(data = data, new_var = "row_mean_v1_v2", func_name = "rowmean", calc_expr = ".ROWOP_rowmean_PLACEHOLDER.", args_str = "value1 value2", needs_temp_sort = FALSE, is_row = TRUE) 
+
+ 26 do:  egen concat_group_num = concat(group_clean num_str)
+ 26 r:  data = scmd_egen(data = data, new_var = "concat_group_num", func_name = "concat", calc_expr = ".ROWOP_concat_PLACEHOLDER.", args_str = "group_clean num_str", needs_temp_sort = FALSE, is_row = TRUE) 
+
+ 27 do:  summarize value2, meanonly
+ 27 r:  res_L27 = scmd_summarize(data = data, needed_r = c('r(mean)'), var_for_r = "value2")
+stata_r_val_L27_mean = res_L27$r_mean 
+
+ 28 do:  gen value2_dev_from_mean = value2 - r(mean) if !missing(value2) & r(mean) != .
+ 28 r:  data = scmd_generate(data = data, new_var = "value2_dev_from_mean", r_expr_str = "`value2` - stata_r_val_L27_mean", r_if_cond = "!sfun_missing(`value2`) & !sfun_missing(stata_r_val_L27_mean)", is_string = FALSE, force_integer = FALSE) 
+
+Error executing R code for Stata line  28 :  data = scmd_generate(data = data, new_var = "value2_dev_from_mean", r_expr_str = "`value2` - stata_r_val_L27_mean", r_if_cond = "!sfun_missing(`value2`) & !sfun_missing(stata_r_val_L27_mean)", is_string = FALSE, force_integer = FALSE)
+
+Error: ℹ In argument: `value2_dev_from_mean = dplyr::if_else(...)`.
+Caused by error in `as.list.environment()`:
+! object 'stata_r_val_L27_mean' not found 

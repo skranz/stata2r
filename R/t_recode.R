@@ -156,8 +156,11 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   r_rules_templates = sapply(parsed$rules, translate_recode_rule_template, final_r_var_type_is_string = final_r_var_type_is_string)
 
+  # IMPORTANT: Map quote_for_r_literal over the vector to prevent truncation
+  quoted_rules = sapply(r_rules_templates, quote_for_r_literal)
+
   args = c("data = data", paste0("varlist_str = ", quote_for_r_literal(parsed$varlist)),
-           paste0("rules_templates = c(", paste(quote_for_r_literal(r_rules_templates), collapse=", "), ")"))
+           paste0("rules_templates = c(", paste(quoted_rules, collapse=", "), ")"))
   if (!is.na(parsed$gen_vars)) args = c(args, paste0("gen_vars_str = ", quote_for_r_literal(parsed$gen_vars)))
   if (!is.na(r_subset_cond)) args = c(args, paste0("r_if_cond = ", quote_for_r_literal(r_subset_cond)))
   args = c(args, paste0("is_string = ", final_r_var_type_is_string))
@@ -187,7 +190,14 @@ scmd_recode = function(data, varlist_str, rules_templates, gen_vars_str = NA_cha
     old_var = vars_actual[i]
     new_var = new_vars[i]
 
+    old_attrs = attributes(data[[old_var]])
+
     r_rules = gsub(".VAR.", paste0("`", old_var, "`"), rules_templates, fixed = TRUE)
+
+    # STATA FALLBACK: If values do not match any conditions, they are left unchanged.
+    fallback = if (is_string) paste0("as.character(`", old_var, "`)") else paste0("as.numeric(`", old_var, "`)")
+    r_rules = c(r_rules, paste0("TRUE ~ ", fallback))
+
     case_when_expr = paste0("dplyr::case_when(\n    ", paste(r_rules, collapse = ",\n    "), "\n  )")
 
     if (!is.na(r_if_cond) && r_if_cond != "") {
@@ -204,8 +214,16 @@ scmd_recode = function(data, varlist_str, rules_templates, gen_vars_str = NA_cha
 
     eval(parse(text = paste0("data = dplyr::mutate(data, `", new_var, "` = ", final_val_expr, ")")))
 
+    # Restore or Assign Labels
     if (!is.null(labels_map)) {
       data[[new_var]] = haven::labelled(data[[new_var]], labels = labels_map)
+    } else if (old_var == new_var && !is_string) {
+      # If replacing and no new labels are provided, keep original labels matching Stata
+      if (!is.null(old_attrs$labels)) attr(data[[new_var]], "labels") = old_attrs$labels
+      if (!is.null(old_attrs$label)) attr(data[[new_var]], "label") = old_attrs$label
+      if (!is.null(old_attrs$class) && "haven_labelled" %in% old_attrs$class) {
+        class(data[[new_var]]) = old_attrs$class
+      }
     }
   }
 

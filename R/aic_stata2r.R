@@ -5,13 +5,13 @@ example = function() {
   files = paste0(main_dir, "/stata2r/R/",  c("aic_stata2r.R", "aic_do_test.R","aic_stata_ex.R"))
   for (file in files)  source(file)
   aic = aic_new_stata2r(main_dir)
-  aic = aic_test_stata2r(aic, tests="do5")
-  #aic = aic_test_stata2r(aic, tests=NULL)
+  #aic = aic_test_stata2r(aic, tests="do5")
+  aic = aic_test_stata2r(aic, tests=NULL)
   #undebug(aic_make_prompt_stata2r)
-  aic = aic_make_prompt_stata2r(aic)
-  aic$cfg$tests
+  #aic = aic_make_prompt_stata2r(aic)
+  #aic$cfg$tests
   #cat(aic$prompt)
-  aic_view_prompt(aic)
+  #aic_view_prompt(aic)
   rstudioapi::navigateToFile("~/aicoder/stata2r/aicoder_work/test_report.txt")
 
 
