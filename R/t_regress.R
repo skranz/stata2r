@@ -1,129 +1,74 @@
-# Translate Stata 'regress' command
-# Stata: regress depvar [indepvars] [if] [in] [weight] [, options]
-# Primarily for extracting e(sample) if needed by subsequent commands.
+# FILE: R/t_regress.R
 
-t_regress = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
-  restore.point("t_regress")
+# 1. Parsing Phase
+s2r_p_regress = function(rest_of_cmd) {
+  restore.point("s2r_p_regress")
+  no_opts = stringi::stri_replace_all_regex(rest_of_cmd, ",\\s*\\w+\\(?[^)]*\\)?", "")
+  no_opts = stringi::stri_replace_all_regex(no_opts, ",\\s*robust\\b", "")
 
-  # Check if any e() results are actually needed by a subsequent command
-  needed_e_results = unlist(cmd_obj$e_results_needed)
+  parsed = s2r_parse_if_in(no_opts)
+  vars = stringi::stri_split_regex(stringi::stri_trim_both(parsed$base_str), "\\s+")[[1]]
+  vars = vars[vars != ""]
 
-  if (length(needed_e_results) == 0) {
-    # If no e() results are needed, this regress command doesn't need to produce any R output.
-    return(paste0("# regress command at line ", line_num, " translated to no-op as no e() results used later."))
-  }
-
-  # Parse `rest_of_cmd` for depvar, indepvars, and if/in conditions
-  # Example: "y_outcome x_numeric if some_condition > 10"
-  # Regex to capture: (depvar indepvars_optional) (if_clause_optional) (in_clause_optional) (options_like_robust_optional)
-
-  # Remove options like robust, vce(), level() as they don't affect e(sample)
-  rest_of_cmd_no_opts = stringi::stri_replace_all_regex(rest_of_cmd, ",\\s*\\w+\\(?[^)]*\\)?", "")
-  rest_of_cmd_no_opts = stringi::stri_replace_all_regex(rest_of_cmd_no_opts, ",\\s*robust\\b", "")
-  rest_of_cmd_no_opts = stringi::stri_trim_both(rest_of_cmd_no_opts)
-
-  stata_if_cond = NA_character_
-  stata_in_range = NA_character_ # Not directly used for e(sample) calculation, but parsed for completeness
-  var_part = rest_of_cmd_no_opts
-
-  # Extract `if` condition
-  if_match = stringi::stri_match_last_regex(var_part, "\\s+if\\s+(.*)$")
-  if (!is.na(if_match[1,1])) {
-    stata_if_cond = stringi::stri_trim_both(if_match[1,2])
-    var_part = stringi::stri_trim_both(stringi::stri_sub(var_part, 1, if_match[1,1, MRANGE_START=TRUE] - 1))
-  }
-
-  vars_str_list = stringi::stri_split_regex(var_part, "\\s+")[[1]]
-  vars_str_list = vars_str_list[vars_str_list != ""]
-
-  if (length(vars_str_list) < 1) {
-    return(paste0("# regress command at line ", line_num, " has no dependent variable."))
-  }
-  dep_var = vars_str_list[1]
-  indep_vars = if (length(vars_str_list) > 1) vars_str_list[-1] else NULL
-
-  # Construct formula string for R lm (for actual model fitting if needed)
-  formula_r_vars = paste0("`", dep_var, "`")
-  if (!is.null(indep_vars) && length(indep_vars) > 0) {
-    formula_r_vars = paste0(formula_r_vars, " ~ ", paste0("`", indep_vars, "`", collapse = " + "))
-  } else {
-    formula_r_vars = paste0(formula_r_vars, " ~ 1") # Regress on constant
-  }
-
-  all_vars_in_formula = c(dep_var, indep_vars) # All variables involved in the model
-
-  r_code_lines = c()
-
-  # Define the R variable name for e(sample)
-  e_sample_r_var_name = paste0("stata_e_sample_L", line_num)
-  line_prefix_e_base = paste0("stata_e_L", line_num, "_") # Base prefix for all e() values
-
-  # --- Generate code to calculate e(sample) ---
-  # 1. Determine rows satisfying the `if` condition (if any)
-  eligible_rows_if_cond_var = paste0("temp_eligible_if_L", line_num)
-  if (!is.na(stata_if_cond)) {
-    # The 'if' condition for regress is evaluated row-wise on the whole dataset, not per group.
-    r_if_cond = translate_stata_expression_with_r_values(stata_if_cond, line_num, cmd_df, context = list(is_by_group = FALSE))
-    r_code_lines = c(r_code_lines,
-      paste0(eligible_rows_if_cond_var, " = (dplyr::coalesce(as.numeric(with(data, ", r_if_cond, ")), 0) != 0)")
-    )
-  } else {
-    r_code_lines = c(r_code_lines,
-      paste0(eligible_rows_if_cond_var, " = rep(TRUE, NROW(data))")
-    )
-  }
-
-  # 2. Determine rows with complete cases for model variables
-  complete_cases_vars_var = paste0("temp_complete_cases_L", line_num)
-  vars_for_cc_r_vec = paste0("c('", paste(all_vars_in_formula, collapse="','"), "')")
-  r_code_lines = c(r_code_lines,
-    paste0(complete_cases_vars_var, " = stats::complete.cases(data[, ", vars_for_cc_r_vec, ", drop=FALSE])")
-  )
-
-  # 3. Combine `if` eligibility and complete cases to define e(sample)
-  # Stata's `regress` command by default performs listwise deletion. `e(sample)` should reflect this.
-  r_code_lines = c(r_code_lines,
-    paste0(e_sample_r_var_name, " = as.integer(", eligible_rows_if_cond_var, " & ", complete_cases_vars_var, ")")
-  )
-
-  # 4. Clean up temporary logical vectors
-  r_code_lines = c(r_code_lines, paste0("rm(", eligible_rows_if_cond_var, ", ", complete_cases_vars_var, ")"))
-
-  # Calculate other e() results if they are needed
-  if ("e(N)" %in% needed_e_results) {
-      r_code_lines = c(r_code_lines, paste0(line_prefix_e_base, "N = sum(", e_sample_r_var_name, ")"))
-  }
-
-  # If other model-derived e() results are needed, run the actual linear model.
-  # This avoids running lm if only e(sample) or e(N) are needed.
-  other_model_results_needed = setdiff(needed_e_results, c("e(sample)", "e(N)"))
-  if (length(other_model_results_needed) > 0) {
-    # Filter data to estimation sample before running lm
-    lm_data_var = paste0("data_lm_L", line_num)
-    r_code_lines = c(r_code_lines,
-      paste0(lm_data_var, " = collapse::fsubset(data, ", e_sample_r_var_name, " == 1)"), # Changed dplyr::filter to collapse::fsubset
-      paste0("lm_res_L", line_num, " = stats::lm(", formula_r_vars, ", data = ", lm_data_var, ")")
-    )
-    
-    if ("e(r2)" %in% needed_e_results) {
-        r_code_lines = c(r_code_lines, paste0(line_prefix_e_base, "r2 = summary(lm_res_L", line_num, ")$r.squared"))
-    }
-    if ("e(df_r)" %in% needed_e_results) {
-        r_code_lines = c(r_code_lines, paste0(line_prefix_e_base, "df_r = lm_res_L", line_num, "$df.residual"))
-    }
-    if ("e(rmse)" %in% needed_e_results) {
-        r_code_lines = c(r_code_lines, paste0(line_prefix_e_base, "rmse = summary(lm_res_L", line_num, ")$sigma"))
-    }
-    # Clean up lm related temporary variables
-    r_code_lines = c(r_code_lines, paste0("rm(", lm_data_var, ", lm_res_L", line_num, ")"))
-  }
-
-  # Add a comment about the formula
-  r_code_lines = c(r_code_lines, paste0("# Regression model for e() results: ", formula_r_vars))
-  if (!is.na(stata_if_cond)) {
-    r_code_lines = c(r_code_lines, paste0("# Applied if condition: ", stata_if_cond))
-  }
-
-  return(paste(r_code_lines, collapse = "\n"))
+  list(dep_var = if(length(vars)>0) vars[1] else NA_character_,
+       indep_vars = if(length(vars)>1) vars[-1] else character(0),
+       if_str = parsed$if_str)
 }
 
+# 2. Code Generation Phase
+t_regress = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_regress")
+  needed_e = unlist(cmd_obj$e_results_needed)
+  if (length(needed_e) == 0) return(paste0("# regress at line ", line_num, " is no-op (no e() used)."))
+
+  parsed = s2r_p_regress(rest_of_cmd)
+  if (is.na(parsed$dep_var)) return(paste0("# regress missing depvar at line ", line_num))
+
+  r_if_cond = NA_character_
+  if (!is.na(parsed$if_str)) r_if_cond = translate_stata_expression_with_r_values(parsed$if_str, line_num, cmd_df, list(is_by_group=FALSE))
+
+  needed_r_str = paste0("c('", paste(needed_e, collapse="','"), "')")
+  indep_str = if(length(parsed$indep_vars)>0) paste0("c('", paste(parsed$indep_vars, collapse="','"), "')") else "character(0)"
+
+  args = c("data = data", paste0("dep_var = ", quote_for_r_literal(parsed$dep_var)),
+           paste0("indep_vars = ", indep_str), paste0("needed_e = ", needed_r_str))
+  if (!is.na(r_if_cond)) args = c(args, paste0("r_if_cond = ", quote_for_r_literal(r_if_cond)))
+
+  r_code = paste0("res_L", line_num, " = scmd_regress(", paste(args, collapse = ", "), ")")
+
+  if ("e(sample)" %in% needed_e) r_code = paste0(r_code, "\nstata_e_sample_L", line_num, " = res_L", line_num, "$e_sample")
+  if ("e(N)" %in% needed_e) r_code = paste0(r_code, "\nstata_e_L", line_num, "_N = res_L", line_num, "$e_N")
+  if ("e(r2)" %in% needed_e) r_code = paste0(r_code, "\nstata_e_L", line_num, "_r2 = res_L", line_num, "$e_r2")
+  if ("e(df_r)" %in% needed_e) r_code = paste0(r_code, "\nstata_e_L", line_num, "_df_r = res_L", line_num, "$e_df_r")
+  if ("e(rmse)" %in% needed_e) r_code = paste0(r_code, "\nstata_e_L", line_num, "_rmse = res_L", line_num, "$e_rmse")
+
+  return(r_code)
+}
+
+# 3. Runtime Execution Phase
+scmd_regress = function(data, dep_var, indep_vars, needed_e, r_if_cond = NA_character_) {
+  restore.point("scmd_regress")
+  mask = rep(TRUE, nrow(data))
+  if (!is.na(r_if_cond) && r_if_cond != "") mask = mask & s2r_eval_cond(data, r_if_cond)
+
+  all_vars = expand_varlist(paste(c(dep_var, indep_vars), collapse=" "), names(data))
+  cc_mask = stats::complete.cases(data[, all_vars, drop=FALSE])
+
+  e_sample = as.integer(mask & cc_mask)
+  res = list(e_sample = e_sample)
+
+  if ("e(N)" %in% needed_e) res$e_N = sum(e_sample)
+
+  other = setdiff(needed_e, c("e(sample)", "e(N)"))
+  if (length(other) > 0) {
+    formula_str = paste0("`", all_vars[1], "` ~ ", if(length(all_vars)>1) paste(paste0("`", all_vars[-1], "`"), collapse=" + ") else "1")
+    mod = stats::lm(as.formula(formula_str), data = data[e_sample == 1, , drop=FALSE])
+    sm = summary(mod)
+
+    if ("e(r2)" %in% needed_e) res$e_r2 = sm$r.squared
+    if ("e(df_r)" %in% needed_e) res$e_df_r = mod$df.residual
+    if ("e(rmse)" %in% needed_e) res$e_rmse = sm$sigma
+  }
+
+  return(res)
+}

@@ -1,170 +1,96 @@
-# Translate Stata 'collapse' command
-# Stata: collapse (stat) varlist [name=expr ...] [weight] [if] [in] [, options]
-# Often: collapse (stat) varlist, by(groupvars)
+# FILE: R/t_collapse.R
 
-t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
-  restore.point("t_collapse")
-  # REMOVED: assign("has_original_order_idx", FALSE, envir = stata2r_env)
+# 1. Parsing Phase
+s2r_p_collapse = function(rest_of_cmd) {
+  restore.point("s2r_p_collapse")
+  parts = stringi::stri_match_first_regex(stringi::stri_trim_both(rest_of_cmd), "^\\s*(.*?)(?:,\\s*(.*))?$")
+  agg_part = stringi::stri_trim_both(parts[1,2])
+  options_part = stringi::stri_trim_both(parts[1,3])
 
-  rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
+  parsed = s2r_parse_if_in(agg_part)
+  agg_part = parsed$base_str
 
-  # Split into aggregate definitions part and options part
-  # Pattern: ^\s*(.*?)(?:,\\s*(.*))?$
-  # G1: aggregate_part, G2: options_part
-  parts = stringi::stri_match_first_regex(rest_of_cmd_trimmed, "^\\s*(.*?)(?:,\\s*(.*))?$")
-  aggregate_part = stringi::stri_trim_both(parts[1,2])
-  options_part = stringi::stri_trim_both(parts[1,3]) # NA if no options
+  agg_matches = stringi::stri_match_all_regex(agg_part, "\\(([a-zA-Z_][a-zA-Z0-9_]*)\\)\\s*([a-zA-Z_][a-zA-Z0-9_.]*)(?:\\s*=\\s*([^,]+))?")[[1]]
 
-  # Separate potential if/in from aggregate definitions
-  stata_if_in_cond = NA_character_
-  # Look for `if` or `in` immediately followed by a space in the part before the first comma
-  if_in_match = stringi::stri_match_first_regex(aggregate_part, "\\s+(?:if\\s+|in\\s+)(.*)$")
-  if(!is.na(if_in_match[1,1])) {
-      stata_if_in_cond = if_in_match[1,2]
-      # Remove the if/in part from aggregate_part
-      aggregate_part = stringi::stri_replace_last_regex(aggregate_part, "\\s+(?:if\\s+|in\\s+)(.*)$", "")
-      aggregate_part = stringi::stri_trim_both(aggregate_part)
-  }
-
-
-  # Parse aggregate definitions: "(stat) var [name=expr ...] (stat) var [name=expr ...] ..."
-  # Updated regex to correctly capture expressions for source and target variables.
-  # Group 1: stat name (e.g., mean, sum)
-  # Group 2: target variable name (e.g., i, total_i_sum)
-  # Group 3: source expression (e.g., i, i+1) - optional, for `name=expr` syntax
-  # Changed (?:\\s*=\\s*(.*?))? to (?:\\s*=\\s*([^,]+))? for more robust capture of expressions.
-  aggregate_matches = stringi::stri_match_all_regex(aggregate_part, "\\(([a-zA-Z_][a-zA-Z0-9_]*)\\)\\s*([a-zA-Z_][a-zA-Z0-9_.]*)(?:\\s*=\\s*([^,]+))?")[[1]]
-
-  if (NROW(aggregate_matches) == 0) {
-    return(paste0("# Failed to parse collapse aggregate definitions: ", aggregate_part))
-  }
-
-  # Parse options part for `by()`
-  by_vars_list_unquoted = character(0)
+  by_vars = character(0)
   if (!is.na(options_part)) {
-    by_opt_match = stringi::stri_match_first_regex(options_part, "\\bby\\s*\\(([^)]+)\\)")
-    if (!is.na(by_opt_match[1,1])) {
-      by_vars_collapse_str = stringi::stri_trim_both(by_opt_match[1,2])
-      by_vars_list_unquoted = stringi::stri_split_regex(by_vars_collapse_str, "\\s+")[[1]]
-      by_vars_list_unquoted = by_vars_list_unquoted[by_vars_list_unquoted != ""]
-    }
+    by_opt = stringi::stri_match_first_regex(options_part, "\\bby\\s*\\(([^)]+)\\)")
+    if (!is.na(by_opt[1,1])) by_vars = stringi::stri_split_regex(stringi::stri_trim_both(by_opt[1,2]), "\\s+")[[1]]
   }
 
-  # Translate the if/in condition for subsetting *before* collapse
-  r_code_lines = c()
-  data_source_for_collapse = "data"
-
-  if (!is.na(stata_if_in_cond) && stata_if_in_cond != "") {
-      r_subset_cond = translate_stata_expression_with_r_values(stata_if_in_cond, cmd_obj$line, cmd_df, context = list(is_by_group = FALSE))
-      if (is.na(r_subset_cond) || r_subset_cond == "") {
-           return(paste0("# Failed to translate if/in condition for collapse: ", stata_if_in_cond))
-      }
-      # Using collapse::fsubset. r_subset_cond is a string representing the logical condition.
-      r_code_lines = c(r_code_lines, paste0("data = collapse::fsubset(data, (dplyr::coalesce(as.numeric(", r_subset_cond, "), 0) != 0))"))
-      # data_source_for_collapse remains "data" as it's modified in place by fsubset
-  }
-
-
-  # Build the fsummarise expressions
-  aggregate_exprs = character(NROW(aggregate_matches))
-  new_vars_created = character(NROW(aggregate_matches))
-  for (j in 1:NROW(aggregate_matches)) {
-    stat_from_regex = aggregate_matches[j, 2] # Group 1: stat name
-    actual_stata_target_var_name = stringi::stri_trim_both(aggregate_matches[j, 3]) # Group 2: target var name
-    actual_stata_source_expr = stringi::stri_trim_both(aggregate_matches[j, 4]) # Group 3: source expression (optional)
-
-    if (is.na(actual_stata_source_expr) || actual_stata_source_expr == "") {
-      # If no explicit source expression (e.g., `(mean) myvar`), the source is the target var itself
-      actual_stata_source_expr = actual_stata_target_var_name
-    }
-    
-    new_vars_created[j] = actual_stata_target_var_name
-
-    r_source_expr_translated = translate_stata_expression_with_r_values(actual_stata_source_expr, cmd_obj$line, cmd_df, context)
-     if (is.na(r_source_expr_translated) || r_source_expr_translated == "") {
-         return(paste0("# Failed to translate source expression '", actual_stata_source_expr, "' for collapse stat '", stat_from_regex, "'"))
-     }
-
-    # Map Stata stats to collapse functions
-    collapse_func_expr = switch(stat_from_regex,
-      "mean" = paste0("collapse::fmean(", r_source_expr_translated, ", na.rm = TRUE)"),
-      "sum" = paste0("collapse::fsum(", r_source_expr_translated, ", na.rm = TRUE)"),
-      "count" = paste0("sum(!is.na(", r_source_expr_translated, "))"), # Changed from collapse::fN
-      "N" = "NROW(.)", # N is number of observations in group. NROW(.) in fsummarise.
-      "first" = paste0("collapse::ffirst(", r_source_expr_translated, ")"), # na.rm = TRUE by default
-      "last" = paste0("collapse::flast(", r_source_expr_translated, ")"),   # na.rm = TRUE by default
-      "min" = paste0("collapse::fmin(", r_source_expr_translated, ", na.rm = TRUE)"),
-      "max" = paste0("collapse::fmax(", r_source_expr_translated, ", na.rm = TRUE)"),
-      "median" = paste0("collapse::fmedian(", r_source_expr_translated, ", na.rm = TRUE)"),
-      "sd" = paste0("collapse::fsd(", r_source_expr_translated, ", na.rm = TRUE)"),
-      "p1" = paste0("collapse::fquantile(", r_source_expr_translated, ", probs = 0.01, na.rm = TRUE)"),
-      "p5" = paste0("collapse::fquantile(", r_source_expr_translated, ", probs = 0.05, na.rm = TRUE)"),
-      "p10" = paste0("collapse::fquantile(", r_source_expr_translated, ", probs = 0.10, na.rm = TRUE)"),
-      "p25" = paste0("collapse::fquantile(", r_source_expr_translated, ", probs = 0.25, na.rm = TRUE)"), # Corrected
-      "p75" = paste0("collapse::fquantile(", r_source_expr_translated, ", probs = 0.75, na.rm = TRUE)"),
-      "p90" = paste0("collapse::fquantile(", r_source_expr_translated, ", probs = 0.90, na.rm = TRUE)"),
-      "p95" = paste0("collapse::fquantile(", r_source_expr_translated, ", probs = 0.95, na.rm = TRUE)"),
-      "p99" = paste0("collapse::fquantile(", r_source_expr_translated, ", probs = 0.99, na.rm = TRUE)"),
-      NULL
-    )
-
-    if (is.null(collapse_func_expr)) {
-        return(paste0("# Collapse stat '", stat_from_regex, "' not yet implemented for collapse package translation."))
-    }
-
-    r_new_var_name = actual_stata_target_var_name
-    aggregate_exprs[j] = paste0("`",r_new_var_name, "` = ", collapse_func_expr) # Backticks for safety
-  }
-
-  aggregate_exprs_str = paste(aggregate_exprs, collapse = ",\n  ")
-
-  # Build the main data manipulation pipe using collapse
-  main_pipe_parts = c("data")
-  if (length(by_vars_list_unquoted) > 0) {
-    by_vars_fgroup_by_str = paste(by_vars_list_unquoted, collapse = ", ")
-    main_pipe_parts = c(main_pipe_parts,
-                       paste0("collapse::fgroup_by(", by_vars_fgroup_by_str, ")"))
-  }
-
-  main_pipe_parts = c(main_pipe_parts,
-                     paste0("collapse::fsummarise(", aggregate_exprs_str, ")"))
-
-  if (length(by_vars_list_unquoted) > 0) {
-    main_pipe_parts = c(main_pipe_parts, "collapse::fungroup()")
-  }
-
-  # Construct the R code line for data assignment
-  # Need to handle if data was already subsetted using `r_code_lines`
-  if (length(r_code_lines) > 0) { # This means data = collapse::fsubset(...) was already added
-     # The pipe starts from the result of fsubset, which is already assigned to 'data'
-     r_code_lines = c(r_code_lines, paste0("data = ", paste(main_pipe_parts, collapse = " %>% \n  ")))
-  } else {
-     # Pipe starts from original 'data'
-     r_code_lines = c(r_code_lines, paste0("data = ", paste(main_pipe_parts, collapse = " %>% \n  ")))
-  }
-
-  # Add stata2r_original_order_idx to the new data, as it's a new "original" order.
-  # Also set the global flag to TRUE.
-  r_code_lines = c(r_code_lines, "data = dplyr::mutate(data, stata2r_original_order_idx = dplyr::row_number())")
-  r_code_lines = c(r_code_lines, "assign(\"has_original_order_idx\", TRUE, envir = stata2r_env)")
-
-
-  r_code_str = paste(r_code_lines, collapse="\n")
-
-  # Add comment about options if any were present but not handled (excluding by)
-  options_str_cleaned = options_part
-  if (!is.na(options_str_cleaned)) {
-      options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "\\bby\\s*\\([^)]+\\)", "")
-      options_str_cleaned = stringi::stri_trim_both(stringi::stri_replace_all_regex(options_str_cleaned, ",+", ","))
-      options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "^,+", "")
-      options_str_cleaned = stringi::stri_trim_both(options_str_cleaned)
-  }
-
-  if (!is.na(options_str_cleaned) && options_str_cleaned != "") {
-       r_code_str = paste0(r_code_str, paste0("\n# Other options ignored: ", options_str_cleaned))
-  }
-
-  return(r_code_str)
+  list(aggs = agg_matches, by_vars = by_vars[by_vars != ""], if_str = parsed$if_str, in_str = parsed$in_str, raw_options = options_part)
 }
 
+# 2. Code Generation Phase
+t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_collapse")
+  parsed = s2r_p_collapse(rest_of_cmd)
+  if (NROW(parsed$aggs) == 0) return(paste0("# Failed to parse collapse aggregate definitions: ", rest_of_cmd))
 
+  r_if_cond = NA_character_
+  if (!is.na(parsed$if_str)) r_if_cond = translate_stata_expression_with_r_values(parsed$if_str, line_num, cmd_df, list(is_by_group = FALSE))
+
+  agg_list = list()
+  for (j in 1:NROW(parsed$aggs)) {
+    stat = parsed$aggs[j, 2]
+    target_var = stringi::stri_trim_both(parsed$aggs[j, 3])
+    source_expr = stringi::stri_trim_both(parsed$aggs[j, 4])
+    if (is.na(source_expr) || source_expr == "") source_expr = target_var
+
+    r_source = translate_stata_expression_with_r_values(source_expr, line_num, cmd_df, context)
+    if (is.na(r_source)) return(paste0("# Failed to translate source expr: ", source_expr))
+
+    collapse_func = switch(stat,
+      "mean" = paste0("collapse::fmean(", r_source, ", na.rm = TRUE)"),
+      "sum" = paste0("collapse::fsum(", r_source, ", na.rm = TRUE)"),
+      "count" = paste0("sum(!is.na(", r_source, "))"),
+      "N" = "dplyr::n()",
+      "first" = paste0("collapse::ffirst(", r_source, ")"),
+      "last" = paste0("collapse::flast(", r_source, ")"),
+      "min" = paste0("collapse::fmin(", r_source, ", na.rm = TRUE)"),
+      "max" = paste0("collapse::fmax(", r_source, ", na.rm = TRUE)"),
+      "median" = paste0("collapse::fmedian(", r_source, ", na.rm = TRUE)"),
+      "sd" = paste0("collapse::fsd(", r_source, ", na.rm = TRUE)"),
+      "p1" = paste0("collapse::fquantile(", r_source, ", probs = 0.01, na.rm = TRUE)"),
+      "p5" = paste0("collapse::fquantile(", r_source, ", probs = 0.05, na.rm = TRUE)"),
+      "p10" = paste0("collapse::fquantile(", r_source, ", probs = 0.10, na.rm = TRUE)"),
+      "p25" = paste0("collapse::fquantile(", r_source, ", probs = 0.25, na.rm = TRUE)"),
+      "p75" = paste0("collapse::fquantile(", r_source, ", probs = 0.75, na.rm = TRUE)"),
+      "p90" = paste0("collapse::fquantile(", r_source, ", probs = 0.90, na.rm = TRUE)"),
+      "p95" = paste0("collapse::fquantile(", r_source, ", probs = 0.95, na.rm = TRUE)"),
+      "p99" = paste0("collapse::fquantile(", r_source, ", probs = 0.99, na.rm = TRUE)"),
+      NULL
+    )
+    if (is.null(collapse_func)) return(paste0("# Collapse stat '", stat, "' not implemented."))
+    agg_list[[target_var]] = collapse_func
+  }
+
+  agg_r_list_str = paste0("list(", paste(sprintf("`%s` = \"%s\"", names(agg_list), gsub('"', '\\\\"', unlist(agg_list))), collapse=", "), ")")
+
+  args = c("data = data", paste0("agg_exprs_list = ", agg_r_list_str))
+  if (length(parsed$by_vars) > 0) args = c(args, paste0("group_vars = c('", paste(parsed$by_vars, collapse="','"), "')"))
+  if (!is.na(r_if_cond)) args = c(args, paste0("r_if_cond = ", quote_for_r_literal(r_if_cond)))
+
+  r_code = paste0("data = scmd_collapse(", paste(args, collapse = ", "), ")")
+  r_code = paste0(r_code, "\nassign(\"has_original_order_idx\", TRUE, envir = stata2r_env)")
+
+  return(r_code)
+}
+
+# 3. Runtime Execution Phase
+scmd_collapse = function(data, agg_exprs_list, group_vars = character(0), r_if_cond = NA_character_) {
+  restore.point("scmd_collapse")
+  if (!is.na(r_if_cond) && r_if_cond != "") data = data[s2r_eval_cond(data, r_if_cond), , drop = FALSE]
+
+  pipe_el = c("data")
+  group_vars_actual = expand_varlist(paste(group_vars, collapse=" "), names(data))
+  if (length(group_vars_actual) > 0) pipe_el = c(pipe_el, paste0("collapse::fgroup_by(", paste(group_vars_actual, collapse=", "), ")"))
+
+  agg_str = paste(sprintf("`%s` = %s", names(agg_exprs_list), unlist(agg_exprs_list)), collapse = ", ")
+  pipe_el = c(pipe_el, paste0("collapse::fsummarise(", agg_str, ")"))
+  if (length(group_vars_actual) > 0) pipe_el = c(pipe_el, "collapse::fungroup()")
+
+  data = eval(parse(text = paste(pipe_el, collapse = " %>% ")))
+  data$stata2r_original_order_idx = seq_len(nrow(data))
+  return(data)
+}
