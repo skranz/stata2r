@@ -1,11 +1,13 @@
 example = function() {
   library(aicoder)
+  library(files2prompt)
   main_dir = "~/aicoder"
   files = paste0(main_dir, "/stata2r/R/",  c("aic_stata2r.R", "aic_do_test.R","aic_stata_ex.R"))
   for (file in files)  source(file)
   aic = aic_new_stata2r(main_dir)
-  aic = aic_test_stata2r(aic)
-  undebug(aic_make_prompt_stata2r)
+  aic = aic_test_stata2r(aic, tests="do5")
+  #aic = aic_test_stata2r(aic, tests=NULL)
+  #undebug(aic_make_prompt_stata2r)
   aic = aic_make_prompt_stata2r(aic)
   aic$cfg$tests
   #cat(aic$prompt)
@@ -48,6 +50,7 @@ example = function() {
 
 
 aic_new_stata2r = function(main_dir) {
+  restore.point("aic_new_stata2r")
   main_dir = normalizePath(main_dir)
   repo_dir=file.path(main_dir, "stata2r")
   #do_file = "C:/libraries/aicoder/stata2r/inst/cases/custom_1/do1.do"
@@ -57,7 +60,7 @@ aic_new_stata2r = function(main_dir) {
     is_pkg=TRUE,
     pat_file = file.path(main_dir, "pat.txt"),
     prompt_config_file = file.path(repo_dir,"f2p_stata2r.toml"),
-    do_files = paste0(repo_dir,"inst/cases/", c("custom_1/do1.do")),
+    do_files = paste0(repo_dir,"/inst/cases/", c("custom_1/do1.do")),
     response_file = file.path(repo_dir, "aicoder_work/ai_resp.txt"),
     temp_dir = file.path(main_dir, "temp"),
     mod_protected_files = c("R/aic_stata2r.R","R/main.R","R/aic_stata_ex.R","R/aic_do_test.R"),
@@ -115,8 +118,9 @@ aic_changes_stata2r = function(aic, resp_text = NULL, force_with_lease=TRUE) {
   aic_parse_and_commit_changes(aic, resp_text, force_with_lease=force_with_lease)
 }
 
-aic_test_stata2r = function(aic) {
+aic_test_stata2r = function(aic, tests = NULL) {
   restore.point("aic_test_stata2r")
+  options(error = function() traceback(3))
   aic = aic_clear_tests(aic)
   aic = aic_test_source_r_files(aic)
   if (aic_num_test_failed(aic)>0) {
@@ -136,7 +140,8 @@ aic_test_stata2r = function(aic) {
 
   tests_dir = file.path(aic$repo_dir,"aicoder_work", "tests")
 
-  tests = c("do1","do2", "do3", "do4")
+  if (is.null(tests))
+    tests = c("do1","do2", "do3", "do4", "do5")
 
   test = "do3"
   for (test in tests) {

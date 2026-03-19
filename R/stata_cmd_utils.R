@@ -287,12 +287,13 @@ unquote_stata_string_literal = function(s) {
 quote_for_r_literal = function(s) {
   restore.point("quote_for_r_literal")
   if (is.na(s)) return("NA_character_")
+  if (length(s) == 0) return("character(0)")
+
+  s = as.character(s[1])
   if (s == "") return('""')
-  # Check if already quoted with " or '
-  if (dplyr::coalesce(stringi::stri_startswith_fixed(s, '"') && stringi::stri_endswith_fixed(s, '"'), FALSE)) return(s)
-  if (dplyr::coalesce(stringi::stri_startswith_fixed(s, "'") && stringi::stri_endswith_fixed(s, "'"), FALSE)) return(s)
-  # Add double quotes
-  paste0('"', s, '"')
+
+  # Safely quote and escape internal quotes using R's encodeString
+  return(encodeString(s, quote = '"'))
 }
 
 # Helper function to resolve Stata filenames (literal or macro) to R path expressions
@@ -357,4 +358,3 @@ get_xi_interaction_basename = function(var1, var2) {
   short_var2 = stringi::stri_sub(var2, 1, min(stringi::stri_length(var2), 3))
   return(paste0(short_var1, "X", short_var2))
 }
-

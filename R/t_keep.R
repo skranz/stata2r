@@ -1,51 +1,57 @@
-# Translate Stata 'keep' command
-# Can be `keep varlist` or `keep if condition` or `keep in range`
+# FILE: R/t_keep.R
 
-t_keep = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
-  restore.point("t_keep") # Added restore.point
-  rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
+# 1. Parsing Phase: Extract Stata syntax components into a structured list
+s2r_p_keep = function(rest_of_cmd) {
+  restore.point("s2r_p_keep")
 
-  is_if_keep = stringi::stri_startswith_fixed(rest_of_cmd_trimmed, "if ")
-  is_in_keep = stringi::stri_startswith_fixed(rest_of_cmd_trimmed, "in ")
+  # Leverage the general s2r_parse_if_in helper
+  parsed = s2r_parse_if_in(rest_of_cmd)
 
-  r_code_str = "" # Initialize for the different branches
+  res = list(
+    varlist = NA_character_,
+    if_str = parsed$if_str,
+    in_str = parsed$in_str
+  )
 
-  if (is_if_keep) {
-    # keep if condition
-    stata_if_cond = stringi::stri_sub(rest_of_cmd_trimmed, from = 4)
-    r_if_cond = translate_stata_expression_with_r_values(stata_if_cond, line_num, cmd_df, context)
-    # Using dplyr::filter, treating NA in condition as FALSE (Stata behavior)
-    r_code_str = paste0("data = dplyr::filter(data, (dplyr::coalesce(as.numeric(", r_if_cond, "), 0) != 0))")
-  } else if (is_in_keep) {
-    # keep in range
-    range_str = stringi::stri_sub(rest_of_cmd_trimmed, from = 4)
-    range_match = stringi::stri_match_first_regex(range_str, "^(\\d+)(?:/(\\d+))?$")
-    if (!is.na(range_match[1,1])) {
-      start_row = as.integer(range_match[1,2])
-      end_row = range_match[1,3]
-      if (is.na(end_row)) {
-        slice_expr = paste0(start_row) # Keep single row
-      } else {
-        slice_expr = paste0(start_row, ":", as.integer(end_row)) # Keep range
-      }
-      # Using dplyr::slice
-      r_code_str = paste0("data = dplyr::slice(data, ", slice_expr, ")")
-    } else {
-      r_code_str = paste0("# keep in range '", range_str, "' not fully translated (f/l specifiers).")
-    }
-  } else {
-    # keep varlist
-    vars_to_keep = stringi::stri_split_regex(rest_of_cmd_trimmed, "\\s+")[[1]]
-    vars_to_keep = vars_to_keep[vars_to_keep != ""]
-
-    if (length(vars_to_keep) == 0) {
-      return("# keep command with no variables specified.")
-    }
-    # Using dplyr::select
-    r_code_str = paste0("data = dplyr::select(data, dplyr::all_of(c('", paste(vars_to_keep, collapse="','"), "')))")
+  # The remaining base string is the varlist for 'keep'
+  if (parsed$base_str != "") {
+    res$varlist = parsed$base_str
   }
 
-  # Update stata2r_original_order_idx to reflect the new row order/count
+  return(res)
+}
+
+# 2. Code Generation Phase: Translate expressions and emit R code
+s2r_t_keep = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_keep")
+
+  # Parse the Stata command
+  parsed = s2r_p_keep(rest_of_cmd)
+
+  # Translate if expression to R
+  r_if_cond = NA_character_
+  if (!is.na(parsed$if_str)) {
+    r_if_cond = translate_stata_expression_with_r_values(parsed$if_str, line_num, cmd_df, context)
+  }
+
+  # Translate in expression to R numeric range
+  r_in_range = s2r_in_str_to_r_range_str(parsed$in_str)
+
+  # Build call to runtime execution function `scmd_keep`
+  args = c("data = data")
+  if (!is.na(parsed$varlist)) {
+    args = c(args, paste0("varlist_str = ", quote_for_r_literal(parsed$varlist)))
+  }
+  if (!is.na(r_if_cond)) {
+    args = c(args, paste0("r_if_cond = ", quote_for_r_literal(r_if_cond)))
+  }
+  if (!is.na(r_in_range)) {
+    args = c(args, paste0("r_in_range = ", quote_for_r_literal(r_in_range)))
+  }
+
+  r_code_str = paste0("data = scmd_keep(", paste(args, collapse = ", "), ")")
+
+  # Maintain package internal tracking variables
   if (isTRUE(stata2r_env$has_original_order_idx)) {
     r_code_str = paste0(r_code_str, " %>% \n  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number())")
   }
@@ -53,4 +59,28 @@ t_keep = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   return(r_code_str)
 }
 
+# 3. Runtime Execution Phase: Evaluate against actual data columns and environments
+scmd_keep = function(data, varlist_str = NA_character_, r_if_cond = NA_character_, r_in_range = NA_character_) {
+  restore.point("scmd_keep")
+
+  # 1. Row subsetting using generalized if/in evaluator
+  data = s2r_eval_if_in(data, r_if_cond, r_in_range)
+
+  # 2. Column subsetting (`varlist`)
+  if (!is.na(varlist_str) && varlist_str != "") {
+    cols_to_keep = expand_varlist(varlist_str, names(data))
+    if (length(cols_to_keep) == 0) {
+      stop(paste0("scmd_keep: no variables found matching '", varlist_str, "'"))
+    }
+
+    # Always preserve the internal original order index if it exists in the incoming data
+    if ("stata2r_original_order_idx" %in% names(data) && !("stata2r_original_order_idx" %in% cols_to_keep)) {
+      cols_to_keep = c(cols_to_keep, "stata2r_original_order_idx")
+    }
+
+    data = data[, cols_to_keep, drop = FALSE]
+  }
+
+  return(data)
+}
 

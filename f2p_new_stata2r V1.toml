@@ -30,7 +30,7 @@ template = '''
 
 # Report of a run translation test
 
-{{##test_report}}
+{{test_report}}
 
 {{task}}
 
@@ -81,14 +81,14 @@ Use this to create a new file or to completely rewrite an existing one.
 *   `scope = "file"`
 *   `file` (string): The relative path to the file.
 *   `is_new_file` (boolean): `true` if you are creating a new file, `false` if you are rewriting an existing one.
-*   `description` (string): A brief explanation of the change.
+*   `description` (string): A brief explanation of the change. Always enclose into triple single quotes `'''...'''`.
 
 #### **Example 1.1: Creating a new file**
 !MODIFICATION new_helpers.R
 scope = "file"
 file = "R/new_helpers.R"
 is_new_file = true
-description = "Create a new file for helper functions."
+description = '''Create a new file for helper functions.'''
 ---
 ```r
 # A new helper function
@@ -103,7 +103,7 @@ say_hello <- function(name) {
 scope = "file"
 file = "README.md"
 is_new_file = false
-description = "Rewrite the README to add installation instructions."
+description = '''Rewrite the README to add installation instructions.'''
 ---
 ```md
 # My Awesome Project
@@ -116,7 +116,7 @@ Run `remotes::install_github("user/repo")` to install.
 
 
 ##############################
-# General Instructions
+# YOUR TASK
 ##############################
 
 You are a professional R programmer who also knows Stata well.
@@ -211,9 +211,49 @@ keep if e(sample)
   and Stata results equal.
 
 
-##############################
-# Specific Instructions
-##############################
+# Format of your response
+
+Your output format shall be like the following example (the example begins and end with *** lines)
+
+***
+
+A very brief description of your main changes.
+
+!CHANGE_FILE R/t_generate.R
+# This will be the new content of a file
+t_generate = function(...) {
+  # ... real code here ...
+}
+!END_CHANGE_FILE R/t_generate.R
+
+!CHANGE_FILE R/t_drop.R
+t_drop = function(...) {
+  # ... real code here ...
+}
+!END_CHANGE_FILE R/t_drop.R
+***
+
+Thus, if you rewrite an R file  we have the format
+
+!CHANGE_FILE {file_path}
+{new_file_content}
+!END_CHANGE_FILE {file_path}
+
+Use also a !CHANGE_FILE block to create a new file that does not yet exist.
+
+You can include as many !CHANGE_FILE blocks as you like.
+
+Don't forget the ! in the lines that begin and and a block, otherwise.
+
+Typically, you don't want to remove any file. But in the rare case that you want to,
+use the syntax:
+
+!REMOVE_FILE {file_path}
+
+You can add a very brief description of your plan at the beginning of
+your output before the !CHANGE_FILE blocks if you like.
+You don't need to add any further comments in your output.
+
 
 
 '''

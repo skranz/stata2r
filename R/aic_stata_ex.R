@@ -12,6 +12,8 @@ example = function() {
   do_file = normalizePath("~/aicoder/stata2r/aicoder_work/tests/do4/do4.do")
   run_do_with_data_save(do_file)
 
+  do_file = normalizePath("~/aicoder/stata2r/aicoder_work/tests/do5/do5.do")
+  run_do_with_data_save(do_file)
 }
 
 run_do_with_data_save = function(do_file) {

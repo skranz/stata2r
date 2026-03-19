@@ -1,10 +1,17 @@
 examples = function() {
+  library(aicoder)
   do_file = "C:/libraries/aicoder/stata2r/inst/cases/custom_1/do1.do"
   aic_stata2r_do_test(aic=NULL, test_dir = "~/aicoder/stata2r/aicoder_work/tests/do1", data_dir = "~/aicoder/stata2r/inst/cases/do1/do_data")
+
+  aic_stata2r_do_test(aic=NULL, test_dir = "~/aicoder/stata2r/aicoder_work/tests/do5", data_dir = "~/aicoder/stata2r/inst/cases/do5/do_data")
 }
 
 aic_stata2r_do_test = function(aic, test_dir, data_dir=file.path(test_dir, "do_data"), data_prefix=paste0(basename(test_dir),"-")) {
   restore.point("aic_stata2r_do_test")
+  library(aicoder)
+  if (is.null(aic)) {
+    aic = aicoder::aic_new(is_pkg=FALSE)
+  }
   txt = capture.output(err<-try(aic_stata2r_do_test_inner(test_dir, data_dir, data_prefix), silent=TRUE))
   log = out_and_err_txt(txt, err)
   cat(log)
@@ -74,21 +81,8 @@ aic_stata2r_do_test_inner = function(test_dir, data_dir, data_prefix="", do_file
 
 
   cat("\n---\n#Translate Stata to R commands... ")
-  r_df_list = vector("list", NROW(cmd_df))
-  for (i in seq_along(cmd_df$line)) {
-    cmd_obj_row = cmd_df[i,]
-    translated_row_df = do_cmd_to_r(cmd_obj=cmd_obj_row, line=i, cmd_df=cmd_df)
-    r_df_list[[i]] = translated_row_df
-
-    if (!is.na(translated_row_df$stata_translation_error)) {
-      cat(paste0("\nError when creating translated code in for line ", i,"\n"))
-      cat("\ndo: ", cmd_obj_row$do_code,"\n")
-      cat("R:  <translation error>\n")
-      cat("Translation error message: ", translated_row_df$stata_translation_error, "\n")
-      return(FALSE)
-    }
-  }
-  r_df = dplyr::bind_rows(r_df_list)
+  cmd_df = cmd_df %>% filter(cmd_df$do_code != "")
+  r_df = do_to_r(cmd_df$do_code,return_df = TRUE)
   cat("... translation done.")
 
   env = new.env(parent=globalenv())
