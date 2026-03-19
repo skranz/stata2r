@@ -1,251 +1,128 @@
 
 
 
-You've run into a classic R issue! The helper function `quote_for_r_literal(s)` truncates any vector passed to it down to its first element (`s = as.character(s[1])`). 
+The error is occurring because the `haven::labelled()` function enforces strict rules on the `label` parameter (the variable's description): it must either be a valid string (length one) or `NULL`. 
 
-In my `t_recode.R` translation, I passed the entire vector of recode rules (`r_rules_templates`) to `quote_for_r_literal()` at once. Because of the truncation, only the very first rule `(1=10)` was embedded in the R code, while `(2=20)` and `(3=30)` were silently dropped! This directly caused the values 2 and 3 to remain `NA` since they weren't matched.
+In our current `scmd_label` logic, if a variable did not have an existing label, it was passing `NA_character_` into the `label` parameter instead of `NULL` (`label = if(is.null(ex_lbl)) NA_character_ else ex_lbl`). `haven` rejects `NA_character_`.
 
-Additionally, I noticed that `case_when` yields `NA` for unmatched values, but Stata preserves the original variable values for any values not explicitly mapped in the rules. I'll add an automatic `TRUE ~ as.numeric(.VAR.)` fallback rule to exactly match Stata's behavior. I'll also make sure `haven` attributes (like value labels) are restored when replacing in-place.
+I'll also make sure that when assigning new value labels, we strip the underlying S3 class to its base type cleanly to avoid type clash errors if the column was already labelled.
 
-Here is the corrected `t_recode.R`:
+Here is the fixed `t_label.R`:
 
-!MODIFICATION t_recode.R
+!MODIFICATION t_label.R
 scope = "file"
-file = "R/t_recode.R"
+file = "R/t_label.R"
 is_new_file = false
-description = "Fix quote_for_r_literal truncation on vectors and add Stata default fallback for unmatched values"
+description = "Fix scmd_label to properly handle missing variable labels (using NULL instead of NA) and prevent haven::labelled length errors"
 ---
 ```r
-# FILE: R/t_recode.R
+# FILE: R/t_label.R
 
-# 1. Parsing Phase: Extract Stata syntax components
-s2r_p_recode = function(rest_of_cmd) {
-  restore.point("s2r_p_recode")
-  parts = stringi::stri_split_fixed(stringi::stri_trim_both(rest_of_cmd), "(", n=2)[[1]]
-  if (length(parts) != 2) return(list(varlist=NA_character_))
+# 1. Parsing Phase
+s2r_p_label = function(rest_of_cmd) {
+  restore.point("s2r_p_label")
+  rest = stringi::stri_trim_both(rest_of_cmd)
   
-  varlist = stringi::stri_trim_both(parts[1])
-  rules_rest = paste0("(", parts[2])
-  
-  parsed = s2r_parse_if_in(rules_rest)
-  
-  options_match = stringi::stri_match_first_regex(parsed$base_str, ",\\s*(.*)$")
-  options_str = NA_character_
-  rules_str = parsed$base_str
-  if (!is.na(options_match[1,1])) {
-    options_str = stringi::stri_trim_both(options_match[1,2])
-    rules_str = stringi::stri_trim_both(stringi::stri_replace_last_regex(parsed$base_str, ",\\s*(.*)$", ""))
+  if (stringi::stri_startswith_fixed(rest, "define ")) {
+    match = stringi::stri_match_first_regex(rest, "^define\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*(.*?)(?:,\\s*(add|modify|replace))?$")
+    return(list(subcmd="define", lblname=match[1,2], rules=match[1,3], option=match[1,4]))
+  } else if (stringi::stri_startswith_fixed(rest, "values ")) {
+    match = stringi::stri_match_first_regex(rest, "^values\\s+(.*?)\\s+([a-zA-Z_][a-zA-Z0-9_]*|\\.)$")
+    return(list(subcmd="values", varlist=stringi::stri_trim_both(match[1,2]), lblname=match[1,3]))
+  } else if (stringi::stri_startswith_fixed(rest, "variable ") || stringi::stri_startswith_fixed(rest, "var ")) {
+    sub_rest = stringi::stri_replace_first_regex(rest, "^(?:variable|var)\\s+", "")
+    match = stringi::stri_match_first_regex(sub_rest, "^([a-zA-Z_][a-zA-Z0-9_]*)\\s+(?:\"([^\"]*)\"|'([^']*)')$")
+    lbl = ifelse(!is.na(match[1,2]), match[1,2], match[1,3])
+    return(list(subcmd="variable", varname=match[1,1], label=lbl))
+  } else if (stringi::stri_startswith_fixed(rest, "data ")) {
+    sub_rest = stringi::stri_replace_first_regex(rest, "^data\\s+", "")
+    match = stringi::stri_match_first_regex(sub_rest, "^(?:\"([^\"]*)\"|'([^']*)')$")
+    lbl = if(!is.na(match[1,1])) ifelse(!is.na(match[1,2]), match[1,2], match[1,3]) else sub_rest
+    return(list(subcmd="data", label=lbl))
   }
-  
-  gen_vars = NA_character_
-  if (!is.na(options_str)) {
-    gen_opt = stringi::stri_match_first_regex(options_str, "\\bgen\\s*\\(([^)]+)\\)")
-    if (!is.na(gen_opt[1,1])) gen_vars = stringi::stri_trim_both(gen_opt[1,2])
-  }
-  
-  rule_matches = stringi::stri_match_all_regex(rules_str, "\\(([^)]*)\\)")[[1]]
-  recode_rules_raw = if(NROW(rule_matches) > 0) rule_matches[,2] else character(0)
-  
-  list(varlist = varlist, rules = recode_rules_raw, if_str = parsed$if_str, in_str = parsed$in_str, gen_vars = gen_vars)
+  return(list(subcmd=NA_character_))
 }
 
-# Helper to translate individual rules (returns generic templates using .VAR.)
-translate_recode_rule_template = function(rule_str, final_r_var_type_is_string) { 
-  restore.point("translate_recode_rule_template")
-  rule_str = stringi::stri_trim_both(rule_str)
-  parts_eq = stringi::stri_split_fixed(rule_str, "=", n=2)[[1]]
-  if (length(parts_eq) != 2) return(paste0("## Error parsing rule: ", rule_str))
+# 2. Code Generation Phase
+t_label = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
+  restore.point("t_label")
+  parsed = s2r_p_label(rest_of_cmd)
+  if (is.na(parsed$subcmd)) return(paste0("# Failed to parse label: ", rest_of_cmd))
   
-  old_part_raw = stringi::stri_trim_both(parts_eq[1])
-  new_part_raw = stringi::stri_trim_both(parts_eq[2])
-
-  # Condition Side
-  r_condition = ""
-  if (old_part_raw == "else") {
-    r_condition = "TRUE"
-  } else if (old_part_raw == "missing" || dplyr::coalesce(stringi::stri_detect_regex(old_part_raw, "^\\.\\w?$"), FALSE)) {
-    r_condition = "sfun_missing(.VAR.)"
-  } else if (old_part_raw == "nonmissing") {
-    r_condition = "!sfun_missing(.VAR.)"
-  } else if (grepl("\\s+thru\\s+", old_part_raw)) {
-    range_parts = stringi::stri_split_regex(old_part_raw, "\\s+thru\\s+", n=2)[[1]]
-    val1 = translate_stata_expression_to_r(stringi::stri_trim_both(range_parts[1]))
-    val2 = translate_stata_expression_to_r(stringi::stri_trim_both(range_parts[2]))
-    r_condition = paste0(".VAR. >= ", val1, " & .VAR. <= ", val2)
-  } else if (grepl("/", old_part_raw)) {
-    range_parts = stringi::stri_split_regex(old_part_raw, "/", n=2)[[1]]
-    val1 = translate_stata_expression_to_r(stringi::stri_trim_both(range_parts[1]))
-    val2 = translate_stata_expression_to_r(stringi::stri_trim_both(range_parts[2]))
-    r_condition = paste0(".VAR. >= ", val1, " & .VAR. <= ", val2)
-  } else {
-    old_values = stringi::stri_split_regex(old_part_raw, "\\s+")[[1]]
-    old_values = old_values[!is.na(old_values) & old_values != ""]
-    r_values = sapply(old_values, function(val) {
-      if (is.na(val) || val == "." || dplyr::coalesce(stringi::stri_detect_regex(val, "^\\.[a-zA-Z]$"), FALSE)) return("NA_real_")
-      translate_stata_expression_to_r(val)
+  args = c("data = data", paste0("subcmd = ", quote_for_r_literal(parsed$subcmd)))
+  
+  if (parsed$subcmd == "define") {
+    rule_matches = stringi::stri_match_all_regex(parsed$rules, "(-?\\d*\\.?\\d+e?-?\\d*|-?\\.\\w?|\\S+)\\s+(?:\"([^\"]*)\"|'([^']*)')")[[1]]
+    vals = rule_matches[,2]
+    lbls = ifelse(!is.na(rule_matches[,3]), rule_matches[,3], rule_matches[,4])
+    
+    num_vals = sapply(vals, function(v) {
+      if (v == "." || dplyr::coalesce(stringi::stri_detect_regex(v, "^\\.[a-zA-Z]$"), FALSE)) NA_real_ else as.numeric(v)
     })
-    r_condition = paste0(".VAR. %in% c(", paste(r_values, collapse = ", "), ")")
+    
+    map_str = "stats::setNames(numeric(0), character(0))"
+    if (length(lbls) > 0) {
+      map_str = paste0("stats::setNames(c(", paste(ifelse(is.na(num_vals), "NA_real_", num_vals), collapse=", "), "), c('", paste(lbls, collapse="','"), "'))")
+    }
+    
+    args = c(args, paste0("lblname = ", quote_for_r_literal(parsed$lblname)), paste0("rules_map = ", map_str), paste0("option = ", quote_for_r_literal(parsed$option)))
+    
+  } else if (parsed$subcmd == "values") {
+    args = c(args, paste0("varlist = ", quote_for_r_literal(parsed$varlist)), paste0("lblname = ", quote_for_r_literal(parsed$lblname)))
+  } else if (parsed$subcmd == "variable") {
+    args = c(args, paste0("varname = ", quote_for_r_literal(parsed$varname)), paste0("label_str = ", quote_for_r_literal(parsed$label)))
+  } else if (parsed$subcmd == "data") {
+    args = c(args, paste0("label_str = ", quote_for_r_literal(parsed$label)))
   }
+  
+  return(paste0("data = scmd_label(", paste(args, collapse = ", "), ")"))
+}
 
-  # Value Side
-  r_new_value = ""
-  if (new_part_raw == "copy") {
-    r_new_value = ".VAR."
-    if (final_r_var_type_is_string) r_new_value = paste0("as.character(", r_new_value, ")")
-  } else {
-    label_match = stringi::stri_match_first_regex(new_part_raw, "^\\s*([^\\s]+)\\s+(?:\"([^\"]*)\"|'([^']*)')\\s*$")
-    if (!is.na(label_match[1,1])) {
-      if (final_r_var_type_is_string) {
-        string_label_part = ifelse(!is.na(label_match[1,3]), label_match[1,3], label_match[1,4])
-        r_new_value = quote_for_r_literal(string_label_part) 
-      } else {
-        r_new_value = translate_stata_expression_to_r(stringi::stri_trim_both(label_match[1,2]))
-      }
+# 3. Runtime Execution Phase
+scmd_label = function(data, subcmd, lblname=NA, rules_map=NULL, option=NA, varlist=NA, varname=NA, label_str=NA) {
+  restore.point("scmd_label")
+  if (!exists("label_defs", envir = stata2r_env)) stata2r_env$label_defs = list()
+  
+  if (subcmd == "define") {
+    existing = if (!is.null(stata2r_env$label_defs[[lblname]])) stata2r_env$label_defs[[lblname]] else stats::setNames(numeric(0), character(0))
+    if (is.na(option) || option == "replace") {
+      stata2r_env$label_defs[[lblname]] = rules_map
     } else {
-      r_new_value = translate_stata_expression_to_r(new_part_raw)
-      if (final_r_var_type_is_string) {
-        if (r_new_value == "NA_real_") r_new_value = '""'
-        else if (!dplyr::coalesce(stringi::stri_startswith_fixed(r_new_value, '"'), FALSE) && !dplyr::coalesce(stringi::stri_startswith_fixed(r_new_value, "'"), FALSE)) {
-          r_new_value = paste0("as.character(", r_new_value, ")")
+      existing_filtered = existing[!(as.numeric(existing) %in% as.numeric(rules_map))]
+      stata2r_env$label_defs[[lblname]] = c(existing_filtered, rules_map)
+    }
+  } else if (subcmd == "values") {
+    cols = expand_varlist(varlist, names(data))
+    if (lblname == ".") {
+      for (c in cols) data[[c]] = haven::zap_labels(data[[c]])
+    } else {
+      map = stata2r_env$label_defs[[lblname]]
+      for (c in cols) {
+        if (!is.null(map)) {
+          ex_lbl = attr(data[[c]], "label")
+          
+          # Fix: haven requires NULL instead of NA_character_ if no label exists
+          lbl_arg = if(is.null(ex_lbl) || length(ex_lbl) == 0) NULL else as.character(ex_lbl)[1]
+          if (!is.null(lbl_arg) && is.na(lbl_arg)) lbl_arg = NULL
+          
+          # Strip existing S3 classes cleanly to avoid haven conflict errors
+          base_val = unclass(data[[c]])
+          attr(base_val, "labels") = NULL
+          attr(base_val, "label") = NULL
+          
+          data[[c]] = haven::labelled(base_val, labels = map, label = lbl_arg)
+        } else {
+          data[[c]] = haven::zap_labels(data[[c]])
         }
       }
     }
+  } else if (subcmd == "variable") {
+    cols = expand_varlist(varname, names(data))
+    for (c in cols) attr(data[[c]], "label") = label_str
+  } else if (subcmd == "data") {
+    attr(data, "label") = label_str
   }
-
-  return(paste0(r_condition, " ~ ", r_new_value))
-}
-
-# 2. Code Generation Phase: Emit R code
-t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
-  restore.point("t_recode")
-  parsed = s2r_p_recode(rest_of_cmd)
-  if (is.na(parsed$varlist) || length(parsed$rules) == 0) return(paste0("# Failed to parse recode command: ", rest_of_cmd))
-  
-  any_rule_implies_string_output = FALSE
-  any_rule_implies_labelled_numeric_output = FALSE
-  collected_labels = list()
-
-  for (rule_raw in parsed$rules) {
-    parts_eq = stringi::stri_split_fixed(stringi::stri_trim_both(rule_raw), "=", n=2)[[1]]
-    if (length(parts_eq) != 2) next
-    new_part_raw = stringi::stri_trim_both(parts_eq[2])
-
-    if ((dplyr::coalesce(stringi::stri_startswith_fixed(new_part_raw, '"'), FALSE)) ||
-        (dplyr::coalesce(stringi::stri_startswith_fixed(new_part_raw, "'"), FALSE))) {
-      any_rule_implies_string_output = TRUE
-    }
-
-    label_match = stringi::stri_match_first_regex(new_part_raw, "^\\s*([^\\s]+)\\s+(?:\"([^\"]*)\"|'([^']*)')\\s*$")
-    if (!is.na(label_match[1,1])) {
-      any_rule_implies_labelled_numeric_output = TRUE
-      numeric_val_part = stringi::stri_trim_both(label_match[1,2])
-      string_label_part = ifelse(!is.na(label_match[1,3]), label_match[1,3], label_match[1,4])
-
-      r_numeric_val = NA_real_
-      if (numeric_val_part != "." && !stringi::stri_detect_regex(numeric_val_part, "^\\.[a-zA-Z]$")) {
-        r_numeric_val = as.numeric(numeric_val_part)
-      }
-      if (!is.na(r_numeric_val) && !is.na(string_label_part)) {
-        collected_labels[[length(collected_labels) + 1]] = list(label = string_label_part, value = r_numeric_val)
-      }
-    }
-  }
-
-  final_r_var_type_is_string = any_rule_implies_string_output
-  final_r_var_type_is_labelled_numeric = !final_r_var_type_is_string && any_rule_implies_labelled_numeric_output
-
-  final_labels_map = list()
-  if (final_r_var_type_is_labelled_numeric && length(collected_labels) > 0) {
-    temp_df_labels = data.frame(
-        label = sapply(collected_labels, `[[`, "label"),
-        value = sapply(collected_labels, `[[`, "value"),
-        stringsAsFactors = FALSE
-    )
-    temp_df_labels$original_order = seq_len(NROW(temp_df_labels))
-    temp_df_labels = temp_df_labels[order(temp_df_labels$value, -temp_df_labels$original_order), ]
-    temp_df_labels = temp_df_labels[!duplicated(temp_df_labels$value, fromLast = TRUE), ]
-    temp_df_labels = temp_df_labels[order(temp_df_labels$value), ]
-    
-    final_labels_map = stats::setNames(temp_df_labels$value, temp_df_labels$label)
-  }
-
-  r_subset_cond = NA_character_
-  if (!is.na(parsed$if_str)) r_subset_cond = translate_stata_expression_with_r_values(parsed$if_str, line_num, cmd_df, list(is_by_group = FALSE))
-
-  r_rules_templates = sapply(parsed$rules, translate_recode_rule_template, final_r_var_type_is_string = final_r_var_type_is_string)
-
-  # IMPORTANT: Map quote_for_r_literal over the vector to prevent truncation
-  quoted_rules = sapply(r_rules_templates, quote_for_r_literal)
-
-  args = c("data = data", paste0("varlist_str = ", quote_for_r_literal(parsed$varlist)), 
-           paste0("rules_templates = c(", paste(quoted_rules, collapse=", "), ")"))
-  if (!is.na(parsed$gen_vars)) args = c(args, paste0("gen_vars_str = ", quote_for_r_literal(parsed$gen_vars)))
-  if (!is.na(r_subset_cond)) args = c(args, paste0("r_if_cond = ", quote_for_r_literal(r_subset_cond)))
-  args = c(args, paste0("is_string = ", final_r_var_type_is_string))
-  
-  if (final_r_var_type_is_labelled_numeric && length(final_labels_map) > 0) {
-    labels_vector_r_code = paste0("stats::setNames(c(", paste0(unname(final_labels_map), collapse=", "), "), c(", paste0('"', names(final_labels_map), '"', collapse=", "), "))")
-    args = c(args, paste0("labels_map = ", labels_vector_r_code))
-  }
-
-  return(paste0("data = scmd_recode(", paste(args, collapse = ", "), ")"))
-}
-
-# 3. Runtime Execution Phase: Evaluate against actual data
-scmd_recode = function(data, varlist_str, rules_templates, gen_vars_str = NA_character_, r_if_cond = NA_character_, is_string = FALSE, labels_map = NULL) {
-  restore.point("scmd_recode")
-  
-  vars_actual = expand_varlist(varlist_str, names(data))
-  
-  new_vars = vars_actual
-  if (!is.na(gen_vars_str)) {
-    new_vars = stringi::stri_split_regex(gen_vars_str, "\\s+")[[1]]
-    new_vars = new_vars[new_vars != ""]
-    if (length(new_vars) != length(vars_actual)) stop("scmd_recode: gen() requires same number of vars.")
-  }
-  
-  for (i in seq_along(vars_actual)) {
-    old_var = vars_actual[i]
-    new_var = new_vars[i]
-    
-    old_attrs = attributes(data[[old_var]])
-    
-    r_rules = gsub(".VAR.", paste0("`", old_var, "`"), rules_templates, fixed = TRUE)
-    
-    # STATA FALLBACK: If values do not match any conditions, they are left unchanged.
-    fallback = if (is_string) paste0("as.character(`", old_var, "`)") else paste0("as.numeric(`", old_var, "`)")
-    r_rules = c(r_rules, paste0("TRUE ~ ", fallback))
-    
-    case_when_expr = paste0("dplyr::case_when(\n    ", paste(r_rules, collapse = ",\n    "), "\n  )")
-    
-    if (!is.na(r_if_cond) && r_if_cond != "") {
-      final_val_expr = paste0("dplyr::if_else((dplyr::coalesce(as.numeric(", r_if_cond, "), 0) != 0), ", case_when_expr, ", `", old_var, "`)")
-    } else {
-      final_val_expr = case_when_expr
-    }
-    
-    if (is_string) {
-      final_val_expr = paste0("as.character(", final_val_expr, ")")
-    } else {
-      final_val_expr = paste0("as.numeric(", final_val_expr, ")")
-    }
-    
-    eval(parse(text = paste0("data = dplyr::mutate(data, `", new_var, "` = ", final_val_expr, ")")))
-    
-    # Restore or Assign Labels
-    if (!is.null(labels_map)) {
-      data[[new_var]] = haven::labelled(data[[new_var]], labels = labels_map)
-    } else if (old_var == new_var && !is_string) {
-      # If replacing and no new labels are provided, keep original labels matching Stata
-      if (!is.null(old_attrs$labels)) attr(data[[new_var]], "labels") = old_attrs$labels
-      if (!is.null(old_attrs$label)) attr(data[[new_var]], "label") = old_attrs$label
-      if (!is.null(old_attrs$class) && "haven_labelled" %in% old_attrs$class) {
-        class(data[[new_var]]) = old_attrs$class
-      }
-    }
-  }
-  
   return(data)
 }
 ```
-!END_MODIFICATION t_recode.R
+!END_MODIFICATION t_label.R

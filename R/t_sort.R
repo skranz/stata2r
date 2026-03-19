@@ -63,9 +63,8 @@ scmd_sort = function(data, varlist_str, type = "sort") {
   }
 
   if (length(sort_exprs) > 0) {
-    # Dynamically evaluate the correctly expanded and scoped expressions
     cmd = paste0("dplyr::arrange(data, ", paste(sort_exprs, collapse = ", "), ")")
-    data = eval(parse(text = cmd))
+    data = eval(parse(text = cmd), envir = list(data = data), enclos = parent.frame())
   }
 
   return(data)

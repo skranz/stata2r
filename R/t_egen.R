@@ -116,7 +116,7 @@ scmd_egen = function(data, new_var, func_name, calc_expr, group_vars = character
 
     if (length(sort_vars) > 0) {
       sort_cmd = paste0("dplyr::arrange(tmp, ", paste(paste0("`", sort_vars, "`"), collapse=", "), ")")
-      tmp = eval(parse(text = sort_cmd))
+      tmp = eval(parse(text = sort_cmd), envir = list(tmp = tmp), enclos = parent.frame())
     }
 
     pipe_el = c("tmp")
@@ -124,7 +124,7 @@ scmd_egen = function(data, new_var, func_name, calc_expr, group_vars = character
     pipe_el = c(pipe_el, paste0("dplyr::mutate(`", new_var, "` = ", calc_expr, ")"))
     if (length(group_vars_actual) > 0) pipe_el = c(pipe_el, "dplyr::ungroup()")
 
-    tmp = eval(parse(text = paste(pipe_el, collapse = " %>% ")))
+    tmp = eval(parse(text = paste(pipe_el, collapse = " %>% ")), envir = list(tmp = tmp), enclos = parent.frame())
 
     if ("stata2r_original_order_idx" %in% names(data)) {
       data = dplyr::left_join(data, tmp[, c("stata2r_original_order_idx", new_var)], by = "stata2r_original_order_idx")
@@ -137,7 +137,7 @@ scmd_egen = function(data, new_var, func_name, calc_expr, group_vars = character
     if (length(group_vars_actual) > 0 && !is_row) pipe_el = c(pipe_el, paste0("dplyr::group_by(!!!dplyr::syms(c('", paste(group_vars_actual, collapse="','"), "')))"))
     pipe_el = c(pipe_el, paste0("dplyr::mutate(`", new_var, "` = ", calc_expr, ")"))
     if (length(group_vars_actual) > 0 && !is_row) pipe_el = c(pipe_el, "dplyr::ungroup()")
-    data = eval(parse(text = paste(pipe_el, collapse = " %>% ")))
+    data = eval(parse(text = paste(pipe_el, collapse = " %>% ")), envir = list(data = data), enclos = parent.frame())
   }
 
   return(data)

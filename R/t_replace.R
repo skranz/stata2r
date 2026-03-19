@@ -76,5 +76,5 @@ scmd_replace = function(data, var_to_replace, r_expr_str, r_if_cond = NA_charact
   pipe_el = c(pipe_el, paste0("dplyr::mutate(`", var_actual, "` = ", expr_val, ")"))
   if (length(group_vars) > 0) pipe_el = c(pipe_el, "dplyr::ungroup()")
 
-  eval(parse(text = paste(pipe_el, collapse = " %>% ")))
+  eval(parse(text = paste(pipe_el, collapse = " %>% ")), envir = list(data = data), enclos = parent.frame())
 }

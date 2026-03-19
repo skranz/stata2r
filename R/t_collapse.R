@@ -90,7 +90,7 @@ scmd_collapse = function(data, agg_exprs_list, group_vars = character(0), r_if_c
   pipe_el = c(pipe_el, paste0("collapse::fsummarise(", agg_str, ")"))
   if (length(group_vars_actual) > 0) pipe_el = c(pipe_el, "collapse::fungroup()")
 
-  data = eval(parse(text = paste(pipe_el, collapse = " %>% ")))
+  data = eval(parse(text = paste(pipe_el, collapse = " %>% ")), envir = list(data = data), enclos = parent.frame())
   data$stata2r_original_order_idx = seq_len(nrow(data))
   return(data)
 }

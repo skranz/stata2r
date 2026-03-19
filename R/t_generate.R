@@ -75,6 +75,6 @@ scmd_generate = function(data, new_var, r_expr_str, r_if_cond = NA_character_, g
   pipe_el = c(pipe_el, paste0("dplyr::mutate(`", new_var, "` = ", expr_val, ")"))
   if (length(group_vars) > 0) pipe_el = c(pipe_el, "dplyr::ungroup()")
 
-  # Delegate to dplyr via runtime construction for proper grouping logic
-  eval(parse(text = paste(pipe_el, collapse = " %>% ")))
+  # Evaluate code inside parent.frame() to capture previous steps' variables
+  eval(parse(text = paste(pipe_el, collapse = " %>% ")), envir = list(data = data), enclos = parent.frame())
 }

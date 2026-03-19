@@ -82,7 +82,17 @@ scmd_label = function(data, subcmd, lblname=NA, rules_map=NULL, option=NA, varli
       for (c in cols) {
         if (!is.null(map)) {
           ex_lbl = attr(data[[c]], "label")
-          data[[c]] = haven::labelled(data[[c]], labels = map, label = if(is.null(ex_lbl)) NA_character_ else ex_lbl)
+
+          # Fix: haven requires NULL instead of NA_character_ if no label exists
+          lbl_arg = if(is.null(ex_lbl) || length(ex_lbl) == 0) NULL else as.character(ex_lbl)[1]
+          if (!is.null(lbl_arg) && is.na(lbl_arg)) lbl_arg = NULL
+
+          # Strip existing S3 classes cleanly to avoid haven conflict errors
+          base_val = unclass(data[[c]])
+          attr(base_val, "labels") = NULL
+          attr(base_val, "label") = NULL
+
+          data[[c]] = haven::labelled(base_val, labels = map, label = lbl_arg)
         } else {
           data[[c]] = haven::zap_labels(data[[c]])
         }

@@ -155,8 +155,6 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   if (!is.na(parsed$if_str)) r_subset_cond = translate_stata_expression_with_r_values(parsed$if_str, line_num, cmd_df, list(is_by_group = FALSE))
 
   r_rules_templates = sapply(parsed$rules, translate_recode_rule_template, final_r_var_type_is_string = final_r_var_type_is_string)
-
-  # IMPORTANT: Map quote_for_r_literal over the vector to prevent truncation
   quoted_rules = sapply(r_rules_templates, quote_for_r_literal)
 
   args = c("data = data", paste0("varlist_str = ", quote_for_r_literal(parsed$varlist)),
@@ -212,7 +210,7 @@ scmd_recode = function(data, varlist_str, rules_templates, gen_vars_str = NA_cha
       final_val_expr = paste0("as.numeric(", final_val_expr, ")")
     }
 
-    eval(parse(text = paste0("data = dplyr::mutate(data, `", new_var, "` = ", final_val_expr, ")")))
+    data = eval(parse(text = paste0("dplyr::mutate(data, `", new_var, "` = ", final_val_expr, ")")), envir = list(data = data), enclos = parent.frame())
 
     # Restore or Assign Labels
     if (!is.null(labels_map)) {
