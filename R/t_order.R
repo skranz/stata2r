@@ -1,40 +1,34 @@
-# Translate Stata 'order' command
-# Stata: order varlist [options]
-# Changes the order of variables in the dataset.
+# FILE: R/t_order.R
 
+# 1. Parsing Phase: Extract Stata syntax components
+s2r_p_order = function(rest_of_cmd) {
+  restore.point("s2r_p_order")
+  parts = stringi::stri_match_first_regex(stringi::stri_trim_both(rest_of_cmd), "^\\s*(.*?)(?:,\\s*(.*))?$")
+  list(
+    varlist = stringi::stri_trim_both(parts[1,2]),
+    options = stringi::stri_trim_both(parts[1,3])
+  )
+}
+
+# 2. Code Generation Phase: Emit R code
 t_order = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
-  restore.point("t_order") # Added restore.point
-  rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
+  restore.point("t_order")
+  parsed = s2r_p_order(rest_of_cmd)
 
-  # Split varlist from options (like `first`, `last`, `after(var)`)
-  # Pattern: ^\s*(.*?)(?:,\\s*(.*))?$
-  parts = stringi::stri_match_first_regex(rest_of_cmd_trimmed, "^\\s*(.*?)(?:,\\s*(.*))?$")
-  varlist_str = stringi::stri_trim_both(parts[1,2])
-  options_str = stringi::stri_trim_both(parts[1,3]) # NA if no options
-
-  vars_to_order = stringi::stri_split_regex(varlist_str, "\\s+")[[1]]
-  vars_to_order = vars_to_order[vars_to_order != ""]
-
-  if (length(vars_to_order) == 0) {
+  if (is.na(parsed$varlist) || parsed$varlist == "") {
     return("# order command with no variables specified.")
   }
 
-  # Stata `order varlist` puts varlist at the beginning.
-  # Options like `first`, `last`, `after(var)` are not handled here.
-  # R equivalent: Select the variables to order, then select all other variables.
-  # Using dplyr::select
-  # R code: data = dplyr::select(data, var1, var2, ..., dplyr::everything())
+  # Build call to runtime execution function `scmd_order`
+  args = c("data = data",
+           paste0("varlist_str = ", quote_for_r_literal(parsed$varlist)))
+  r_code_str = paste0("data = scmd_order(", paste(args, collapse = ", "), ")")
 
-  vars_to_order_r_str = paste(vars_to_order, collapse = ", ")
+  if (!is.na(parsed$options) && parsed$options != "") {
+    r_code_str = paste0(r_code_str, " # Options ignored: ", parsed$options)
+  }
 
-  r_code_str = paste0("data = dplyr::select(data, ", vars_to_order_r_str, ", dplyr::everything())")
-
-  # Add comment about options if any were present but not handled
-   if (!is.na(options_str) && options_str != "") {
-        r_code_str = paste0(r_code_str, paste0(" # Options ignored: ", options_str))
-   }
-
-  # Update stata2r_original_order_idx to reflect the new row order/count
+  # Maintain package internal tracking variables
   if (isTRUE(stata2r_env$has_original_order_idx)) {
     r_code_str = paste0(r_code_str, " %>% \n  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number())")
   }
@@ -42,5 +36,17 @@ t_order = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   return(r_code_str)
 }
 
+# 3. Runtime Execution Phase: Evaluate against actual data
+scmd_order = function(data, varlist_str) {
+  restore.point("scmd_order")
 
+  # Resolve variable list patterns/abbreviations dynamically
+  cols_to_order = expand_varlist(varlist_str, names(data))
 
+  if (length(cols_to_order) > 0) {
+    other_cols = setdiff(names(data), cols_to_order)
+    data = data[, c(cols_to_order, other_cols), drop = FALSE]
+  }
+
+  return(data)
+}
