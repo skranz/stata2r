@@ -1,174 +1,87 @@
-# Translate Stata 'duplicates' command
-# Stata: duplicates drop [varlist] [if] [in] [, options]
-# Stata: duplicates tag varlist [if] [in] [, options] gen(newvar)
-# Stata: duplicates list [varlist] [if] [in] [, options]
+# FILE: R/t_duplicates.R
 
-t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
-  restore.point("t_duplicates") # Added restore.point
-  rest_of_cmd_trimmed = stringi::stri_trim_both(rest_of_cmd)
+# 1. Parsing Phase: Extract Stata syntax components
+s2r_p_duplicates = function(rest_of_cmd) {
+  restore.point("s2r_p_duplicates")
+  parts = stringi::stri_split_regex(stringi::stri_trim_both(rest_of_cmd), "\\s+", n=2)[[1]]
+  subcmd = parts[1]
+  rest = if(length(parts) > 1) parts[2] else ""
 
-  # Parse subcommand (drop, tag, list)
-  parts_subcmd = stringi::stri_split_regex(rest_of_cmd_trimmed, "\\s+", n=2)[[1]]
-  subcommand = stringi::stri_trim_both(parts_subcmd[1])
-  rest_after_subcmd = if(length(parts_subcmd) > 1) stringi::stri_trim_both(parts_subcmd[2]) else NA_character_
+  parsed = s2r_parse_if_in(rest)
 
-  if (is.na(subcommand) || !(subcommand %in% c("drop", "tag", "list"))) {
-      return(paste0("# Failed to parse duplicates subcommand (drop, tag, or list required): ", rest_of_cmd))
-  }
-
-  varlist_str = NA_character_
-  stata_if_in_cond = NA_character_
+  options_match = stringi::stri_match_first_regex(parsed$base_str, ",\\s*(.*)$")
   options_str = NA_character_
-
-  if(!is.na(rest_after_subcmd)){
-    if_in_match = stringi::stri_match_first_regex(rest_after_subcmd, "\\s+(?:if\\s+|in\\s+)(.*)$")
-    if(!is.na(if_in_match[1,1])) {
-        stata_if_in_cond = if_in_match[1,2]
-        rest_after_subcmd_no_if_in = stringi::stri_replace_last_regex(rest_after_subcmd, "\\s+(?:if\\s+|in\\s+)(.*)$", "")
-        rest_after_subcmd_no_if_in = stringi::stri_trim_both(rest_after_subcmd_no_if_in)
-    } else {
-        rest_after_subcmd_no_if_in = rest_after_subcmd
-    }
-
-    options_match = stringi::stri_match_first_regex(rest_after_subcmd_no_if_in, ",\\s*(.*)$")
-    if (!is.na(options_match[1,1])) {
-        options_str = stringi::stri_trim_both(options_match[1,2])
-        varlist_str = stringi::stri_replace_last_regex(rest_after_subcmd_no_if_in, ",\\s*(.*)$", "")
-        varlist_str = stringi::stri_trim_both(varlist_str)
-    } else {
-        varlist_str = rest_after_subcmd_no_if_in
-    }
+  varlist = parsed$base_str
+  if (!is.na(options_match[1,1])) {
+    options_str = stringi::stri_trim_both(options_match[1,2])
+    varlist = stringi::stri_trim_both(stringi::stri_replace_last_regex(parsed$base_str, ",\\s*(.*)$", ""))
   }
 
-  vars_for_duplicates = NA_character_
-  if (!is.na(varlist_str) && varlist_str != "") {
-      vars_for_duplicates_list = stringi::stri_split_regex(varlist_str, "\\s+")[[1]]
-      vars_for_duplicates_list = vars_for_duplicates_list[vars_for_duplicates_list != ""]
-       if (length(vars_for_duplicates_list) > 0) {
-           vars_for_duplicates = paste0('c("', paste(vars_for_duplicates_list, collapse = '", "'), '")')
-       }
+  gen_var = NA_character_
+  if (!is.na(options_str)) {
+    gen_opt = stringi::stri_match_first_regex(options_str, "\\bgen\\s*\\(([^)]+)\\)")
+    if (!is.na(gen_opt[1,1])) gen_var = stringi::stri_split_regex(stringi::stri_trim_both(gen_opt[1,2]), "\\s+")[[1]][1]
   }
 
-  r_subset_cond = NA_character_
-  if (!is.na(stata_if_in_cond) && stata_if_in_cond != "") {
-      r_subset_cond = translate_stata_expression_with_r_values(stata_if_in_cond, line_num, cmd_df, context = list(is_by_group = FALSE))
-      if (is.na(r_subset_cond) || r_subset_cond == "") {
-           return(paste0("# Failed to translate if/in condition for duplicates: ", stata_if_in_cond))
-      }
-  }
-
-  r_code_lines = c()
-  # Temporary variable names
-  is_duplicate_tmp_var = paste0("stata_tmp_is_duplicate_L", cmd_obj$line)
-  is_first_tmp_var = paste0("stata_tmp_is_first_L", cmd_obj$line)
-  data_duplicates_tmp_var = paste0("stata_tmp_data_duplicates_L", cmd_obj$line)
-
-
-  if (subcommand == "drop") {
-      # For filter, NA in condition is treated as FALSE, which matches Stata's behavior.
-      filter_cond_expr = if (!is.na(r_subset_cond) && r_subset_cond != "") {
-                           paste0("(dplyr::coalesce(as.numeric(", r_subset_cond, "), 0) != 0)")
-                         } else {
-                           "TRUE"
-                         }
-
-      comment_vars_part = if(is.na(vars_for_duplicates)) "all variables" else paste0("variables: ", varlist_str)
-      if (is.na(vars_for_duplicates)) {
-          is_duplicate_expr = "base::duplicated(data, fromLast = FALSE)"
-      } else {
-           is_duplicate_expr = paste0("base::duplicated(data[, ", vars_for_duplicates, ", drop = FALSE], fromLast = FALSE)")
-      }
-
-      r_code_lines = c(
-          r_code_lines,
-          paste0("## Calculate duplicate flag based on ", comment_vars_part),
-          paste0(is_duplicate_tmp_var, " = ", is_duplicate_expr),
-          paste0("data = dplyr::filter(data, !(", is_duplicate_tmp_var, " & ", filter_cond_expr, "))"),
-          paste0("rm(", is_duplicate_tmp_var, ")")
-      )
-      # Update stata2r_original_order_idx to reflect the new row order/count
-      if (isTRUE(stata2r_env$has_original_order_idx)) {
-        r_code_lines = c(r_code_lines, "data = dplyr::mutate(data, stata2r_original_order_idx = dplyr::row_number())")
-      }
-
-  } else if (subcommand == "tag") {
-      gen_var = NA_character_
-      if (!is.na(options_str)) {
-         gen_opt_match = stringi::stri_match_first_regex(options_str, "\\bgen\\s*\\(([^)]+)\\)")
-         if (!is.na(gen_opt_match[1,1])) {
-             gen_vars_str = stringi::stri_trim_both(gen_opt_match[1,2])
-             gen_vars_list = stringi::stri_split_regex(gen_vars_str, "\\s+")[[1]]
-             gen_var = gen_vars_list[1]
-         }
-      }
-
-      if (is.na(gen_var)) {
-          return(paste0("# duplicates tag requires gen() option: ", rest_of_cmd))
-      }
-
-      mutate_cond_expr = if (!is.na(r_subset_cond) && r_subset_cond != "") {
-                           paste0("(dplyr::coalesce(as.numeric(", r_subset_cond, "), 0) != 0)")
-                         } else {
-                           "TRUE"
-                         }
-      
-      comment_vars_part = if(is.na(vars_for_duplicates)) "all variables" else paste0("variables: ", varlist_str)
-
-       if (is.na(vars_for_duplicates)) {
-          is_first_occurrence_expr = "!base::duplicated(data, fromLast = FALSE)"
-      } else {
-           is_first_occurrence_expr = paste0("!base::duplicated(data[, ", vars_for_duplicates, ", drop = FALSE], fromLast = FALSE)")
-      }
-
-       r_code_lines = c(
-          r_code_lines,
-          paste0("## Calculate first occurrence flag based on ", comment_vars_part),
-          paste0(is_first_tmp_var, " = ", is_first_occurrence_expr),
-          paste0("data = dplyr::mutate(data, `", gen_var, "` = dplyr::if_else(", is_first_tmp_var, " & ", mutate_cond_expr, ", 1, 0))"),
-          paste0("rm(", is_first_tmp_var, ")")
-       )
-
-  } else if (subcommand == "list") {
-       filter_cond_expr = if (!is.na(r_subset_cond) && r_subset_cond != "") {
-                           paste0("(dplyr::coalesce(as.numeric(", r_subset_cond, "), 0) != 0)")
-                         } else {
-                           "TRUE"
-                         }
-       comment_vars_part = if(is.na(vars_for_duplicates)) "all variables" else paste0("variables: ", varlist_str)
-
-        if (is.na(vars_for_duplicates)) {
-          is_duplicate_expr = "base::duplicated(data, fromLast = FALSE)"
-      } else {
-           is_duplicate_expr = paste0("base::duplicated(data[, ", vars_for_duplicates, ", drop = FALSE], fromLast = FALSE)")
-      }
-
-       r_code_lines = c(
-          r_code_lines,
-          paste0("## Calculate duplicate flag based on ", comment_vars_part),
-          paste0(is_duplicate_tmp_var, " = ", is_duplicate_expr),
-          paste0(data_duplicates_tmp_var, " = dplyr::filter(data, ", is_duplicate_tmp_var, " & ", filter_cond_expr, ")"),
-          paste0("print(", data_duplicates_tmp_var, ")"),
-          paste0("rm(", is_duplicate_tmp_var, ", ", data_duplicates_tmp_var, ")")
-       )
-
-  } else {
-      r_code_lines = c(r_code_lines, paste0("# Unknown duplicates subcommand: ", subcommand))
-  }
-
-  r_code_str = paste(r_code_lines, collapse="\n")
-
-   options_str_cleaned = options_str
-   if (subcommand == "tag" && !is.na(options_str_cleaned)) {
-        options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "\\bgen\\s*\\([^)]+\\)", "")
-        options_str_cleaned = stringi::stri_trim_both(stringi::stri_replace_all_regex(options_str_cleaned, ",+", ","))
-        options_str_cleaned = stringi::stri_replace_first_regex(options_str_cleaned, "^,+", "")
-   }
-
-   if (!is.na(options_str_cleaned) && options_str_cleaned != "") {
-        r_code_str = paste0(r_code_str, paste0(" # Other options ignored: ", options_str_cleaned))
-   }
-
-  return(r_code_str)
+  list(subcommand = subcmd, varlist = varlist, if_str = parsed$if_str, in_str = parsed$in_str, gen_var = gen_var)
 }
 
+# 2. Code Generation Phase: Emit R code
+t_duplicates = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
+  restore.point("t_duplicates")
+  parsed = s2r_p_duplicates(rest_of_cmd)
 
+  if (is.na(parsed$subcommand) || !(parsed$subcommand %in% c("drop", "tag", "list"))) {
+    return(paste0("# Failed to parse duplicates subcommand: ", rest_of_cmd))
+  }
+
+  r_if_cond = NA_character_
+  if (!is.na(parsed$if_str)) r_if_cond = translate_stata_expression_with_r_values(parsed$if_str, line_num, cmd_df, list(is_by_group=FALSE))
+  r_in_range = s2r_in_str_to_r_range_str(parsed$in_str)
+
+  args = c("data = data", paste0("subcommand = ", quote_for_r_literal(parsed$subcommand)))
+  if (!is.na(parsed$varlist) && parsed$varlist != "") args = c(args, paste0("varlist_str = ", quote_for_r_literal(parsed$varlist)))
+  if (!is.na(parsed$gen_var)) args = c(args, paste0("gen_var = ", quote_for_r_literal(parsed$gen_var)))
+  if (!is.na(r_if_cond)) args = c(args, paste0("r_if_cond = ", quote_for_r_literal(r_if_cond)))
+  if (!is.na(r_in_range)) args = c(args, paste0("r_in_range = ", quote_for_r_literal(r_in_range)))
+
+  r_code = paste0("data = scmd_duplicates(", paste(args, collapse = ", "), ")")
+  if (parsed$subcommand == "drop") {
+    r_code = paste0(r_code, "\nif (isTRUE(stata2r_env$has_original_order_idx)) { data = dplyr::mutate(data, stata2r_original_order_idx = dplyr::row_number()) }")
+  }
+
+  return(r_code)
+}
+
+# 3. Runtime Execution Phase: Evaluate against actual data
+scmd_duplicates = function(data, subcommand, varlist_str = NA_character_, gen_var = NA_character_, r_if_cond = NA_character_, r_in_range = NA_character_) {
+  restore.point("scmd_duplicates")
+  mask = rep(TRUE, nrow(data))
+  if (!is.na(r_if_cond) && r_if_cond != "") mask = mask & s2r_eval_cond(data, r_if_cond)
+  if (!is.na(r_in_range) && r_in_range != "") {
+    idx = s2r_eval_range(data, r_in_range)
+    in_mask = rep(FALSE, nrow(data))
+    in_mask[idx] = TRUE
+    mask = mask & in_mask
+  }
+
+  cols = names(data)
+  if (!is.na(varlist_str) && varlist_str != "") {
+    cols = expand_varlist(varlist_str, names(data))
+  }
+
+  is_dup = base::duplicated(data[, cols, drop = FALSE], fromLast = FALSE)
+
+  if (subcommand == "drop") {
+    data = data[!(is_dup & mask), , drop = FALSE]
+    rownames(data) = NULL
+  } else if (subcommand == "tag") {
+    if (is.na(gen_var)) stop("duplicates tag requires gen_var")
+    is_first = !is_dup
+    data[[gen_var]] = dplyr::if_else(is_first & mask, 1, 0)
+  } else if (subcommand == "list") {
+    print(data[is_dup & mask, , drop = FALSE])
+  }
+
+  return(data)
+}
