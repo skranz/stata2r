@@ -1,19 +1,100 @@
-The failure is caused by row order, not by a wrong computed variable.
+Yes — for this class of cases, I would now treat the row order as inherently non-reproducible unless the Stata code itself makes the sort order unique or explicitly uses `stable`. Stata’s own `sort` documentation says that without `stable`, tied observations are ordered randomly; its merge documentation also warns to use `stable` when within-key order matters. That means your helper column cannot recover “the Stata order” here, because Stata is not preserving prior order in the first place. ([Stata][1])
 
-In `do5`, the first mismatch appears right after
+So I would do two things.
 
-`bysort group_cat: egen mean_treated = mean(treated_obs)`
+First, revert the `t_sort.R` change that added `stata2r_original_order_idx` as a tie-breaker. That is not Stata semantics, and it can create wrong downstream results for commands that depend on `_n`, lags, or duplicate selection after a nonunique sort. Second, use the comparison-side fix: once a `sort`, `gsort`, or `bysort` can make row order depend on Stata’s tie handling, ignore row order in later dataset comparisons until a command like `use`, `collapse`, or `reshape` establishes a fresh canonical order again. That is the robust fix for your current framework. ([Stata][1])
 
-At that point, the Stata and R datasets have the same row count and the same columns, and `mean_treated` itself is not the problem. The problem is that `bysort` changes row order, and for ties in the sort key (`group_cat` alone here), Stata's tie order is not guaranteed to match the stable order produced by `dplyr::arrange()`. The current test machinery only ignores row order on the exact `sort`/`gsort` line, but not on later lines after a `bysort`-induced reorder. So the comparison becomes too strict and fails on a pure ordering difference.
+If you want a later refinement, the next step would be a runtime check that only ignores row order when the actual sort keys are nonunique. But I would first get the robust version working.
 
-The clean fix is to carry forward an "order may differ" flag after sort-like commands, and reset it only when a command rebuilds a fresh canonical dataset order such as `use`, `collapse`, or `reshape`.
+!MODIFICATION t_sort.R
+scope = "file"
+file = "R/t_sort.R"
+is_new_file = false
+description = "Revert sort behavior to plain sorting without using stata2r_original_order_idx as a tie-breaker, because Stata does not preserve prior order for tied keys by default."
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+```r
+# FILE: R/t_sort.R
+
+# 1. Parsing Phase: Extract Stata syntax components
+s2r_p_sort = function(rest_of_cmd) {
+  restore.point("s2r_p_sort")
+  list(varlist = stringi::stri_trim_both(rest_of_cmd))
+}
+
+# 2. Code Generation Phase: Emit R code
+t_sort = function(rest_of_cmd, cmd_obj, cmd_df, line_num, type = "sort") {
+  restore.point("t_sort")
+  parsed = s2r_p_sort(rest_of_cmd)
+
+  if (is.na(parsed$varlist) || parsed$varlist == "") {
+    return("# sort/gsort command with no variables specified.")
+  }
+
+  args = c("data = data",
+           paste0("varlist_str = ", quote_for_r_literal(parsed$varlist)),
+           paste0("type = ", quote_for_r_literal(type)))
+
+  r_code_str = paste0("data = scmd_sort(", paste(args, collapse = ", "), ")")
+
+  # Maintain package internal tracking variables (updating after sort)
+  if (isTRUE(stata2r_env$has_original_order_idx)) {
+    r_code_str = paste0(r_code_str, " %>% \n  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number())")
+  }
+
+  return(r_code_str)
+}
+
+# 3. Runtime Execution Phase: Evaluate against actual data
+scmd_sort = function(data, varlist_str, type = "sort") {
+  restore.point("scmd_sort")
+
+  tokens = stringi::stri_split_regex(trimws(varlist_str), "\\s+")[[1]]
+  tokens = tokens[tokens != ""]
+
+  if (length(tokens) == 0) return(data)
+
+  sort_exprs = character(0)
+
+  # Resolve +/- and wildcards correctly
+  for (tok in tokens) {
+    desc = FALSE
+    if (type == "gsort") {
+      if (startsWith(tok, "-")) {
+        desc = TRUE
+        tok = substring(tok, 2)
+      } else if (startsWith(tok, "+")) {
+        tok = substring(tok, 2)
+      }
+    }
+
+    expanded = expand_varlist(tok, names(data))
+    for (v in expanded) {
+      if (desc) {
+        sort_exprs = c(sort_exprs, paste0("dplyr::desc(`", v, "`)"))
+      } else {
+        sort_exprs = c(sort_exprs, paste0("`", v, "`"))
+      }
+    }
+  }
+
+  if (length(sort_exprs) > 0) {
+    cmd = paste0("dplyr::arrange(data, ", paste(sort_exprs, collapse = ", "), ")")
+    data = eval(parse(text = cmd), envir = list(data = data), enclos = parent.frame())
+  }
+
+  return(data)
+}
+```
+
+!END_MODIFICATION t_sort.R
 
 !MODIFICATION mark_data_manip_cmd.R
 scope = "file"
 file = "R/mark_data_manip_cmd.R"
 is_new_file = false
-description = "Track row-order instability after sort-like commands so comparisons ignore pure ordering differences introduced by sort and bysort tie handling."
-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+description = "Propagate ignore_row_order_for_comparison after sort-like commands, including bysort, until commands such as use, collapse, or reshape reset the dataset order."
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 ```r
 s2r_cmd_resets_row_order_compare = function(cmd_obj) {
@@ -87,4 +168,6 @@ mark_data_manip_cmd = function(cmd_df) {
 
 !END_MODIFICATION mark_data_manip_cmd.R
 
-This fixes the failing test for the right reason: the row order after `bysort group_cat` is not semantically pinned down by the sort key, so the comparison should treat the rows as unordered until a later command recreates a fresh canonical order.
+So my recommendation is: revert the sort tie-break change, apply the row-order-ignore propagation, and only come back to a more selective runtime-based rule later.
+
+[1]: https://www.stata.com/manuals/dsort.pdf?utm_source=chatgpt.com "Sort data"
