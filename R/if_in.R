@@ -25,17 +25,48 @@ s2r_parse_if_in = function(str) {
   return(res)
 }
 
+#' Normalize translated condition strings for runtime evaluation
+#'
+#' Translated expressions may contain dplyr helpers such as
+#' dplyr::row_number() or dplyr::n(), which are valid inside mutate/filter
+#' but not when evaluated directly via eval(). For runtime if/in evaluation
+#' we replace them by explicit helper symbols backed by concrete vectors/scalars.
+#'
+#' @param r_cond The translated R condition string
+#' @return A condition string that can be safely evaluated with eval()
+s2r_prepare_runtime_cond = function(r_cond) {
+  restore.point("s2r_prepare_runtime_cond")
+  if (is.na(r_cond) || r_cond == "") return(r_cond)
+
+  out = r_cond
+
+  # Main translations produced by translate_stata_expression_to_r()
+  out = stringi::stri_replace_all_fixed(out, "dplyr::row_number()", ".stata_row_index")
+  out = stringi::stri_replace_all_fixed(out, "dplyr::n()", ".stata_n_rows")
+
+  # Defensive fallback in case untranslated special tokens survive
+  out = stringi::stri_replace_all_regex(out, "\\b_n\\b", ".stata_row_index")
+  out = stringi::stri_replace_all_regex(out, "\\b_N\\b", ".stata_n_rows")
+
+  return(out)
+}
+
 #' Evaluate a Stata condition string at runtime, returning a boolean vector
 s2r_eval_cond = function(data, r_cond) {
   restore.point("s2r_eval_cond")
   if (is.na(r_cond) || r_cond == "") return(rep(TRUE, NROW(data)))
+
+  r_cond = s2r_prepare_runtime_cond(r_cond)
 
   expr = base::parse(text = r_cond)
   used_vars = all.vars(expr)
   data_cols = names(data)
 
   eval_list = s2r_setup_eval_list(data)
-  reserved = s2r_eval_reserved_words()
+  eval_list[[".stata_row_index"]] = seq_len(NROW(data))
+  eval_list[[".stata_n_rows"]] = NROW(data)
+
+  reserved = c(s2r_eval_reserved_words(), ".stata_row_index", ".stata_n_rows")
 
   for (v in used_vars) {
     if (!(v %in% c(data_cols, reserved))) {

@@ -32,7 +32,7 @@ do_cmd_to_r = function(cmd_obj, line, cmd_df) { # Corrected signature: added cmd
       "sort" = t_sort(rest_of_cmd_clean, cmd_obj, cmd_df, line, type="sort"),
       "gsort" = t_sort(rest_of_cmd_clean, cmd_obj, cmd_df, line, type="gsort"),
       "drop" = t_drop(rest_of_cmd_clean, cmd_obj, cmd_df, line, translation_context),
-      "keep" = s2r_t_keep(rest_of_cmd_clean, cmd_obj, cmd_df, line, translation_context),
+      "keep" = t_keep(rest_of_cmd_clean, cmd_obj, cmd_df, line, translation_context),
       "collapse" = t_collapse(rest_of_cmd_clean, cmd_obj, cmd_df, line, translation_context),
       "rename" = t_rename(rest_of_cmd_clean, cmd_obj, cmd_df, line),
       "save" = t_save(rest_of_cmd_clean, cmd_obj, cmd_df, line),

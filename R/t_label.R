@@ -14,8 +14,10 @@ s2r_p_label = function(rest_of_cmd) {
   } else if (stringi::stri_startswith_fixed(rest, "variable ") || stringi::stri_startswith_fixed(rest, "var ")) {
     sub_rest = stringi::stri_replace_first_regex(rest, "^(?:variable|var)\\s+", "")
     match = stringi::stri_match_first_regex(sub_rest, "^([a-zA-Z_][a-zA-Z0-9_]*)\\s+(?:\"([^\"]*)\"|'([^']*)')$")
-    lbl = ifelse(!is.na(match[1,2]), match[1,2], match[1,3])
-    return(list(subcmd="variable", varname=match[1,1], label=lbl))
+
+    # Fixed: match[1,1] is full match, match[1,2] is varname, match[1,3] is double-quoted label, match[1,4] is single-quoted
+    lbl = ifelse(!is.na(match[1,3]), match[1,3], match[1,4])
+    return(list(subcmd="variable", varname=match[1,2], label=lbl))
   } else if (stringi::stri_startswith_fixed(rest, "data ")) {
     sub_rest = stringi::stri_replace_first_regex(rest, "^data\\s+", "")
     match = stringi::stri_match_first_regex(sub_rest, "^(?:\"([^\"]*)\"|'([^']*)')$")
@@ -83,11 +85,9 @@ scmd_label = function(data, subcmd, lblname=NA, rules_map=NULL, option=NA, varli
         if (!is.null(map)) {
           ex_lbl = attr(data[[c]], "label")
 
-          # Fix: haven requires NULL instead of NA_character_ if no label exists
           lbl_arg = if(is.null(ex_lbl) || length(ex_lbl) == 0) NULL else as.character(ex_lbl)[1]
           if (!is.null(lbl_arg) && is.na(lbl_arg)) lbl_arg = NULL
 
-          # Strip existing S3 classes cleanly to avoid haven conflict errors
           base_val = unclass(data[[c]])
           attr(base_val, "labels") = NULL
           attr(base_val, "label") = NULL

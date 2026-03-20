@@ -22,7 +22,7 @@ s2r_p_keep = function(rest_of_cmd) {
 }
 
 # 2. Code Generation Phase: Translate expressions and emit R code
-s2r_t_keep = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+t_keep = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   restore.point("t_keep")
 
   # Parse the Stata command

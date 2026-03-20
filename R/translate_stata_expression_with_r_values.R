@@ -14,21 +14,17 @@ translate_stata_expression_with_r_values = function(stata_expr, line_num, cmd_df
   }
 
   if (!is.na(most_recent_r_producer_line_idx)) {
-    prev_cmd_obj = cmd_df[most_recent_r_producer_line_idx,]
-    # Assuming t_summarize or t_tabulate stores values like stata_r_val_L<line>_N, stata_r_val_L<line>_mean etc.
+    prev_cmd_obj = cmd_df[most_recent_r_producer_line_idx, ]
     line_prefix_r = paste0("stata_r_val_L", prev_cmd_obj$line, "_")
 
-    # Populate r_value_mappings based on what t_summarize/t_tabulate might produce
-    # This is a simplified list; a more robust solution would check prev_cmd_obj$r_results_needed
-    # Common r() values from summarize:
-    r_value_mappings[["r(N)"]] = paste0(line_prefix_r, "N")
-    r_value_mappings[["r(mean)"]] = paste0(line_prefix_r, "mean")
-    r_value_mappings[["r(sd)"]] = paste0(line_prefix_r, "sd")
-    r_value_mappings[["r(min)"]] = paste0(line_prefix_r, "min")
-    r_value_mappings[["r(max)"]] = paste0(line_prefix_r, "max")
-    r_value_mappings[["r(sum)"]] = paste0(line_prefix_r, "sum")
-    r_value_mappings[["r(p50)"]] = paste0(line_prefix_r, "p50") # Median
-    # Add more as t_summarize implements them (e.g., p1, p5, Var, skewness, kurtosis)
+    # Populate r_value_mappings based on stored runtime values in stata2r_env
+    r_value_mappings[["r(N)"]] = paste0("stata2r_env$", line_prefix_r, "N")
+    r_value_mappings[["r(mean)"]] = paste0("stata2r_env$", line_prefix_r, "mean")
+    r_value_mappings[["r(sd)"]] = paste0("stata2r_env$", line_prefix_r, "sd")
+    r_value_mappings[["r(min)"]] = paste0("stata2r_env$", line_prefix_r, "min")
+    r_value_mappings[["r(max)"]] = paste0("stata2r_env$", line_prefix_r, "max")
+    r_value_mappings[["r(sum)"]] = paste0("stata2r_env$", line_prefix_r, "sum")
+    r_value_mappings[["r(p50)"]] = paste0("stata2r_env$", line_prefix_r, "p50")
   }
 
   # --- Handle e() values from estimation commands ---
@@ -41,31 +37,30 @@ translate_stata_expression_with_r_values = function(stata_expr, line_num, cmd_df
   }
 
   if (!is.na(most_recent_e_producer_line_idx)) {
-    prev_cmd_obj_e = cmd_df[most_recent_e_producer_line_idx,]
-    line_prefix_e_base = paste0("stata_e_L", prev_cmd_obj_e$line, "_") # Base prefix for all e() values
+    prev_cmd_obj_e = cmd_df[most_recent_e_producer_line_idx, ]
+    line_prefix_e_base = paste0("stata_e_L", prev_cmd_obj_e$line, "_")
 
-    # Check for specific e() values that were marked as needed for this command
     if ("e(sample)" %in% unlist(prev_cmd_obj_e$e_results_needed)) {
-      r_value_mappings[["e(sample)"]] = paste0("stata_e_sample_L", prev_cmd_obj_e$line) # Special name for sample
+      r_value_mappings[["e(sample)"]] = paste0("stata2r_env$stata_e_sample_L", prev_cmd_obj_e$line)
     }
     if ("e(N)" %in% unlist(prev_cmd_obj_e$e_results_needed)) {
-      r_value_mappings[["e(N)"]] = paste0(line_prefix_e_base, "N")
+      r_value_mappings[["e(N)"]] = paste0("stata2r_env$", line_prefix_e_base, "N")
     }
     if ("e(r2)" %in% unlist(prev_cmd_obj_e$e_results_needed)) {
-      r_value_mappings[["e(r2)"]] = paste0(line_prefix_e_base, "r2")
+      r_value_mappings[["e(r2)"]] = paste0("stata2r_env$", line_prefix_e_base, "r2")
     }
     if ("e(df_r)" %in% unlist(prev_cmd_obj_e$e_results_needed)) {
-      r_value_mappings[["e(df_r)"]] = paste0(line_prefix_e_base, "df_r")
+      r_value_mappings[["e(df_r)"]] = paste0("stata2r_env$", line_prefix_e_base, "df_r")
     }
     if ("e(rmse)" %in% unlist(prev_cmd_obj_e$e_results_needed)) {
-      r_value_mappings[["e(rmse)"]] = paste0(line_prefix_e_base, "rmse")
+      r_value_mappings[["e(rmse)"]] = paste0("stata2r_env$", line_prefix_e_base, "rmse")
     }
-    # Add mappings for other e() results like e(b), e(V) if t_regress etc. implement them
   }
 
-
-  translated_expr = translate_stata_expression_to_r(stata_expr, context = context, r_value_mappings = r_value_mappings)
+  translated_expr = translate_stata_expression_to_r(
+    stata_expr,
+    context = context,
+    r_value_mappings = r_value_mappings
+  )
   return(translated_expr)
 }
-
-

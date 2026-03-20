@@ -1,8 +1,6 @@
 DESCRIPTION
 aicoder_work/tests/do4/do4.log
 R/aic_do_test.R
-R/aic_stata2r.R
-R/aic_stata_ex.R
 R/do_cmd_to_r.R
 R/do_parse.R
 R/if_in.R
@@ -34,6 +32,7 @@ R/stata2r_globals.R
 R/stata_cmd_utils.R
 R/stata_expression_translator.R
 R/stata_na_handling.R
+R/stata_xi.R
 R/t_append.R
 R/t_collapse.R
 R/t_compress.R

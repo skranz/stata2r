@@ -30,7 +30,7 @@ template = '''
 
 # Report of a run translation test
 
-{{##test_report}}
+{{test_report}}
 
 {{task}}
 
@@ -136,7 +136,7 @@ str2_p_{cmd}: parses the original Stata code for the command and returns a
   Where sensible the parsing function delegates to general package tools
   like s2r_parse_if_in.
 
-str2_t_{cmd}: The main translation function. First calls str2_p_{cmd}
+t_{cmd}: The main translation function. First calls str2_p_{cmd}
   for parsing but then builds the R translation, which will essentially
   be a call to scmd_{cmd} with `data` as first argument and other
   arguments depending on the structure and arguments of the the original
