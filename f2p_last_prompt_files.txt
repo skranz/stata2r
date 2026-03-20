@@ -6,6 +6,8 @@ R/do_parse.R
 R/if_in.R
 R/main.R
 R/mark_data_manip_cmd.R
+R/s2r_check_mod.R
+R/s2r_estimation_utils.R
 R/s2r_ts_op.R
 R/sfun_compress_col_type.R
 R/sfun_date_utils.R
@@ -34,6 +36,7 @@ R/stata_expression_translator.R
 R/stata_na_handling.R
 R/stata_xi.R
 R/t_append.R
+R/t_areg.R
 R/t_collapse.R
 R/t_compress.R
 R/t_decode.R
@@ -42,16 +45,21 @@ R/t_drop.R
 R/t_duplicates.R
 R/t_egen.R
 R/t_encode.R
+R/t_estimation_cmd.R
 R/t_expand.R
 R/t_format.R
 R/t_generate.R
+R/t_ivregress.R
 R/t_keep.R
 R/t_label.R
+R/t_logit.R
 R/t_merge.R
 R/t_order.R
 R/t_preserve_restore.R
+R/t_probit.R
 R/translate_stata_expression_with_r_values.R
 R/t_recode.R
+R/t_reghdfe.R
 R/t_regress.R
 R/t_rename.R
 R/t_replace.R
@@ -62,5 +70,6 @@ R/t_summarize.R
 R/t_tempfile.R
 R/t_use.R
 R/t_xi.R
+R/t_xtreg.R
 R/varlist.R
 aicoder_work/test_report.txt
