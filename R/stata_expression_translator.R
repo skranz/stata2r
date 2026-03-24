@@ -115,7 +115,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     "sfun_strpos", "sfun_subinstr", "sfun_stata_mdy", "sfun_stata_date", "sfun_day",
     "sfun_month", "sfun_qofd", "sfun_dow", "sfun_normalize_string_nas", "sfun_strip_stata_attributes",
     "sfun_compress_col_type", "sfun_is_stata_expression_string_typed", "as.logical",
-    "sfun_stata_cond", "sfun_year", "sfun_stata_date_single", "e",
+    "sfun_stata_cond", "sfun_year", "sfun_stata_date_single", "e", "sfun_flag", "sfun_fdiff",
     "NROW", "length", "unique", "sapply", "vapply", "c", "list", "intersect", "setdiff",
     "warning", "stop", "paste0", "grepl", "as.logical", "ifelse", "exists", "rm",
     "is.null", "lapply", "is.na", "is.character", "is.numeric", "is.logical", "is.factor",

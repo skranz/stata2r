@@ -1,4 +1,4 @@
-# FILE: R/t_recode.R
+# FILE: stata2r/R/t_recode.R
 
 # 1. Parsing Phase: Extract Stata syntax components
 s2r_p_recode = function(rest_of_cmd) {
@@ -49,15 +49,17 @@ translate_recode_rule_template = function(rule_str, final_r_var_type_is_string) 
     r_condition = "sfun_missing(.VAR.)"
   } else if (old_part_raw == "nonmissing") {
     r_condition = "!sfun_missing(.VAR.)"
-  } else if (grepl("\\s+thru\\s+", old_part_raw)) {
-    range_parts = stringi::stri_split_regex(old_part_raw, "\\s+thru\\s+", n=2)[[1]]
-    val1 = translate_stata_expression_to_r(stringi::stri_trim_both(range_parts[1]))
-    val2 = translate_stata_expression_to_r(stringi::stri_trim_both(range_parts[2]))
-    r_condition = paste0(".VAR. >= ", val1, " & .VAR. <= ", val2)
-  } else if (grepl("/", old_part_raw)) {
-    range_parts = stringi::stri_split_regex(old_part_raw, "/", n=2)[[1]]
-    val1 = translate_stata_expression_to_r(stringi::stri_trim_both(range_parts[1]))
-    val2 = translate_stata_expression_to_r(stringi::stri_trim_both(range_parts[2]))
+  } else if (grepl("\\s+thru\\s+", old_part_raw) || grepl("/", old_part_raw)) {
+    sep_token = if (grepl("\\s+thru\\s+", old_part_raw)) "\\s+thru\\s+" else "/"
+    range_parts = stringi::stri_split_regex(old_part_raw, sep_token, n=2)[[1]]
+
+    v1 = stringi::stri_trim_both(range_parts[1])
+    v2 = stringi::stri_trim_both(range_parts[2])
+
+    # Translate `min` and `max` natively to -Inf and Inf
+    val1 = if (tolower(v1) == "min") "-Inf" else translate_stata_expression_to_r(v1)
+    val2 = if (tolower(v2) == "max") "Inf" else translate_stata_expression_to_r(v2)
+
     r_condition = paste0(".VAR. >= ", val1, " & .VAR. <= ", val2)
   } else {
     old_values = stringi::stri_split_regex(old_part_raw, "\\s+")[[1]]

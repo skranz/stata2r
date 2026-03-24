@@ -75,16 +75,30 @@ s2r_p_estimation_cmd = function(rest_of_cmd, estimator = NA_character_) {
   indep_terms = if (length(tokens) > 1) tokens[-1] else character(0)
 
   absorb_vars = character(0)
+  cluster_vars = character(0)
   if (!is.na(options_part) && options_part != "") {
     absorb_match = stringi::stri_match_first_regex(options_part, "\\babsorb\\s*\\(([^)]+)\\)")
     if (!is.na(absorb_match[1,1])) {
       absorb_vars = stringi::stri_split_regex(stringi::stri_trim_both(absorb_match[1,2]), "\\s+")[[1]]
       absorb_vars = absorb_vars[absorb_vars != ""]
     }
+
+    vce_match = stringi::stri_match_first_regex(options_part, "\\bvce\\s*\\(([^)]+)\\)")
+    if (!is.na(vce_match[1,1])) {
+      vce_opts = stringi::stri_split_regex(stringi::stri_trim_both(vce_match[1,2]), "\\s+")[[1]]
+      vce_opts = vce_opts[vce_opts != ""]
+      if (length(vce_opts) > 1 && vce_opts[1] == "cluster") {
+        cluster_vars = vce_opts[-1]
+      }
+    }
   }
 
   xi_specs = s2r_extract_xi_specs(indep_terms)
-  model_vars = unique(unlist(c(lapply(indep_terms, s2r_model_term_to_vars), list(absorb_vars))))
+  model_vars = unique(unlist(c(
+    lapply(indep_terms, s2r_model_term_to_vars),
+    lapply(absorb_vars, s2r_model_term_to_vars),
+    lapply(cluster_vars, s2r_model_term_to_vars)
+  )))
 
   list(
     estimator = estimator,

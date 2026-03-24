@@ -90,17 +90,17 @@ s2r_replace_ts_in_string = function(rc, timevar, panelvar, tdelta) {
     tdelta_val = if (!is.null(tdelta) && !is.na(tdelta)) as.numeric(tdelta) else 1
 
     if (op_type == "L") {
-      fun = "collapse::flag"
+      fun = "sfun_flag"
       n_val = op_num
     } else if (op_type == "F") {
-      fun = "collapse::flag"
+      fun = "sfun_flag"
       n_val = -op_num
     } else if (op_type == "D") {
-      fun = "collapse::fdiff"
+      fun = "sfun_fdiff"
       diff_val = op_num
       n_val = 1
     } else if (op_type == "S") {
-      fun = "collapse::fdiff"
+      fun = "sfun_fdiff"
       n_val = op_num
     } else if (op_type == "O") {
       # O. means omitted. Just fallback to the base variable

@@ -1,5 +1,3 @@
-# FILE: R/t_egen.R
-
 # 1. Parsing Phase
 s2r_p_egen = function(rest_of_cmd) {
   restore.point("s2r_p_egen")
@@ -51,6 +49,8 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   if (parsed$func_name == "mean") calc_expr = paste0("mean(", r_args_cond, ", na.rm = TRUE)")
   else if (parsed$func_name %in% c("total", "sum")) calc_expr = paste0("collapse::fsum(", r_args_cond, ", na.rm = TRUE)")
   else if (parsed$func_name == "count") calc_expr = paste0("sum(!is.na(", r_args_cond, "))")
+  else if (parsed$func_name == "min") calc_expr = paste0("collapse::fmin(", r_args_cond, ", na.rm = TRUE)")
+  else if (parsed$func_name == "max") calc_expr = paste0("collapse::fmax(", r_args_cond, ", na.rm = TRUE)")
   else if (parsed$func_name == "rank") {
     needs_temp_sort = !cmd_obj$is_by_prefix
     if (is_ftm) val = paste0("as.numeric(dplyr::if_else(is.na(", r_args_cond, "), Inf, ", r_args_cond, "))") else val = r_args_cond
@@ -142,3 +142,4 @@ scmd_egen = function(data, new_var, func_name, calc_expr, group_vars = character
 
   return(data)
 }
+

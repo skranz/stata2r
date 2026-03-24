@@ -142,13 +142,14 @@ scmd_estimation_effects = function(data, dep_var, model_vars, needed_e, r_if_con
     mask = mask & s2r_eval_cond(data, r_if_cond)
   }
 
-  dep_actual = expand_varlist(dep_var, names(data))[1]
+  dep_actual = expand_varlist(dep_var, names(data))
+  if (length(dep_actual) > 0) dep_actual = dep_actual[1] else dep_actual = character(0)
 
   model_vars_actual = character(0)
   if (length(model_vars) > 0) {
     model_vars_actual = unlist(lapply(model_vars, function(v) {
       expanded = expand_varlist(v, names(data))
-      if (length(expanded) > 0) expanded[1] else character(0)
+      if (length(expanded) > 0) expanded else character(0)
     }))
   }
   model_vars_actual = unique(model_vars_actual)
@@ -174,6 +175,7 @@ scmd_estimation_effects = function(data, dep_var, model_vars, needed_e, r_if_con
       all(stringi::stri_detect_regex(formula_terms, "^[A-Za-z_][A-Za-z0-9_]*$"))
 
     if (can_fit_lm && sum(e_sample) > 0) {
+      # Use only the first matched column for the dependent variable in formula
       formula_str = paste0("`", dep_actual, "` ~ ", paste(paste0("`", formula_terms, "`"), collapse = " + "))
       mod = stats::lm(stats::as.formula(formula_str), data = data[e_sample == 1, , drop = FALSE])
       sm = summary(mod)
