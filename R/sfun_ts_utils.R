@@ -1,4 +1,3 @@
-# FILE: stata2r/R/sfun_ts_utils.R
 
 #' Safe wrapper for collapse::flag explicitly checking vector length
 sfun_flag = function(x, n = 1, ...) {

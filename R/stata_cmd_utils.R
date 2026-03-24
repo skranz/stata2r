@@ -94,6 +94,16 @@ get_stata_full_cmd_name = function(cmd_token) {
   if (isTRUE(cmd_token_lower %in% names(stata_cmd_abbreviations))) {
     return(stata_cmd_abbreviations[[cmd_token_lower]])
   }
+
+  # Check if it matches a prefix of a known full command,
+  # AND is longer than the minimum abbreviation
+  for (abbr in names(stata_cmd_abbreviations)) {
+    full_cmd = stata_cmd_abbreviations[[abbr]]
+    if (startsWith(full_cmd, cmd_token_lower) && startsWith(cmd_token_lower, abbr)) {
+      return(full_cmd)
+    }
+  }
+
   return(cmd_token_lower)
 }
 
@@ -110,7 +120,7 @@ stata_data_manip_cmds = c(
   "tempfile", "tempvar", "tempname",
   "total",
   "use", "xtile", "xi",
-  "replace", "clear"
+  "replace", "clear", "scalar", "sc"
 )
 
 # Commands that primarily display info or control program flow, and never
@@ -120,7 +130,7 @@ stata_non_data_manip_cmds = c(
   "exit", "findit", "format", "graph", "gr", "help", "h", "if", "inspect", "i", "list", "l", "log", "lookup", "marksample",
   "matrix", "mat", "memory", "mem", "mkdir", "more", "mo", "notes", "n", "outfile", "outsheet", "ou", "pause", "plot",
   "print", "program", "pwd", "query",
-  "return", "ret", "rmdir", "run", "ru", "scalar", "sc", "search", "shell", "sh", "signestim", "sleep",
+  "return", "ret", "rmdir", "run", "ru", "search", "shell", "sh", "signestim", "sleep",
   "stata", "st", "tabdisp", "table", "test", "te", "timer", "translate", "truncate",
   "tutorials", "type", "ty", "view", "version", "v", "webuse", "w", "which", "while", "window", "winexec", "xmlsav"
 )

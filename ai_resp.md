@@ -1,430 +1,573 @@
-You are absolutely right. Relying on `try()` to swallow errors is an anti-pattern here because it masks genuine bugs (like type mismatches or syntax errors) that should fail loudly so they can be fixed properly.
 
-The specific error (`n * diff needs to be < length(x)`) tells us the exact requirement `collapse::fdiff` (and similarly `collapse::flag`) expects. We can fix this cleanly by evaluating `length(x) <= n * diff` and returning NAs directly when the condition is met, removing all `try()` wrappers.
 
-I am also discarding the `try()` wrapper for `mrb_run_r_base` as you requested, so the pipeline continues to fail loudly on unexpected errors.
 
-Here are the revised modifications without any `try()` blocks.
+### Analysis of the Problem
 
-### 1. Fix `create_prefix_nolevel_cterm_col` in `metaregBase`
-We explicitly calculate the effective `n` and `diff` and check against the length constraint required by the `collapse` functions.
+1.  **The Error:**
+    The traceback in the `test_report.Rmd` file points to an error during `drf_get_data` executing the translated R code: `object 'cutoff' not found` while evaluating `sfun_stata_cond(x1 > cutoff, cutoff, x1)` inside a `dplyr::mutate` operation. 
 
-!MODIFICATION create_prefix_nolevel_cterm_col in /home/rstudio/repbox/metaregBase/R/mrb_cterms.R
-scope = "function"
-file = "/home/rstudio/repbox/metaregBase/R/mrb_cterms.R"
-function_name = "create_prefix_nolevel_cterm_col"
-description = "Explicitly check length(x) <= n * diff to prevent collapse::fdiff and flag from crashing on empty or short subsets."
+2.  **The Cause:**
+    *   The package was missing the implementation for translating Stata's `scalar` command (`t_scalar.R`). As a result, the R translation engine encountered an error parsing the `scalar cutoff = 10.5` command and emitted a commented-out fallback line. Consequently, the variable `cutoff` was never instantiated in the R execution environment (`exec_env`). 
+    *   When the subsequent `gen x1_capped = cond(x1 > cutoff, cutoff, x1)` command was executed, `dplyr::mutate` correctly looked up `cutoff` within its dataset and then enclosing environments (`exec_env`). Finding nothing, it crashed.
+    *   A secondary, hidden issue relates to condition filtering using scalars (e.g. `reg y x1 x2 if year > min_year`). `scmd_keep` and other data modification commands use `s2r_eval_cond` to evaluate the translated string condition `r_if_cond`. Currently, `s2r_eval_cond` hardcodes `enclos = parent.frame()` which refers to its own local execution context inside the `stata2r` package, effectively isolating it from user-defined variables residing in `exec_env`.
+
+### Solutions
+
+1.  **Add `t_scalar.R`**: This module translates `scalar` definitions into standard R assignments executed natively in `exec_env`. Because `dplyr::mutate` searches enclosing environments, variables generated in `exec_env` will map exactly to Stata's fallback resolution rules.
+2.  **Propagate the execution environment (`envir`)**: Expand `s2r_eval_cond` to optionally accept an evaluation environment (defaulting to `parent.frame()`). Then pass `parent.frame()` recursively down from the entrypoint `scmd_*` functions (like `scmd_keep`, `scmd_drop`, etc.) so that string-evaluated filter expressions correctly locate execution environment scalars.
+
+### Suggested Improvements for Test Reporting
+
+-   **Log Translated R Code:** In `drf_run_r.R` during test execution, wrap `eval(rcode_call, envir = exec_env)` in a `tryCatch()`. If it fails, attach the generated `rcode` payload to the error string. Currently, debugging requires guessing what `rcode_call` contained.
+-   **Show Execution Context Variables:** Dumping `ls(exec_env)` to the test report alongside the traceback when a pipeline translation collapses could save enormous amounts of debugging time by showing missing (or accidentally overwritten) variables.
+
 ---
-```r
-create_prefix_nolevel_cterm_col = function(dat,cterm, panelvar=NA, timevar=NA, tdelta=NA) {
-  restore.point("create_prefix_nolevel_cterm_col")
 
-  prefix  = cterm_extract_prefix(cterm)
-  basevar = cterm_extract_base(cterm)
+### Modifications
 
-  # Recursively generate nested prefix variables (e.g. S2@y before L@S2@y)
-  if (!has.col(dat, basevar)) {
-    if (cterm_has_prefix(basevar)) {
-      dat = create_cterm_col(dat, basevar, timevar=timevar, panelvar=panelvar, tdelta=tdelta)
-    }
-  }
-
-  dat[[cterm]] = NA
-
-  # Fixed check to target basevar
-  if (!has.col(dat, basevar)) {
-    msg = paste0("Column ", basevar, " does not exist in data set and thus I cannot generate the cterm ", cterm)
-    repbox_problem(type="missing_var",msg=msg, fail_action="msg", fail_action = "error")
-    return(dat)
-  }
-
-  if (prefix == "") {
-    return(dat)
-  }
-
-  baseval = dat[[basevar]]
-  if (prefix=="log") {
-    dat[[cterm]] = log(baseval)
-    return(dat)
-  }
-
-  prefix.type = toupper(substring(prefix,1,1))
-  prefix.num = substring(prefix,2)
-
-  tdelta = as.numeric(tdelta)
-  if (is.na(tdelta)) tdelta = 1
-
-
-  if (any(has.substr(prefix.num,"("))) {
-    repbox_problem(type="parse_reg_formula", "\nCannot yet deal with time series prefixes like L(0/2).", fail_action = "error")
-    return(dat)
-  }
-
-  args = list(x=dat[[basevar]])
-  if (!is_empty(timevar)) {
-    args$t = dat[[timevar]]
-  }
-  if (!is_empty(panelvar)) {
-    args$g = dat[[panelvar]]
-  }
-
-
-  prefix.num = ifelse(prefix.num=="", 1, as_integer(trimws(prefix.num)))
-
-  if (prefix.type == "L") {
-    fun = collapse::flag
-    args$n = prefix.num
-  } else if (prefix.type == "F") {
-    fun = collapse::flag
-    args$n = -prefix.num
-  } else if (prefix.type == "D") {
-    fun = collapse::fdiff
-    args$diff = prefix.num
-  } else if (prefix.type == "S") {
-    fun = collapse::fdiff
-    args$n = prefix.num
-
-  } else if (prefix.type == "O") {
-    # o. means that the variable shall be omitted in
-    # the regression. The variables will be just
-    # the original variables.
-    fun = identity
-  } else {
-    stop(paste0("No code yet to create variables for cterm prefix ", prefix.type))
-  }
-
-
-  if (tdelta > 1 & prefix.type %in% c("L","F","D","S")) {
-    # Note this code requires a sufficiently new
-    # collapse version like 1.9.6
-    args$t = dat[[timevar]]
-    args$n = args$n * tdelta
-  }
-
-  # Explicit length check to satisfy collapse's requirement
-  n_val = if (!is.null(args$n)) abs(args$n) else 1
-  diff_val = if (!is.null(args$diff)) abs(args$diff) else 1
-
-  if (prefix.type %in% c("L", "F", "D", "S") && length(args$x) <= n_val * diff_val) {
-    dat[[cterm]] = rep(NA_real_, length(args$x))
-    return(dat)
-  }
-
-  dat[[cterm]] = do.call(fun, args)
-  dat
-}
-```
-!END_MODIFICATION
-
-### 2. Create `sfun_ts_utils.R` in `stata2r`
-We'll create the wrapper functions in `stata2r` with the same explicit length checks.
-
-!MODIFICATION sfun_ts_utils.R
+!MODIFICATION t_scalar.R
 scope = "file"
-file = "stata2r/R/sfun_ts_utils.R"
-is_new_file = true
-description = "Create explicit wrappers for collapse time series functions to return NA safely on short subsets without using try."
+file = "/home/rstudio/aicoder/stata2r/R/t_scalar.R"
+description = "Create t_scalar.R to translate Stata scalar commands."
 ---
 ```r
-# FILE: stata2r/R/sfun_ts_utils.R
+# FILE: /home/rstudio/aicoder/stata2r/R/t_scalar.R
 
-#' Safe wrapper for collapse::flag explicitly checking vector length
-sfun_flag = function(x, n = 1, ...) {
-  if (length(x) <= abs(n)) return(rep(NA_real_, length(x)))
-  collapse::flag(x, n = n, ...)
+# 1. Parsing Phase: Extract Stata syntax components
+s2r_p_scalar = function(rest_of_cmd) {
+  restore.point("s2r_p_scalar")
+  rest = stringi::stri_trim_both(stringi::stri_replace_first_regex(rest_of_cmd, "^define\\s+", ""))
+  parts = stringi::stri_split_fixed(rest, "=", n = 2)[[1]]
+  if (length(parts) == 2) {
+    return(list(
+      name = stringi::stri_trim_both(parts[1]),
+      expr = stringi::stri_trim_both(parts[2])
+    ))
+  }
+  return(list(name = NA_character_, expr = NA_character_))
 }
 
-#' Safe wrapper for collapse::fdiff explicitly checking vector length constraint
-sfun_fdiff = function(x, n = 1, diff = 1, ...) {
-  if (length(x) <= abs(n * diff)) return(rep(NA_real_, length(x)))
-  collapse::fdiff(x, n = n, diff = diff, ...)
+# 2. Code Generation Phase: Emit R code
+t_scalar = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
+  restore.point("t_scalar")
+  parsed = s2r_p_scalar(rest_of_cmd)
+  if (is.na(parsed$name)) return(paste0("# Failed to parse scalar: ", rest_of_cmd))
+  
+  r_expr = translate_stata_expression_with_r_values(parsed$expr, line_num, cmd_df, list(is_by_group = FALSE))
+  
+  args = c("data = data", paste0("r_expr_str = ", quote_for_r_literal(r_expr)))
+  
+  return(paste0("`", parsed$name, "` = scmd_scalar(", paste(args, collapse = ", "), ")"))
+}
+
+# 3. Runtime Execution Phase: Evaluate against actual data
+scmd_scalar = function(data, r_expr_str) {
+  restore.point("scmd_scalar")
+  eval_list = s2r_setup_eval_list(data)
+  res = base::eval(base::parse(text = r_expr_str), envir = eval_list, enclos = parent.frame())
+  if (length(res) > 0) res[1] else NA_real_
 }
 ```
-!END_MODIFICATION
+!END_MODIFICATION t_scalar.R
 
-### 3. Update `s2r_replace_ts_in_string` to use the new wrappers
-!MODIFICATION s2r_replace_ts_in_string in stata2r/R/s2r_ts_op.R
+
+!MODIFICATION s2r_eval_cond in /home/rstudio/aicoder/stata2r/R/if_in.R
 scope = "function"
-file = "stata2r/R/s2r_ts_op.R"
-function_name = "s2r_replace_ts_in_string"
-description = "Use sfun_flag and sfun_fdiff instead of direct collapse calls."
+file = "/home/rstudio/aicoder/stata2r/R/if_in.R"
+function_name = "s2r_eval_cond"
+description = "Update s2r_eval_cond to accept envir parameter to resolve scalars from enclosing environment"
 ---
 ```r
-#' Find TS operators (like d.x1) and replace with collapse calls
-s2r_replace_ts_in_string = function(rc, timevar, panelvar, tdelta) {
-  rx = "\\b([LlFfDdSsOo])([0-9]*)\\.([a-zA-Z0-9_]+)\\b"
-  matches = stringi::stri_match_all_regex(rc, rx)[[1]]
+#' Evaluate a Stata condition string at runtime, returning a boolean vector
+s2r_eval_cond = function(data, r_cond, envir = parent.frame()) {
+  restore.point("s2r_eval_cond")
+  if (is.na(r_cond) || r_cond == "") return(rep(TRUE, NROW(data)))
 
-  if (is.na(matches[1,1])) return(rc)
+  r_cond = s2r_prepare_runtime_cond(r_cond)
 
-  for (i in seq_len(nrow(matches))) {
-    full_match = matches[i, 1]
-    op_type    = toupper(matches[i, 2])
-    op_num     = matches[i, 3]
-    op_num     = ifelse(op_num == "", 1, as.integer(op_num))
-    base_var   = matches[i, 4]
+  expr = base::parse(text = r_cond)
+  used_vars = all.vars(expr)
+  data_cols = names(data)
 
-    # Construct collapse call
-    args = c(paste0("x = ", base_var))
+  eval_list = s2r_setup_eval_list(data)
+  eval_list[[".stata_row_index"]] = seq_len(NROW(data))
+  eval_list[[".stata_n_rows"]] = NROW(data)
 
-    n_val = op_num
-    diff_val = 1
-    tdelta_val = if (!is.null(tdelta) && !is.na(tdelta)) as.numeric(tdelta) else 1
+  reserved = c(s2r_eval_reserved_words(), ".stata_row_index", ".stata_n_rows")
 
-    if (op_type == "L") {
-      fun = "sfun_flag"
-      n_val = op_num
-    } else if (op_type == "F") {
-      fun = "sfun_flag"
-      n_val = -op_num
-    } else if (op_type == "D") {
-      fun = "sfun_fdiff"
-      diff_val = op_num
-      n_val = 1
-    } else if (op_type == "S") {
-      fun = "sfun_fdiff"
-      n_val = op_num
-    } else if (op_type == "O") {
-      # O. means omitted. Just fallback to the base variable
-      # We strip backticks if they were added
-      rc = gsub(paste0("`", full_match, "`"), base_var, rc, fixed = TRUE)
-      rc = gsub(full_match, base_var, rc, fixed = TRUE)
-      next
+  for (v in used_vars) {
+    if (!(v %in% c(data_cols, reserved))) {
+      mcols = data_cols[startsWith(data_cols, v)]
+      if (length(mcols) == 1) {
+        eval_list[[v]] = to_stata_na(data[[mcols[1]]])
+      } else if (length(mcols) > 1) {
+        stop(paste("Ambiguous abbreviation in condition:", v))
+      }
     }
-
-    if (tdelta_val > 1 && op_type %in% c("L","F","D","S")) {
-      n_val = n_val * tdelta_val
-    }
-
-    if (op_type %in% c("L", "F", "S")) {
-      args = c(args, paste0("n = ", n_val))
-    } else if (op_type == "D") {
-      args = c(args, paste0("diff = ", diff_val))
-      if (tdelta_val > 1) args = c(args, paste0("n = ", n_val))
-    }
-
-    if (!is.null(timevar) && !is.na(timevar) && timevar != "") {
-      args = c(args, paste0("t = ", timevar))
-    }
-    if (!is.null(panelvar) && !is.na(panelvar) && panelvar != "") {
-      args = c(args, paste0("g = ", panelvar))
-    }
-
-    r_expr = paste0(fun, "(", paste0(args, collapse = ", "), ")")
-
-    # stata2r wraps variables with dots in backticks (e.g. `d.x1`).
-    # We must replace the backticked version first, then the bare version.
-    rc = gsub(paste0("`", full_match, "`"), r_expr, rc, fixed = TRUE)
-    rc = gsub(full_match, r_expr, rc, fixed = TRUE)
   }
 
-  rc
+  cond_val = base::eval(expr, envir = eval_list, enclos = envir)
+  return(dplyr::coalesce(as.logical(cond_val), FALSE))
 }
 ```
-!END_MODIFICATION
+!END_MODIFICATION s2r_eval_cond in /home/rstudio/aicoder/stata2r/R/if_in.R
 
-### 4. Protect `sfun_flag` and `sfun_fdiff` from backtick replacement
-Add the new functions to the reserved list in `translate_stata_expression_to_r`.
 
-!MODIFICATION translate_stata_expression_to_r in stata2r/R/stata_expression_translator.R
+!MODIFICATION s2r_eval_if_in in /home/rstudio/aicoder/stata2r/R/if_in.R
 scope = "function"
-file = "stata2r/R/stata_expression_translator.R"
-function_name = "translate_stata_expression_to_r"
-description = "Add sfun_flag and sfun_fdiff to the r_reserved_words list."
+file = "/home/rstudio/aicoder/stata2r/R/if_in.R"
+function_name = "s2r_eval_if_in"
+description = "Update s2r_eval_if_in to accept envir parameter and pass it to s2r_eval_cond"
 ---
 ```r
-translate_stata_expression_to_r = function(stata_expr, context = list(is_by_group = FALSE), r_value_mappings = NULL) {
-  restore.point("translate_stata_expression_to_r")
+#' Safely evaluate if/in conditions at runtime for row keeping
+#' @param data The dataframe
+#' @param r_if_cond The translated R condition string
+#' @param r_in_range The translated R range string
+#' @param envir The enclosing environment for evaluation
+#' @return The subsetted dataframe
+s2r_eval_if_in = function(data, r_if_cond = NA_character_, r_in_range = NA_character_, envir = parent.frame()) {
+  restore.point("seval_if_in")
 
-  if (is.null(stata_expr) || length(stata_expr) == 0 || !is.character(stata_expr)) {
-    stata_expr = NA_character_
+  if (!is.na(r_if_cond) && r_if_cond != "") {
+    cond_val = s2r_eval_cond(data, r_if_cond, envir = envir)
+    data = data[cond_val, , drop = FALSE]
+  }
+
+  if (!is.na(r_in_range) && r_in_range != "") {
+    idx = s2r_eval_range(data, r_in_range)
+    data = data[idx, , drop = FALSE]
+  }
+
+  return(data)
+}
+```
+!END_MODIFICATION s2r_eval_if_in in /home/rstudio/aicoder/stata2r/R/if_in.R
+
+
+!MODIFICATION scmd_drop in /home/rstudio/aicoder/stata2r/R/t_drop.R
+scope = "function"
+file = "/home/rstudio/aicoder/stata2r/R/t_drop.R"
+function_name = "scmd_drop"
+description = "Pass parent.frame() to s2r_eval_cond in scmd_drop"
+---
+```r
+# 3. Runtime Execution Phase: Evaluate against actual data columns and environments
+scmd_drop = function(data, varlist_str = NA_character_, r_if_cond = NA_character_, r_in_range = NA_character_) {
+  restore.point("scmd_drop")
+
+  # 1. Row dropping (`if` condition)
+  if (!is.na(r_if_cond) && r_if_cond != "") {
+    cond_val = s2r_eval_cond(data, r_if_cond, envir = parent.frame())
+    # Inverse of keep: we retain FALSE / NAs
+    data = data[!cond_val, , drop = FALSE]
+  }
+
+  # 2. Row dropping (`in` range)
+  if (!is.na(r_in_range) && r_in_range != "") {
+    idx = s2r_eval_range(data, r_in_range)
+    if (length(idx) > 0) {
+      data = data[-idx, , drop = FALSE]
+    }
+  }
+
+  # 3. Column dropping (`varlist`)
+  if (!is.na(varlist_str) && varlist_str != "") {
+    cols_to_drop = expand_varlist(varlist_str, names(data))
+
+    # Protect stata2r internal variables from being accidentally dropped by wildcards
+    if ("stata2r_original_order_idx" %in% cols_to_drop && !grepl("stata2r_original_order_idx", varlist_str)) {
+      cols_to_drop = setdiff(cols_to_drop, "stata2r_original_order_idx")
+    }
+
+    if (length(cols_to_drop) > 0) {
+      cols_to_keep = setdiff(names(data), cols_to_drop)
+      data = data[, cols_to_keep, drop = FALSE]
+    }
+  }
+
+  return(data)
+}
+```
+!END_MODIFICATION scmd_drop in /home/rstudio/aicoder/stata2r/R/t_drop.R
+
+
+!MODIFICATION scmd_keep in /home/rstudio/aicoder/stata2r/R/t_keep.R
+scope = "function"
+file = "/home/rstudio/aicoder/stata2r/R/t_keep.R"
+function_name = "scmd_keep"
+description = "Pass parent.frame() to s2r_eval_if_in in scmd_keep"
+---
+```r
+# 3. Runtime Execution Phase: Evaluate against actual data columns and environments
+scmd_keep = function(data, varlist_str = NA_character_, r_if_cond = NA_character_, r_in_range = NA_character_) {
+  restore.point("scmd_keep")
+
+  # 1. Row subsetting using generalized if/in evaluator
+  data = s2r_eval_if_in(data, r_if_cond, r_in_range, envir = parent.frame())
+
+  # 2. Column subsetting (`varlist`)
+  if (!is.na(varlist_str) && varlist_str != "") {
+    cols_to_keep = expand_varlist(varlist_str, names(data))
+    if (length(cols_to_keep) == 0) {
+      stop(paste0("scmd_keep: no variables found matching '", varlist_str, "'"))
+    }
+
+    # Always preserve the internal original order index if it exists in the incoming data
+    if ("stata2r_original_order_idx" %in% names(data) && !("stata2r_original_order_idx" %in% cols_to_keep)) {
+      cols_to_keep = c(cols_to_keep, "stata2r_original_order_idx")
+    }
+
+    data = data[, cols_to_keep, drop = FALSE]
+  }
+
+  return(data)
+}
+```
+!END_MODIFICATION scmd_keep in /home/rstudio/aicoder/stata2r/R/t_keep.R
+
+
+!MODIFICATION scmd_collapse in /home/rstudio/aicoder/stata2r/R/t_collapse.R
+scope = "function"
+file = "/home/rstudio/aicoder/stata2r/R/t_collapse.R"
+function_name = "scmd_collapse"
+description = "Pass parent.frame() to s2r_eval_cond in scmd_collapse"
+---
+```r
+# 3. Runtime Execution Phase
+scmd_collapse = function(data, agg_exprs_list, group_vars = character(0), r_if_cond = NA_character_) {
+  restore.point("scmd_collapse")
+  if (!is.na(r_if_cond) && r_if_cond != "") data = data[s2r_eval_cond(data, r_if_cond, envir = parent.frame()), , drop = FALSE]
+
+  pipe_el = c("data")
+  group_vars_actual = expand_varlist(paste(group_vars, collapse=" "), names(data))
+  if (length(group_vars_actual) > 0) pipe_el = c(pipe_el, paste0("collapse::fgroup_by(", paste(group_vars_actual, collapse=", "), ")"))
+
+  agg_str = paste(sprintf("`%s` = %s", names(agg_exprs_list), unlist(agg_exprs_list)), collapse = ", ")
+  pipe_el = c(pipe_el, paste0("collapse::fsummarise(", agg_str, ")"))
+  if (length(group_vars_actual) > 0) pipe_el = c(pipe_el, "collapse::fungroup()")
+
+  data = eval(parse(text = paste(pipe_el, collapse = " %>% ")), envir = list(data = data), enclos = parent.frame())
+  data$stata2r_original_order_idx = seq_len(nrow(data))
+  return(data)
+}
+```
+!END_MODIFICATION scmd_collapse in /home/rstudio/aicoder/stata2r/R/t_collapse.R
+
+
+!MODIFICATION scmd_decode in /home/rstudio/aicoder/stata2r/R/t_decode.R
+scope = "function"
+file = "/home/rstudio/aicoder/stata2r/R/t_decode.R"
+function_name = "scmd_decode"
+description = "Pass parent.frame() to s2r_eval_cond in scmd_decode"
+---
+```r
+# 3. Runtime Execution Phase: Evaluate against actual data
+scmd_decode = function(data, varname, gen_var, r_if_cond = NA_character_, r_in_range = NA_character_) {
+  restore.point("scmd_decode")
+  var_actual = expand_varlist(varname, names(data))[1]
+
+  mask = rep(TRUE, nrow(data))
+  if (!is.na(r_if_cond) && r_if_cond != "") mask = mask & s2r_eval_cond(data, r_if_cond, envir = parent.frame())
+  if (!is.na(r_in_range) && r_in_range != "") {
+    idx = s2r_eval_range(data, r_in_range)
+    in_mask = rep(FALSE, nrow(data))
+    in_mask[idx] = TRUE
+    mask = mask & in_mask
+  }
+
+  src = data[[var_actual]]
+  decoded = as.character(haven::as_factor(src))
+  decoded = dplyr::if_else(is.na(decoded), dplyr::if_else(is.na(src), "", as.character(src)), decoded)
+
+  if (!(gen_var %in% names(data))) data[[gen_var]] = NA_character_
+  data[[gen_var]] = dplyr::if_else(mask, decoded, data[[gen_var]])
+
+  return(data)
+}
+```
+!END_MODIFICATION scmd_decode in /home/rstudio/aicoder/stata2r/R/t_decode.R
+
+
+!MODIFICATION scmd_destring in /home/rstudio/aicoder/stata2r/R/t_destring.R
+scope = "function"
+file = "/home/rstudio/aicoder/stata2r/R/t_destring.R"
+function_name = "scmd_destring"
+description = "Pass parent.frame() to s2r_eval_cond in scmd_destring"
+---
+```r
+# 3. Runtime Execution Phase: Evaluate against actual data
+scmd_destring = function(data, varlist_str, is_replace, gen_vars_str = NA_character_, r_if_cond = NA_character_, r_in_range = NA_character_) {
+  restore.point("scmd_destring")
+  vars_actual = expand_varlist(varlist_str, names(data))
+
+  if (is_replace) {
+    new_vars = vars_actual
   } else {
-    stata_expr = as.character(stata_expr[1])
-  }
-
-  if (is.na(stata_expr) || stata_expr == "") {
-    return("NA_real_")
-  }
-
-  r_expr = stata_expr
-
-  # --- Handle string literals by replacing them with unique placeholders ---
-  string_literal_map = list()
-  placeholder_counter = 0
-  literal_matches_list = stringi::stri_match_all_regex(r_expr, '"[^"]*"|\'[^\']*\'')
-  if (length(literal_matches_list) > 0 && !is.null(literal_matches_list[[1]]) &&
-      NROW(literal_matches_list[[1]]) > 0 && !is.na(literal_matches_list[[1]][1,1])) {
-    unique_literals = unique(literal_matches_list[[1]][,1])
-    for (literal_text in unique_literals) {
-      placeholder_counter = placeholder_counter + 1
-      placeholder = paste0("_", placeholder_counter, "STATA2R_SLIT_")
-      r_expr = stringi::stri_replace_all_fixed(r_expr, literal_text, placeholder)
-      string_literal_map[[placeholder]] = literal_text
+    new_vars = stringi::stri_split_regex(gen_vars_str, "\\s+")[[1]]
+    new_vars = new_vars[new_vars != ""]
+    if (length(new_vars) != length(vars_actual)) {
+      stop("scmd_destring: generate() requires same number of new variables as old variables.")
     }
   }
 
-  # --- Handle r() and e() values using placeholders first ---
-  # This prevents later generic regex rewrites from corrupting mapped expressions
-  # such as stata2r_env$stata_r_val_L27_mean.
-  macro_placeholder_map = list()
-  macro_placeholder_counter = 0
-  if (!is.null(r_value_mappings) && length(r_value_mappings) > 0) {
-    sorted_macro_names = names(r_value_mappings)[order(stringi::stri_length(names(r_value_mappings)), decreasing = TRUE)]
-    for (stata_macro_name in sorted_macro_names) {
-      macro_placeholder_counter = macro_placeholder_counter + 1
-      macro_placeholder = paste0("_", macro_placeholder_counter, "STATA2R_MACRO_")
-      r_expr = stringi::stri_replace_all_fixed(r_expr, stata_macro_name, macro_placeholder)
-      macro_placeholder_map[[macro_placeholder]] = r_value_mappings[[stata_macro_name]]
+  mask = rep(TRUE, nrow(data))
+  if (!is.na(r_if_cond) && r_if_cond != "") mask = mask & s2r_eval_cond(data, r_if_cond, envir = parent.frame())
+  if (!is.na(r_in_range) && r_in_range != "") {
+    idx = s2r_eval_range(data, r_in_range)
+    in_mask = rep(FALSE, nrow(data))
+    in_mask[idx] = TRUE
+    mask = mask & in_mask
+  }
+
+  for (i in seq_along(vars_actual)) {
+    old_v = vars_actual[i]
+    new_v = new_vars[i]
+    destrung = suppressWarnings(readr::parse_number(as.character(data[[old_v]])))
+
+    if (is_replace) {
+      data[[new_v]] = dplyr::if_else(mask, destrung, data[[old_v]])
+    } else {
+      res = rep(NA_real_, nrow(data))
+      res[mask] = destrung[mask]
+      data[[new_v]] = res
     }
   }
 
-  # Step 1: Handle Stata missing value literals '.', '.a', ..., '.z'
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![0-9a-zA-Z_])\\.[a-zA-Z]?(?![0-9a-zA-Z_])", "NA_real_")
-
-  # Step 2: Translate Stata logical operators and missing value comparisons.
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*==\\s*NA_real_", "sfun_missing($1)")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*!=\\s*NA_real_", "!sfun_missing($1)")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![<>=!~])\\s*=\\s*(?![=])", " == ")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\s+~=\\s+", " != ")
-
-  # Step 3: Translate Stata special variables and indexing (e.g., _n, _N, var[_n-1])
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*-\\s*(\\d+)\\]", "dplyr::lag(`$1`, n = $2)")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*\\+\\s*(\\d+)\\]", "dplyr::lead(`$1`, n = $2)")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\]", "`$1`")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_n\\b", "dplyr::row_number()")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_N\\b", "dplyr::n()")
-
-  # Step 4: Iteratively translate Stata functions (e.g., cond(), round(), log(), etc.)
-  old_r_expr = ""
-  while (dplyr::coalesce(r_expr != old_r_expr, FALSE)) {
-    old_r_expr = r_expr
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bcond\\(([^,]+),([^,]+),([^)]+)\\)", "sfun_stata_cond($1, $2, $3)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^,]+),([^)]+)\\)", "sfun_stata_round($1, $2)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^)]+)\\)", "sfun_stata_round($1, 1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmod\\(([^,]+),([^)]+)\\)", "($1 %% $2)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmissing\\(([^)]+)\\)", "sfun_missing($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\blog\\(([^)]+)\\)", "log($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsqrt\\(([^)]+)\\)", "sqrt($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bint\\(([^)]+)\\)", "trunc($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrtrim\\(([^)]+)\\)", "stringi::stri_trim_right($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstritrim\\(([^)]+)\\)", "sfun_stritrim($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\blower\\(([^)]+)\\)", "stringi::stri_trans_tolower($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bupper\\(([^)]+)\\)", "stringi::stri_trans_toupper($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsubstr\\(([^,]+),([^,]+),([^)]+)\\)", "stringi::stri_sub($1, from = $2, length = $3)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsubinstr\\(([^,]+),([^,]+),([^,]+),([^)]+)\\)", "sfun_subinstr($1, $2, $3, $4)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrpos\\(([^,]+),([^)]+)\\)", "sfun_strpos($1, $2)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\blength\\(([^)]+)\\)", "stringi::stri_length($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrlen\\(([^)]+)\\)", "stringi::stri_length($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstring\\(([^)]+)\\)", "sfun_string($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bruniform\\(\\)", "stats::runif(dplyr::n())")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bdate\\(([^,]+),([^,]+),([^)]+)\\)", "sfun_stata_date($1, $2, $3)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bdate\\(([^,]+),([^)]+)\\)", "sfun_stata_date($1, $2)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmdy\\(([^,]+),([^,]+),([^)]+)\\)", "sfun_stata_mdy($1, $2, $3)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\byear\\(([^)]+)\\)", "sfun_year($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmonth\\(([^)]+)\\)", "sfun_month($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bday\\(([^)]+)\\)", "sfun_day($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bqofd\\(([^)]+)\\)", "sfun_qofd($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bdow\\(([^)]+)\\)", "sfun_dow($1)")
-  }
-
-  if (is.na(r_expr) || r_expr == "") {
-    warning(paste0("R expression became NA or empty after function translation. Original Stata expression: '", stata_expr, "'"))
-    return("NA_real_")
-  }
-
-  # Step 5: Quote bare variable names with backticks
-  r_reserved_words = c(
-    "TRUE", "FALSE", "NA_real_", "NA_character_", "NA_integer_", "NA", "NULL",
-    "if_else", "coalesce", "row_number", "n", "lag", "lead", "select", "filter",
-    "mutate", "group_by", "ungroup", "syms", "all_of", "everything", "matches",
-    "pivot_wider", "pivot_longer", "read_dta", "write_dta", "labelled", "zap_labels",
-    "zap_formats", "zap_missing", "as_factor", "parse_number",
-    "mean", "sum", "median", "sd", "min", "max", "log", "sqrt", "trunc", "rank",
-    "rowSums", "rowMeans", "setNames", "match", "tempfile", "file.path",
-    "fmean", "fsum", "fN", "ffirst", "flast", "fmin", "fmax", "fmedian", "fsd",
-    "fquantile", "fgroup_by", "fungroup", "fsubset", "frename", "bind_rows", "rep",
-    "as_tibble", "inherits", "format", "as.Date", "as.numeric", "as.character", "as.integer",
-    "sign", "floor", "abs", "pmax", "stringi", "base", "stats", "dplyr", "collapse", "haven",
-    "readr", "tidyr", "labelled", "restorepoint", "stata2r_env",
-    "sfun_missing", "sfun_stata_add", "sfun_stata_round", "sfun_string", "sfun_stritrim",
-    "sfun_strpos", "sfun_subinstr", "sfun_stata_mdy", "sfun_stata_date", "sfun_day",
-    "sfun_month", "sfun_qofd", "sfun_dow", "sfun_normalize_string_nas", "sfun_strip_stata_attributes",
-    "sfun_compress_col_type", "sfun_is_stata_expression_string_typed", "as.logical",
-    "sfun_stata_cond", "sfun_year", "sfun_stata_date_single", "e", "sfun_flag", "sfun_fdiff",
-    "NROW", "length", "unique", "sapply", "vapply", "c", "list", "intersect", "setdiff",
-    "warning", "stop", "paste0", "grepl", "as.logical", "ifelse", "exists", "rm",
-    "is.null", "lapply", "is.na", "is.character", "is.numeric", "is.logical", "is.factor",
-    "attributes", "attr", "names", "order", "unname", "duplicated", "trimws",
-    "suppressWarnings", "as.data.frame", "rownames", "colnames", "head", "tail",
-    "matrix", "data.frame", "vector", "character", "numeric", "integer", "logical",
-    "factor", "double", "`_n`", "`_N`",
-    "cur_group_id", "cur_data_all", "replace", "TRUE", "FALSE"
-  )
-
-  locations_list = stringi::stri_locate_all_regex(r_expr, "\\b([a-zA-Z_][a-zA-Z0-9_.]*)\\b")
-  locations = locations_list[[1]]
-
-  if (!is.null(locations) && NROW(locations) > 0 && !is.na(locations[1,1])) {
-    locations = locations[order(locations[,2], decreasing = TRUE), , drop = FALSE]
-    for (k in seq_len(NROW(locations))) {
-      start_pos = locations[k,1]
-      end_pos = locations[k,2]
-      current_word = stringi::stri_sub(r_expr, start_pos, end_pos)
-
-      if (current_word %in% names(string_literal_map)) {
-        next
-      }
-      if (current_word %in% names(macro_placeholder_map)) {
-        next
-      }
-
-      is_reserved = dplyr::coalesce(current_word %in% r_reserved_words, FALSE)
-      is_numeric_literal = dplyr::coalesce(suppressWarnings(!is.na(as.numeric(current_word))), FALSE)
-
-      is_already_backticked = FALSE
-      if (dplyr::coalesce(start_pos > 1 && end_pos < stringi::stri_length(r_expr), FALSE)) {
-        char_before = dplyr::coalesce(stringi::stri_sub(r_expr, start_pos - 1, start_pos - 1), "")
-        char_after = dplyr::coalesce(stringi::stri_sub(r_expr, end_pos + 1, end_pos + 1), "")
-        is_already_backticked = (char_before == "`" && char_after == "`")
-      }
-
-      if (isTRUE(!is_reserved) && isTRUE(!is_numeric_literal) && isTRUE(!is_already_backticked)) {
-        r_expr = paste0(
-          stringi::stri_sub(r_expr, 1, start_pos - 1),
-          "`", current_word, "`",
-          stringi::stri_sub(r_expr, end_pos + 1, stringi::stri_length(r_expr))
-        )
-      }
-    }
-  }
-
-  # Step 6: Translate Stata '+' operator to sfun_stata_add for polymorphic behavior
-  operand_pattern = "(?:\"[^\"]*\"|'[^']*'|\\d+(?:\\.\\d+)?(?:e[+-]?\\d+)?|\\b(?:NA_real_|NULL)\\b|\\b(?:TRUE|FALSE)\\b|`[^`]+`|\\b[a-zA-Z_][a-zA-Z0-9_.]*\\s*\\(.*?\\)\\s*|_[0-9]+STATA2R_SLIT_|_[0-9]+STATA2R_MACRO_)"
-  old_r_expr_add = ""
-  while (dplyr::coalesce(r_expr != old_r_expr_add, FALSE)) {
-    old_r_expr_add = r_expr
-    add_regex_middle_part = "\\s*(?<![<>=!~])\\+\\s*(?!\\s*\\+|\\s*=\\s*)"
-    add_regex_full = paste0("(", operand_pattern, ")", add_regex_middle_part, "(", operand_pattern, ")")
-    r_expr = stringi::stri_replace_all_regex(r_expr, add_regex_full, "sfun_stata_add($1, $2)")
-  }
-
-  # --- Restore mapped macro expressions from placeholders ---
-  if (length(macro_placeholder_map) > 0) {
-    sorted_macro_placeholders = names(macro_placeholder_map)[order(stringi::stri_length(names(macro_placeholder_map)), names(macro_placeholder_map), decreasing = TRUE)]
-    for (macro_placeholder in sorted_macro_placeholders) {
-      r_expr = stringi::stri_replace_all_fixed(r_expr, macro_placeholder, macro_placeholder_map[[macro_placeholder]])
-    }
-  }
-
-  # --- Restore string literals from placeholders ---
-  if (length(string_literal_map) > 0) {
-    sorted_placeholders = names(string_literal_map)[order(stringi::stri_length(names(string_literal_map)), names(string_literal_map), decreasing = TRUE)]
-    for (placeholder in sorted_placeholders) {
-      r_expr = stringi::stri_replace_all_fixed(r_expr, placeholder, string_literal_map[[placeholder]])
-    }
-  }
-
-  return(r_expr)
+  return(data)
 }
 ```
-!END_MODIFICATION
+!END_MODIFICATION scmd_destring in /home/rstudio/aicoder/stata2r/R/t_destring.R
+
+
+!MODIFICATION scmd_duplicates in /home/rstudio/aicoder/stata2r/R/t_duplicates.R
+scope = "function"
+file = "/home/rstudio/aicoder/stata2r/R/t_duplicates.R"
+function_name = "scmd_duplicates"
+description = "Pass parent.frame() to s2r_eval_cond in scmd_duplicates"
+---
+```r
+# 3. Runtime Execution Phase: Evaluate against actual data
+scmd_duplicates = function(data, subcommand, varlist_str = NA_character_, gen_var = NA_character_, r_if_cond = NA_character_, r_in_range = NA_character_) {
+  restore.point("scmd_duplicates")
+  mask = rep(TRUE, nrow(data))
+  if (!is.na(r_if_cond) && r_if_cond != "") mask = mask & s2r_eval_cond(data, r_if_cond, envir = parent.frame())
+  if (!is.na(r_in_range) && r_in_range != "") {
+    idx = s2r_eval_range(data, r_in_range)
+    in_mask = rep(FALSE, nrow(data))
+    in_mask[idx] = TRUE
+    mask = mask & in_mask
+  }
+
+  cols = names(data)
+  if (!is.na(varlist_str) && varlist_str != "") {
+    cols = expand_varlist(varlist_str, names(data))
+  }
+
+  is_dup = base::duplicated(data[, cols, drop = FALSE], fromLast = FALSE)
+
+  if (subcommand == "drop") {
+    data = data[!(is_dup & mask), , drop = FALSE]
+    rownames(data) = NULL
+  } else if (subcommand == "tag") {
+    if (is.na(gen_var)) stop("duplicates tag requires gen_var")
+    is_first = !is_dup
+    data[[gen_var]] = dplyr::if_else(is_first & mask, 1, 0)
+  } else if (subcommand == "list") {
+    print(data[is_dup & mask, , drop = FALSE])
+  }
+
+  return(data)
+}
+```
+!END_MODIFICATION scmd_duplicates in /home/rstudio/aicoder/stata2r/R/t_duplicates.R
+
+
+!MODIFICATION scmd_expand in /home/rstudio/aicoder/stata2r/R/t_expand.R
+scope = "function"
+file = "/home/rstudio/aicoder/stata2r/R/t_expand.R"
+function_name = "scmd_expand"
+description = "Pass parent.frame() to s2r_eval_cond in scmd_expand"
+---
+```r
+# 3. Runtime Execution Phase: Evaluate against actual data
+scmd_expand = function(data, r_n_expr_str, r_if_cond = NA_character_, r_in_range = NA_character_) {
+  restore.point("scmd_expand")
+  mask = rep(TRUE, nrow(data))
+  if (!is.na(r_if_cond) && r_if_cond != "") mask = mask & s2r_eval_cond(data, r_if_cond, envir = parent.frame())
+  if (!is.na(r_in_range) && r_in_range != "") {
+    idx = s2r_eval_range(data, r_in_range)
+    in_mask = rep(FALSE, nrow(data))
+    in_mask[idx] = TRUE
+    mask = mask & in_mask
+  }
+
+  # Evaluate N expression inside data context properly
+  eval_list = s2r_setup_eval_list(data)
+  n_vals = base::eval(base::parse(text = r_n_expr_str), envir = eval_list, enclos = parent.frame())
+
+  final_times = ifelse(mask, ifelse(is.na(n_vals), 1, pmax(0, as.integer(n_vals))), 1)
+
+  data = data[rep(1:nrow(data), times = final_times), ]
+  rownames(data) = NULL
+
+  return(dplyr::as_tibble(data))
+}
+```
+!END_MODIFICATION scmd_expand in /home/rstudio/aicoder/stata2r/R/t_expand.R
+
+
+!MODIFICATION scmd_summarize in /home/rstudio/aicoder/stata2r/R/t_summarize.R
+scope = "function"
+file = "/home/rstudio/aicoder/stata2r/R/t_summarize.R"
+function_name = "scmd_summarize"
+description = "Pass parent.frame() to s2r_eval_cond in scmd_summarize"
+---
+```r
+# 3. Runtime Execution Phase
+scmd_summarize = function(data, needed_r, var_for_r = NA_character_, r_if_cond = NA_character_) {
+  restore.point("scmd_summarize")
+  if (!is.na(r_if_cond) && r_if_cond != "") {
+    data = data[s2r_eval_cond(data, r_if_cond, envir = parent.frame()), , drop = FALSE]
+  }
+
+  res = list()
+  if (is.na(var_for_r)) {
+    if ("r(N)" %in% needed_r) {
+      res$r_N = nrow(data)
+    }
+  } else {
+    v = expand_varlist(var_for_r, names(data))[1]
+    col = data[[v]]
+    if ("r(N)" %in% needed_r) {
+      res$r_N = sum(!is.na(col))
+    }
+    if ("r(mean)" %in% needed_r) {
+      res$r_mean = mean(col, na.rm = TRUE)
+    }
+    if ("r(sd)" %in% needed_r) {
+      res$r_sd = sd(col, na.rm = TRUE)
+    }
+    if ("r(min)" %in% needed_r) {
+      res$r_min = min(col, na.rm = TRUE)
+    }
+    if ("r(max)" %in% needed_r) {
+      res$r_max = max(col, na.rm = TRUE)
+    }
+    if ("r(sum)" %in% needed_r) {
+      res$r_sum = sum(col, na.rm = TRUE)
+    }
+    if ("r(p50)" %in% needed_r) {
+      res$r_p50 = median(col, na.rm = TRUE)
+    }
+  }
+  return(res)
+}
+```
+!END_MODIFICATION scmd_summarize in /home/rstudio/aicoder/stata2r/R/t_summarize.R
+
+
+!MODIFICATION scmd_encode in /home/rstudio/aicoder/stata2r/R/t_encode.R
+scope = "function"
+file = "/home/rstudio/aicoder/stata2r/R/t_encode.R"
+function_name = "scmd_encode"
+description = "Pass parent.frame() to s2r_eval_cond in scmd_encode"
+---
+```r
+# 3. Runtime Execution Phase: Evaluate against actual data
+scmd_encode = function(data, varname, gen_var, r_if_cond = NA_character_, r_in_range = NA_character_) {
+  restore.point("scmd_encode")
+  var_actual = expand_varlist(varname, names(data))[1]
+
+  mask = rep(TRUE, nrow(data))
+  if (!is.na(r_if_cond) && r_if_cond != "") mask = mask & s2r_eval_cond(data, r_if_cond, envir = parent.frame())
+  if (!is.na(r_in_range) && r_in_range != "") {
+    idx = s2r_eval_range(data, r_in_range)
+    in_mask = rep(FALSE, nrow(data))
+    in_mask[idx] = TRUE
+    mask = mask & in_mask
+  }
+
+  src = data[[var_actual]]
+  uq_vals = sort(unique(src[!is.na(src)]))
+  num_vals = match(src, uq_vals)
+  labels_map = stats::setNames(as.numeric(1:length(uq_vals)), uq_vals)
+
+  encoded = haven::labelled(as.integer(num_vals), labels = labels_map)
+
+  if (!(gen_var %in% names(data))) data[[gen_var]] = NA_integer_
+  data[[gen_var]] = dplyr::if_else(mask, encoded, data[[gen_var]])
+
+  return(data)
+}
+```
+!END_MODIFICATION scmd_encode in /home/rstudio/aicoder/stata2r/R/t_encode.R
+
+
+!MODIFICATION scmd_estimation_effects in /home/rstudio/aicoder/stata2r/R/t_estimation_cmd.R
+scope = "function"
+file = "/home/rstudio/aicoder/stata2r/R/t_estimation_cmd.R"
+function_name = "scmd_estimation_effects"
+description = "Pass parent.frame() to s2r_eval_cond in scmd_estimation_effects"
+---
+```r
+scmd_estimation_effects = function(data, dep_var, model_vars, needed_e, r_if_cond = NA_character_, estimator = "regress", formula_terms = character(0)) {
+  restore.point("scmd_estimation_effects")
+
+  mask = rep(TRUE, nrow(data))
+  if (!is.na(r_if_cond) && r_if_cond != "") {
+    mask = mask & s2r_eval_cond(data, r_if_cond, envir = parent.frame())
+  }
+
+  dep_actual = expand_varlist(dep_var, names(data))
+  if (length(dep_actual) > 0) dep_actual = dep_actual[1] else dep_actual = character(0)
+
+  model_vars_actual = character(0)
+  if (length(model_vars) > 0) {
+    model_vars_actual = unlist(lapply(model_vars, function(v) {
+      expanded = expand_varlist(v, names(data))
+      if (length(expanded) > 0) expanded else character(0)
+    }))
+  }
+  model_vars_actual = unique(model_vars_actual)
+
+  all_vars = unique(c(dep_actual, model_vars_actual))
+  if (length(all_vars) > 0) {
+    cc_mask = stats::complete.cases(data[, all_vars, drop = FALSE])
+  } else {
+    cc_mask = rep(TRUE, nrow(data))
+  }
+
+  e_sample = as.integer(mask & cc_mask)
+  res = list(e_sample = e_sample)
+
+  if ("e(N)" %in% needed_e) {
+    res$e_N = sum(e_sample)
+  }
+
+  other_e = setdiff(needed_e, c("e(sample)", "e(N)"))
+  if (length(other_e) > 0) {
+    can_fit_lm = estimator %in% c("regress", "areg", "xtreg", "reghdfe", "ivregress") &&
+      length(formula_terms) > 0 &&
+      all(stringi::stri_detect_regex(formula_terms, "^[A-Za-z_][A-Za-z0-9_]*$"))
+
+    if (can_fit_lm && sum(e_sample) > 0) {
+      # Use only the first matched column for the dependent variable in formula
+      formula_str = paste0("`", dep_actual, "` ~ ", paste(paste0("`", formula_terms, "`"), collapse = " + "))
+      mod = stats::lm(stats::as.formula(formula_str), data = data[e_sample == 1, , drop = FALSE])
+      sm = summary(mod)
+
+      if ("e(r2)" %in% needed_e) res$e_r2 = sm$r.squared
+      if ("e(df_r)" %in% needed_e) res$e_df_r = mod$df.residual
+      if ("e(rmse)" %in% needed_e) res$e_rmse = sm$sigma
+    } else {
+      if ("e(r2)" %in% needed_e) res$e_r2 = NA_real_
+      if ("e(df_r)" %in% needed_e) res$e_df_r = NA_real_
+      if ("e(rmse)" %in% needed_e) res$e_rmse = NA_real_
+    }
+  }
+
+  return(res)
+}
+```
+!END_MODIFICATION scmd_estimation_effects in /home/rstudio/aicoder/stata2r/R/t_estimation_cmd.R

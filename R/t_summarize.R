@@ -117,10 +117,11 @@ t_summarize = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 }
 
 # 3. Runtime Execution Phase
+# 3. Runtime Execution Phase
 scmd_summarize = function(data, needed_r, var_for_r = NA_character_, r_if_cond = NA_character_) {
   restore.point("scmd_summarize")
   if (!is.na(r_if_cond) && r_if_cond != "") {
-    data = data[s2r_eval_cond(data, r_if_cond), , drop = FALSE]
+    data = data[s2r_eval_cond(data, r_if_cond, envir = parent.frame()), , drop = FALSE]
   }
 
   res = list()

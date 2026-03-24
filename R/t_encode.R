@@ -38,12 +38,13 @@ t_encode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 }
 
 # 3. Runtime Execution Phase: Evaluate against actual data
+# 3. Runtime Execution Phase: Evaluate against actual data
 scmd_encode = function(data, varname, gen_var, r_if_cond = NA_character_, r_in_range = NA_character_) {
   restore.point("scmd_encode")
   var_actual = expand_varlist(varname, names(data))[1]
 
   mask = rep(TRUE, nrow(data))
-  if (!is.na(r_if_cond) && r_if_cond != "") mask = mask & s2r_eval_cond(data, r_if_cond)
+  if (!is.na(r_if_cond) && r_if_cond != "") mask = mask & s2r_eval_cond(data, r_if_cond, envir = parent.frame())
   if (!is.na(r_in_range) && r_in_range != "") {
     idx = s2r_eval_range(data, r_in_range)
     in_mask = rep(FALSE, nrow(data))

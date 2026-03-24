@@ -52,7 +52,7 @@ s2r_prepare_runtime_cond = function(r_cond) {
 }
 
 #' Evaluate a Stata condition string at runtime, returning a boolean vector
-s2r_eval_cond = function(data, r_cond) {
+s2r_eval_cond = function(data, r_cond, envir = parent.frame()) {
   restore.point("s2r_eval_cond")
   if (is.na(r_cond) || r_cond == "") return(rep(TRUE, NROW(data)))
 
@@ -79,7 +79,7 @@ s2r_eval_cond = function(data, r_cond) {
     }
   }
 
-  cond_val = base::eval(expr, envir = eval_list, enclos = parent.frame())
+  cond_val = base::eval(expr, envir = eval_list, enclos = envir)
   return(dplyr::coalesce(as.logical(cond_val), FALSE))
 }
 
@@ -97,12 +97,13 @@ s2r_eval_range = function(data, r_range) {
 #' @param data The dataframe
 #' @param r_if_cond The translated R condition string
 #' @param r_in_range The translated R range string
+#' @param envir The enclosing environment for evaluation
 #' @return The subsetted dataframe
-s2r_eval_if_in = function(data, r_if_cond = NA_character_, r_in_range = NA_character_) {
+s2r_eval_if_in = function(data, r_if_cond = NA_character_, r_in_range = NA_character_, envir = parent.frame()) {
   restore.point("seval_if_in")
 
   if (!is.na(r_if_cond) && r_if_cond != "") {
-    cond_val = s2r_eval_cond(data, r_if_cond)
+    cond_val = s2r_eval_cond(data, r_if_cond, envir = envir)
     data = data[cond_val, , drop = FALSE]
   }
 

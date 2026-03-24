@@ -60,12 +60,13 @@ t_drop = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 }
 
 # 3. Runtime Execution Phase: Evaluate against actual data columns and environments
+# 3. Runtime Execution Phase: Evaluate against actual data columns and environments
 scmd_drop = function(data, varlist_str = NA_character_, r_if_cond = NA_character_, r_in_range = NA_character_) {
   restore.point("scmd_drop")
 
   # 1. Row dropping (`if` condition)
   if (!is.na(r_if_cond) && r_if_cond != "") {
-    cond_val = s2r_eval_cond(data, r_if_cond)
+    cond_val = s2r_eval_cond(data, r_if_cond, envir = parent.frame())
     # Inverse of keep: we retain FALSE / NAs
     data = data[!cond_val, , drop = FALSE]
   }

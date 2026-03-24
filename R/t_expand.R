@@ -29,10 +29,11 @@ t_expand = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 }
 
 # 3. Runtime Execution Phase: Evaluate against actual data
+# 3. Runtime Execution Phase: Evaluate against actual data
 scmd_expand = function(data, r_n_expr_str, r_if_cond = NA_character_, r_in_range = NA_character_) {
   restore.point("scmd_expand")
   mask = rep(TRUE, nrow(data))
-  if (!is.na(r_if_cond) && r_if_cond != "") mask = mask & s2r_eval_cond(data, r_if_cond)
+  if (!is.na(r_if_cond) && r_if_cond != "") mask = mask & s2r_eval_cond(data, r_if_cond, envir = parent.frame())
   if (!is.na(r_in_range) && r_in_range != "") {
     idx = s2r_eval_range(data, r_in_range)
     in_mask = rep(FALSE, nrow(data))

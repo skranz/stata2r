@@ -41,6 +41,7 @@ t_destring = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 }
 
 # 3. Runtime Execution Phase: Evaluate against actual data
+# 3. Runtime Execution Phase: Evaluate against actual data
 scmd_destring = function(data, varlist_str, is_replace, gen_vars_str = NA_character_, r_if_cond = NA_character_, r_in_range = NA_character_) {
   restore.point("scmd_destring")
   vars_actual = expand_varlist(varlist_str, names(data))
@@ -56,7 +57,7 @@ scmd_destring = function(data, varlist_str, is_replace, gen_vars_str = NA_charac
   }
 
   mask = rep(TRUE, nrow(data))
-  if (!is.na(r_if_cond) && r_if_cond != "") mask = mask & s2r_eval_cond(data, r_if_cond)
+  if (!is.na(r_if_cond) && r_if_cond != "") mask = mask & s2r_eval_cond(data, r_if_cond, envir = parent.frame())
   if (!is.na(r_in_range) && r_in_range != "") {
     idx = s2r_eval_range(data, r_in_range)
     in_mask = rep(FALSE, nrow(data))

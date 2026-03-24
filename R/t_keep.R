@@ -60,11 +60,12 @@ t_keep = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 }
 
 # 3. Runtime Execution Phase: Evaluate against actual data columns and environments
+# 3. Runtime Execution Phase: Evaluate against actual data columns and environments
 scmd_keep = function(data, varlist_str = NA_character_, r_if_cond = NA_character_, r_in_range = NA_character_) {
   restore.point("scmd_keep")
 
   # 1. Row subsetting using generalized if/in evaluator
-  data = s2r_eval_if_in(data, r_if_cond, r_in_range)
+  data = s2r_eval_if_in(data, r_if_cond, r_in_range, envir = parent.frame())
 
   # 2. Column subsetting (`varlist`)
   if (!is.na(varlist_str) && varlist_str != "") {

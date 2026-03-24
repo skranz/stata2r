@@ -67,7 +67,6 @@ s2r_parse_xtset = function(cmd, timevar, panelvar, tdelta) {
   list(timevar = timevar, panelvar = panelvar, tdelta = tdelta)
 }
 
-
 #' Find TS operators (like d.x1) and replace with collapse calls
 s2r_replace_ts_in_string = function(rc, timevar, panelvar, tdelta) {
   rx = "\\b([LlFfDdSsOo])([0-9]*)\\.([a-zA-Z0-9_]+)\\b"

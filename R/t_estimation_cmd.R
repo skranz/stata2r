@@ -139,7 +139,7 @@ scmd_estimation_effects = function(data, dep_var, model_vars, needed_e, r_if_con
 
   mask = rep(TRUE, nrow(data))
   if (!is.na(r_if_cond) && r_if_cond != "") {
-    mask = mask & s2r_eval_cond(data, r_if_cond)
+    mask = mask & s2r_eval_cond(data, r_if_cond, envir = parent.frame())
   }
 
   dep_actual = expand_varlist(dep_var, names(data))
