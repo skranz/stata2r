@@ -22,7 +22,7 @@ t_merge = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   file_r_expr = resolve_stata_filename(parsed$file, cmd_df, line_num, default_base_dir_var = "working_dir")
 
-  has_nogenerate = dplyr::coalesce(stringi::stri_detect_regex(parsed$options, "\\bno(?:generate|gen)\\b"), FALSE)
+  has_nogenerate = fast_coalesce(stringi::stri_detect_regex(parsed$options, "\\bno(?:generate|gen)\\b"), FALSE)
   keep_opt = NA_character_
   if (!is.na(parsed$options)) {
     k_match = stringi::stri_match_first_regex(parsed$options, "\\bkeep\\s*\\(([^)]+)\\)")

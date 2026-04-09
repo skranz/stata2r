@@ -41,7 +41,7 @@ t_label = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
     lbls = ifelse(!is.na(rule_matches[,3]), rule_matches[,3], rule_matches[,4])
 
     num_vals = sapply(vals, function(v) {
-      if (v == "." || dplyr::coalesce(stringi::stri_detect_regex(v, "^\\.[a-zA-Z]$"), FALSE)) NA_real_ else as.numeric(v)
+      if (v == "." || fast_coalesce(stringi::stri_detect_regex(v, "^\\.[a-zA-Z]$"), FALSE)) NA_real_ else as.numeric(v)
     })
 
     map_str = "stats::setNames(numeric(0), character(0))"

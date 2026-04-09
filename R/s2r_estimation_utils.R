@@ -133,11 +133,11 @@ s2r_line_uses_xi_prefixes = function(line_text, xi_prefixes) {
   restore.point("s2r_line_uses_xi_prefixes")
   if (is.na(line_text) || line_text == "" || length(xi_prefixes) == 0) return(FALSE)
 
-  if (dplyr::coalesce(stringi::stri_detect_fixed(line_text, "_I*"), FALSE)) {
+  if (fast_coalesce(stringi::stri_detect_fixed(line_text, "_I*"), FALSE)) {
     return(TRUE)
   }
 
   any(vapply(xi_prefixes, function(pref) {
-    dplyr::coalesce(stringi::stri_detect_fixed(line_text, pref), FALSE)
+    fast_coalesce(stringi::stri_detect_fixed(line_text, pref), FALSE)
   }, logical(1)))
 }

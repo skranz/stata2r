@@ -11,7 +11,7 @@ s2r_p_destring = function(rest_of_cmd) {
   options_str = stringi::stri_trim_both(options_match[1,2])
   varlist_str = stringi::stri_trim_both(stringi::stri_replace_last_regex(parsed$base_str, ",\\s*(.*)$", ""))
 
-  is_replace = dplyr::coalesce(stringi::stri_detect_fixed(options_str, "replace"), FALSE)
+  is_replace = fast_coalesce(stringi::stri_detect_fixed(options_str, "replace"), FALSE)
   gen_vars = NA_character_
   if (!is_replace) {
     gen_opt = stringi::stri_match_first_regex(options_str, "\\bgenerate\\s*\\(([^)]+)\\)")

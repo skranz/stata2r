@@ -67,7 +67,7 @@ scmd_generate = function(data, new_var, r_expr_str, r_if_cond = NA_character_, g
 
   na_val = if (is_string) '""' else "NA_real_"
   if (!is.na(r_if_cond) && r_if_cond != "") {
-    expr_val = paste0("dplyr::if_else((dplyr::coalesce(as.numeric(", r_if_cond, "), 0) != 0), ", expr_val, ", ", na_val, ")")
+    expr_val = paste0("dplyr::if_else((fast_coalesce(as.numeric(", r_if_cond, "), 0) != 0), ", expr_val, ", ", na_val, ")")
   }
 
   pipe_el = c("data")

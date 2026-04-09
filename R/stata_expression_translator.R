@@ -61,7 +61,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   # Step 4: Iteratively translate Stata functions (e.g., cond(), round(), log(), etc.)
   old_r_expr = ""
-  while (dplyr::coalesce(r_expr != old_r_expr, FALSE)) {
+  while (fast_coalesce(r_expr != old_r_expr, FALSE)) {
     old_r_expr = r_expr
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bcond\\(([^,]+),([^,]+),([^)]+)\\)", "sfun_stata_cond($1, $2, $3)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^,]+),([^)]+)\\)", "sfun_stata_round($1, $2)")
@@ -143,13 +143,13 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
         next
       }
 
-      is_reserved = dplyr::coalesce(current_word %in% r_reserved_words, FALSE)
-      is_numeric_literal = dplyr::coalesce(suppressWarnings(!is.na(as.numeric(current_word))), FALSE)
+      is_reserved = fast_coalesce(current_word %in% r_reserved_words, FALSE)
+      is_numeric_literal = fast_coalesce(suppressWarnings(!is.na(as.numeric(current_word))), FALSE)
 
       is_already_backticked = FALSE
-      if (dplyr::coalesce(start_pos > 1 && end_pos < stringi::stri_length(r_expr), FALSE)) {
-        char_before = dplyr::coalesce(stringi::stri_sub(r_expr, start_pos - 1, start_pos - 1), "")
-        char_after = dplyr::coalesce(stringi::stri_sub(r_expr, end_pos + 1, end_pos + 1), "")
+      if (fast_coalesce(start_pos > 1 && end_pos < stringi::stri_length(r_expr), FALSE)) {
+        char_before = fast_coalesce(stringi::stri_sub(r_expr, start_pos - 1, start_pos - 1), "")
+        char_after = fast_coalesce(stringi::stri_sub(r_expr, end_pos + 1, end_pos + 1), "")
         is_already_backticked = (char_before == "`" && char_after == "`")
       }
 
@@ -166,7 +166,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   # Step 6: Translate Stata '+' operator to sfun_stata_add for polymorphic behavior
   operand_pattern = "(?:\"[^\"]*\"|'[^']*'|\\d+(?:\\.\\d+)?(?:e[+-]?\\d+)?|\\b(?:NA_real_|NULL)\\b|\\b(?:TRUE|FALSE)\\b|`[^`]+`|\\b[a-zA-Z_][a-zA-Z0-9_.]*\\s*\\(.*?\\)\\s*|_[0-9]+STATA2R_SLIT_|_[0-9]+STATA2R_MACRO_)"
   old_r_expr_add = ""
-  while (dplyr::coalesce(r_expr != old_r_expr_add, FALSE)) {
+  while (fast_coalesce(r_expr != old_r_expr_add, FALSE)) {
     old_r_expr_add = r_expr
     add_regex_middle_part = "\\s*(?<![<>=!~])\\+\\s*(?!\\s*\\+|\\s*=\\s*)"
     add_regex_full = paste0("(", operand_pattern, ")", add_regex_middle_part, "(", operand_pattern, ")")

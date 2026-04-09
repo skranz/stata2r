@@ -39,9 +39,9 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   if (!is.na(r_in_range)) final_cond = if(is.na(final_cond)) r_in_range else paste0("(", final_cond, ") & (", r_in_range, ")")
 
   r_args = translate_stata_expression_with_r_values(parsed$args_str, line_num, cmd_df, context)
-  r_args_cond = if (!is.na(final_cond)) paste0("dplyr::if_else(dplyr::coalesce(", final_cond, ", FALSE), ", r_args, ", NA)") else r_args
+  r_args_cond = if (!is.na(final_cond)) paste0("dplyr::if_else(fast_coalesce(", final_cond, ", FALSE), ", r_args, ", NA)") else r_args
 
-  is_ftm = dplyr::coalesce(stringi::stri_detect_fixed(parsed$options, "fieldstrustmissings"), FALSE)
+  is_ftm = fast_coalesce(stringi::stri_detect_fixed(parsed$options, "fieldstrustmissings"), FALSE)
   is_row = FALSE
   needs_temp_sort = FALSE
 

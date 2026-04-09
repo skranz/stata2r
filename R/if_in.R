@@ -80,7 +80,7 @@ s2r_eval_cond = function(data, r_cond, envir = parent.frame()) {
   }
 
   cond_val = base::eval(expr, envir = eval_list, enclos = envir)
-  return(dplyr::coalesce(as.logical(cond_val), FALSE))
+  return(fast_coalesce(as.logical(cond_val), FALSE))
 }
 
 #' Evaluate a Stata 'in' range string at runtime, returning matched indices

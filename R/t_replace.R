@@ -68,7 +68,7 @@ scmd_replace = function(data, var_to_replace, r_expr_str, r_if_cond = NA_charact
   }
 
   if (!is.na(r_if_cond) && r_if_cond != "") {
-    expr_val = paste0("dplyr::if_else((dplyr::coalesce(as.numeric(", r_if_cond, "), 0) != 0), ", expr_val, ", data$`", var_actual, "`)")
+    expr_val = paste0("dplyr::if_else((fast_coalesce(as.numeric(", r_if_cond, "), 0) != 0), ", expr_val, ", data$`", var_actual, "`)")
   }
 
   pipe_el = c("data")

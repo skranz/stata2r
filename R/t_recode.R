@@ -45,7 +45,7 @@ translate_recode_rule_template = function(rule_str, final_r_var_type_is_string) 
   r_condition = ""
   if (old_part_raw == "else") {
     r_condition = "TRUE"
-  } else if (old_part_raw == "missing" || dplyr::coalesce(stringi::stri_detect_regex(old_part_raw, "^\\.\\w?$"), FALSE)) {
+  } else if (old_part_raw == "missing" || fast_coalesce(stringi::stri_detect_regex(old_part_raw, "^\\.\\w?$"), FALSE)) {
     r_condition = "sfun_missing(.VAR.)"
   } else if (old_part_raw == "nonmissing") {
     r_condition = "!sfun_missing(.VAR.)"
@@ -65,7 +65,7 @@ translate_recode_rule_template = function(rule_str, final_r_var_type_is_string) 
     old_values = stringi::stri_split_regex(old_part_raw, "\\s+")[[1]]
     old_values = old_values[!is.na(old_values) & old_values != ""]
     r_values = sapply(old_values, function(val) {
-      if (is.na(val) || val == "." || dplyr::coalesce(stringi::stri_detect_regex(val, "^\\.[a-zA-Z]$"), FALSE)) return("NA_real_")
+      if (is.na(val) || val == "." || fast_coalesce(stringi::stri_detect_regex(val, "^\\.[a-zA-Z]$"), FALSE)) return("NA_real_")
       translate_stata_expression_to_r(val)
     })
     r_condition = paste0(".VAR. %in% c(", paste(r_values, collapse = ", "), ")")
@@ -89,7 +89,7 @@ translate_recode_rule_template = function(rule_str, final_r_var_type_is_string) 
       r_new_value = translate_stata_expression_to_r(new_part_raw)
       if (final_r_var_type_is_string) {
         if (r_new_value == "NA_real_") r_new_value = '""'
-        else if (!dplyr::coalesce(stringi::stri_startswith_fixed(r_new_value, '"'), FALSE) && !dplyr::coalesce(stringi::stri_startswith_fixed(r_new_value, "'"), FALSE)) {
+        else if (!fast_coalesce(stringi::stri_startswith_fixed(r_new_value, '"'), FALSE) && !fast_coalesce(stringi::stri_startswith_fixed(r_new_value, "'"), FALSE)) {
           r_new_value = paste0("as.character(", r_new_value, ")")
         }
       }
@@ -114,8 +114,8 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     if (length(parts_eq) != 2) next
     new_part_raw = stringi::stri_trim_both(parts_eq[2])
 
-    if ((dplyr::coalesce(stringi::stri_startswith_fixed(new_part_raw, '"'), FALSE)) ||
-        (dplyr::coalesce(stringi::stri_startswith_fixed(new_part_raw, "'"), FALSE))) {
+    if ((fast_coalesce(stringi::stri_startswith_fixed(new_part_raw, '"'), FALSE)) ||
+        (fast_coalesce(stringi::stri_startswith_fixed(new_part_raw, "'"), FALSE))) {
       any_rule_implies_string_output = TRUE
     }
 
@@ -201,7 +201,7 @@ scmd_recode = function(data, varlist_str, rules_templates, gen_vars_str = NA_cha
     case_when_expr = paste0("dplyr::case_when(\n    ", paste(r_rules, collapse = ",\n    "), "\n  )")
 
     if (!is.na(r_if_cond) && r_if_cond != "") {
-      final_val_expr = paste0("dplyr::if_else((dplyr::coalesce(as.numeric(", r_if_cond, "), 0) != 0), ", case_when_expr, ", `", old_var, "`)")
+      final_val_expr = paste0("dplyr::if_else((fast_coalesce(as.numeric(", r_if_cond, "), 0) != 0), ", case_when_expr, ", `", old_var, "`)")
     } else {
       final_val_expr = case_when_expr
     }

@@ -369,8 +369,8 @@ parse_stata_command_line = function(line_text) {
   }
 
   # 3. by / bysort prefix
-  if (dplyr::coalesce(stringi::stri_startswith_fixed(effective_line, "by "), FALSE) ||
-      dplyr::coalesce(stringi::stri_startswith_fixed(effective_line, "bysort "), FALSE)) {
+  if (fast_coalesce(stringi::stri_startswith_fixed(effective_line, "by "), FALSE) ||
+      fast_coalesce(stringi::stri_startswith_fixed(effective_line, "bysort "), FALSE)) {
     prefix_match = stringi::stri_match_first_regex(effective_line, "^(by|bysort)\\s+([^:]+?)\\s*:\\s*(.*)$")
     if (!is.na(prefix_match[1,1])) {
       raw_prefix = stringi::stri_trim_both(prefix_match[1,2])
@@ -388,7 +388,7 @@ parse_stata_command_line = function(line_text) {
       }
 
       for (token in by_tokens) {
-        if (dplyr::coalesce(stringi::stri_startswith_fixed(token, "(") && stringi::stri_endswith_fixed(token, ")"), FALSE)) {
+        if (fast_coalesce(stringi::stri_startswith_fixed(token, "(") && stringi::stri_endswith_fixed(token, ")"), FALSE)) {
           sort_vars_in_paren = stringi::stri_sub(token, 2, -2)
           by_sort_vars = c(by_sort_vars, stringi::stri_split_regex(stringi::stri_trim_both(sort_vars_in_paren), "\\s+")[[1]])
         } else {
@@ -466,10 +466,10 @@ get_tempfile_macros = function(rest_of_cmd_for_tempfile) {
 unquote_stata_string_literal = function(s) {
   restore.point("unquote_stata_string_literal")
   if (is.na(s) || s == "") return(s)
-  if (dplyr::coalesce(stringi::stri_startswith_fixed(s, "\"") && stringi::stri_endswith_fixed(s, "\""), FALSE)) {
+  if (fast_coalesce(stringi::stri_startswith_fixed(s, "\"") && stringi::stri_endswith_fixed(s, "\""), FALSE)) {
     return(stringi::stri_sub(s, 2, -2))
   }
-  if (dplyr::coalesce(stringi::stri_startswith_fixed(s, "'") && stringi::stri_endswith_fixed(s, "'"), FALSE)) {
+  if (fast_coalesce(stringi::stri_startswith_fixed(s, "'") && stringi::stri_endswith_fixed(s, "'"), FALSE)) {
     return(stringi::stri_sub(s, 2, -2))
   }
   return(s)
@@ -492,7 +492,7 @@ resolve_stata_filename = function(raw_filename_token, cmd_df, line_num, default_
   restore.point("resolve_stata_filename")
   unquoted_content = unquote_stata_string_literal(raw_filename_token)
 
-  if (dplyr::coalesce(stringi::stri_startswith_fixed(unquoted_content, "`") && stringi::stri_endswith_fixed(unquoted_content, "'"), FALSE)) {
+  if (fast_coalesce(stringi::stri_startswith_fixed(unquoted_content, "`") && stringi::stri_endswith_fixed(unquoted_content, "'"), FALSE)) {
     macro_name = stringi::stri_sub(unquoted_content, 2, -2)
 
     found_def_line = NA_integer_
@@ -513,8 +513,8 @@ resolve_stata_filename = function(raw_filename_token, cmd_df, line_num, default_
       return(quote_for_r_literal(unquoted_content))
     }
   } else {
-    is_absolute_path = dplyr::coalesce(stringi::stri_startswith_fixed(unquoted_content, "/"), FALSE) ||
-      dplyr::coalesce(stringi::stri_detect_regex(unquoted_content, "^[A-Za-z]:[\\\\/]"), FALSE)
+    is_absolute_path = fast_coalesce(stringi::stri_startswith_fixed(unquoted_content, "/"), FALSE) ||
+      fast_coalesce(stringi::stri_detect_regex(unquoted_content, "^[A-Za-z]:[\\\\/]"), FALSE)
 
     if (is_absolute_path) {
       return(quote_for_r_literal(unquoted_content))

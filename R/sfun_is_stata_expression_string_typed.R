@@ -1,6 +1,6 @@
 sfun_is_stata_expression_string_typed = function(stata_expr_original) {
   restore.point("sfun_is_stata_expression_string_typed")
-  
+
   # Ensure stata_expr_original is a single character string or NA
   if (is.null(stata_expr_original) || length(stata_expr_original) == 0 || !is.character(stata_expr_original)) {
       stata_expr_original = NA_character_
@@ -12,7 +12,7 @@ sfun_is_stata_expression_string_typed = function(stata_expr_original) {
 
   # NEW: 1. Check for logical/comparison operators. If present, the result is numeric (0/1).
   # This must precede the string literal check.
-  if (dplyr::coalesce(stringi::stri_detect_regex(stata_expr_original, "==|!=|<=|>=|<|>|&|\\|"), FALSE)) {
+  if (fast_coalesce(stringi::stri_detect_regex(stata_expr_original, "==|!=|<=|>=|<|>|&|\\|"), FALSE)) {
     return(FALSE)
   }
 
@@ -23,8 +23,8 @@ sfun_is_stata_expression_string_typed = function(stata_expr_original) {
       val_if_true_str = stringi::stri_trim_both(cond_match[1,3])
       val_if_false_str = stringi::stri_trim_both(cond_match[1,4])
       # Recursively check the arguments for string type
-      if (dplyr::coalesce(sfun_is_stata_expression_string_typed(val_if_true_str), FALSE) ||
-          dplyr::coalesce(sfun_is_stata_expression_string_typed(val_if_false_str), FALSE)) {
+      if (fast_coalesce(sfun_is_stata_expression_string_typed(val_if_true_str), FALSE) ||
+          fast_coalesce(sfun_is_stata_expression_string_typed(val_if_false_str), FALSE)) {
           return(TRUE)
       } else {
           # If both are numeric, cond is numeric
@@ -40,7 +40,7 @@ sfun_is_stata_expression_string_typed = function(stata_expr_original) {
     "float", "double", "long", "int", "byte"
   )
   for (func in numeric_producing_functions) {
-    if (dplyr::coalesce(stringi::stri_detect_regex(stata_expr_original, paste0("\\b", func, "\\s*\\(")), FALSE)) {
+    if (fast_coalesce(stringi::stri_detect_regex(stata_expr_original, paste0("\\b", func, "\\s*\\(")), FALSE)) {
       return(FALSE)
     }
   }
@@ -55,22 +55,22 @@ sfun_is_stata_expression_string_typed = function(stata_expr_original) {
     "string"
   )
   for (func in string_producing_functions) {
-    if (dplyr::coalesce(stringi::stri_detect_regex(stata_expr_original, paste0("\\b", func, "\\s*\\(")), FALSE)) {
+    if (fast_coalesce(stringi::stri_detect_regex(stata_expr_original, paste0("\\b", func, "\\s*\\(")), FALSE)) {
       return(TRUE)
     }
   }
-  
+
   # NEW: 5. Check for '+' operator and string literals.
   #    If expression contains '+' AND a string literal, it's likely string concatenation.
   #    This check is a heuristic.
-  if (dplyr::coalesce(stringi::stri_detect_fixed(stata_expr_original, "+"), FALSE) &&
-      dplyr::coalesce(stringi::stri_detect_regex(stata_expr_original, '"[^"]*"|\'[^\']*\'' ), FALSE)) {
+  if (fast_coalesce(stringi::stri_detect_fixed(stata_expr_original, "+"), FALSE) &&
+      fast_coalesce(stringi::stri_detect_regex(stata_expr_original, '"[^"]*"|\'[^\']*\'' ), FALSE)) {
       return(TRUE)
   }
 
   # 6. Contains any string literal (text enclosed in double or single quotes)
   #    This must come after function/operator checks.
-  if (dplyr::coalesce(stringi::stri_detect_regex(stata_expr_original, '"[^"]*"|\'[^\']*\'' ), FALSE)) {
+  if (fast_coalesce(stringi::stri_detect_regex(stata_expr_original, '"[^"]*"|\'[^\']*\'' ), FALSE)) {
     return(TRUE)
   }
 
@@ -79,5 +79,3 @@ sfun_is_stata_expression_string_typed = function(stata_expr_original) {
   # Or if it's a simple arithmetic expression, it's numeric.
   return(FALSE)
 }
-
-

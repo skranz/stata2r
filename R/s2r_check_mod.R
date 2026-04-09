@@ -3,7 +3,7 @@
 s2r_check_mod = function(stata_code) {
   restore.point("s2r_check_mod")
 
-  if (length(stata_code) == 1 && is.character(stata_code) && dplyr::coalesce(stringi::stri_detect_fixed(stata_code, "\n"), FALSE)) {
+  if (length(stata_code) == 1 && is.character(stata_code) && fast_coalesce(stringi::stri_detect_fixed(stata_code, "\n"), FALSE)) {
     stata_code = stringi::stri_split_fixed(stata_code, "\n")[[1]]
   }
   if (is.list(stata_code)) {
@@ -45,7 +45,7 @@ s2r_check_mod_df = function(cmd_df) {
   # Commands that are inherently data-modifying are always kept.
   cmd_df$is_mod = !is.na(cmd_df$stata_cmd) & (cmd_df$stata_cmd %in% stata_data_manip_cmds)
 
-  # Prepare string vector to avoid slow dplyr::coalesce inside the loop
+  # Prepare string vector to avoid slow fast_coalesce inside the loop
   rest_of_cmd_vec = cmd_df$rest_of_cmd
   rest_of_cmd_vec[is.na(rest_of_cmd_vec)] = ""
 
