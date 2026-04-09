@@ -29,6 +29,7 @@ R/sfun_strip_stata_attributes.R
 R/sfun_stritrim.R
 R/sfun_strpos.R
 R/sfun_subinstr.R
+R/sfun_ts_utils.R
 R/sfun_year.R
 R/stata2r_globals.R
 R/stata_cmd_utils.R
@@ -65,6 +66,7 @@ R/t_rename.R
 R/t_replace.R
 R/t_reshape.R
 R/t_save.R
+R/t_scalar.R
 R/t_sort.R
 R/t_summarize.R
 R/t_tempfile.R
