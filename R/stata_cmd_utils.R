@@ -84,6 +84,7 @@ stata_cmd_abbreviations = list(
   "xi" = "xi"
 )
 
+
 # Function to get the full Stata command name from a token (could be an abbreviation)
 get_stata_full_cmd_name = function(cmd_token) {
   restore.point("get_stata_full_cmd_name")
@@ -106,6 +107,50 @@ get_stata_full_cmd_name = function(cmd_token) {
 
   return(cmd_token_lower)
 }
+
+# Vectorized version of get_stata_full_cmd_name
+get_stata_full_cmd_name_vec = function(cmd_tokens) {
+  restore.point("get_stata_full_cmd_name_vec")
+
+  res = rep(NA_character_, length(cmd_tokens))
+  valid_idx = !is.na(cmd_tokens) & cmd_tokens != ""
+
+  if (any(valid_idx)) {
+    cmd_tokens_lower = tolower(cmd_tokens[valid_idx])
+    res_valid = cmd_tokens_lower
+
+    abbrs = names(stata_cmd_abbreviations)
+    full_cmds = unlist(stata_cmd_abbreviations, use.names = FALSE)
+
+    # 1. Exact match in abbreviations
+    exact_match = match(cmd_tokens_lower, abbrs)
+    has_exact = !is.na(exact_match)
+    res_valid[has_exact] = full_cmds[exact_match[has_exact]]
+
+    # 2. Prefix matching for those without exact match
+    needs_prefix = !has_exact
+    if (any(needs_prefix)) {
+      tokens_to_check = cmd_tokens_lower[needs_prefix]
+      resolved = tokens_to_check
+
+      for (i in seq_along(tokens_to_check)) {
+        tok = tokens_to_check[i]
+        for (j in seq_along(abbrs)) {
+          abbr = abbrs[j]
+          full_cmd = full_cmds[j]
+          if (startsWith(full_cmd, tok) && startsWith(tok, abbr)) {
+            resolved[i] = full_cmd
+            break
+          }
+        }
+      }
+      res_valid[needs_prefix] = resolved
+    }
+    res[valid_idx] = res_valid
+  }
+  return(res)
+}
+
 
 # List of Stata commands considered to modify the dataset
 stata_data_manip_cmds = c(
@@ -144,6 +189,146 @@ stata_estimation_cmds = c(
 stata_r_result_cmds = c(
   "summarize", "su", "tabulate", "tab", "count", "correlate"
 )
+
+
+# Vectorized helper to parse multiple Stata command lines
+parse_stata_command_lines = function(lines_text) {
+  restore.point("parse_stata_command_lines")
+  n = length(lines_text)
+  if (n == 0) {
+    return(list(
+      stata_cmd_original = character(0),
+      stata_cmd = character(0),
+      rest_of_cmd = character(0),
+      is_by_prefix = logical(0),
+      is_bysort_prefix = logical(0),
+      by_group_vars = character(0),
+      by_sort_vars = character(0),
+      is_quietly_prefix = logical(0),
+      is_capture_prefix = logical(0),
+      is_xi_prefix = logical(0)
+    ))
+  }
+
+  effective_line = stringi::stri_trim_both(lines_text)
+
+  is_by_prefix_val = rep(FALSE, n)
+  is_bysort_prefix_val = rep(FALSE, n)
+  by_group_vars = rep("", n)
+  by_sort_vars = rep("", n)
+  is_quietly_prefix_val = rep(FALSE, n)
+  is_capture_prefix_val = rep(FALSE, n)
+  is_xi_prefix_val = rep(FALSE, n)
+
+  # 1. capture prefix
+  capture_match = stringi::stri_match_first_regex(effective_line, "^(?:capture|cap)\\s+(.*)$")
+  idx_cap = !is.na(capture_match[,1])
+  if (any(idx_cap)) {
+    is_capture_prefix_val[idx_cap] = TRUE
+    effective_line[idx_cap] = stringi::stri_trim_both(capture_match[idx_cap, 2])
+  }
+
+  # 2. quietly prefix
+  quietly_match = stringi::stri_match_first_regex(effective_line, "^(?:quietly|qui|q)\\s+(.*)$")
+  idx_qui = !is.na(quietly_match[,1])
+  if (any(idx_qui)) {
+    is_quietly_prefix_val[idx_qui] = TRUE
+    effective_line[idx_qui] = stringi::stri_trim_both(quietly_match[idx_qui, 2])
+  }
+
+  # 3. by / bysort prefix
+  idx_by_starts = stringi::stri_startswith_fixed(effective_line, "by ") | stringi::stri_startswith_fixed(effective_line, "bysort ")
+  if (any(idx_by_starts)) {
+    prefix_match = stringi::stri_match_first_regex(effective_line[idx_by_starts], "^(by|bysort)\\s+([^:]+?)\\s*:\\s*(.*)$")
+    valid_by = !is.na(prefix_match[,1])
+    if (any(valid_by)) {
+      idx_valid_by = which(idx_by_starts)[valid_by]
+      raw_prefix = stringi::stri_trim_both(prefix_match[valid_by, 2])
+      raw_by_string_from_prefix = stringi::stri_trim_both(prefix_match[valid_by, 3])
+      effective_line[idx_valid_by] = stringi::stri_trim_both(prefix_match[valid_by, 4])
+
+      is_by_prefix_val[idx_valid_by] = TRUE
+      is_bysort_prefix_val[idx_valid_by] = (raw_prefix == "bysort")
+
+      for (i in seq_along(idx_valid_by)) {
+        raw_str = raw_by_string_from_prefix[i]
+        grp_vars = character(0)
+        srt_vars = character(0)
+
+        if (!is.na(raw_str) && raw_str != "") {
+          match_result = stringi::stri_match_all_regex(raw_str, "\\s*(\\([^)]+\\)|[^\\s()]+)\\s*")
+          if (!is.null(match_result[[1]]) && NROW(match_result[[1]]) > 0) {
+            by_tokens = match_result[[1]][,2]
+            for (token in by_tokens) {
+              if (stringi::stri_startswith_fixed(token, "(") && stringi::stri_endswith_fixed(token, ")")) {
+                sort_vars_in_paren = stringi::stri_sub(token, 2, -2)
+                srt_vars = c(srt_vars, stringi::stri_split_regex(stringi::stri_trim_both(sort_vars_in_paren), "\\s+")[[1]])
+              } else {
+                grp_vars = c(grp_vars, token)
+              }
+            }
+          }
+        }
+
+        grp_vars = grp_vars[!is.na(grp_vars) & grp_vars != ""]
+        srt_vars = srt_vars[!is.na(srt_vars) & srt_vars != ""]
+
+        if (length(grp_vars) > 0) by_group_vars[idx_valid_by[i]] = paste(grp_vars, collapse = ",")
+        if (length(srt_vars) > 0) by_sort_vars[idx_valid_by[i]] = paste(srt_vars, collapse = ",")
+      }
+    }
+  }
+
+  # 4. xi: prefix
+  xi_match = stringi::stri_match_first_regex(effective_line, "^(?:xi)\\s*:\\s*(.*)$")
+  idx_xi = !is.na(xi_match[,1])
+  if (any(idx_xi)) {
+    is_xi_prefix_val[idx_xi] = TRUE
+    effective_line[idx_xi] = stringi::stri_trim_both(xi_match[idx_xi, 2])
+  }
+
+  # Extract command token from prefix-stripped line
+  parts_mat = stringi::stri_split_fixed(effective_line, " ", n = 2, simplify = NA)
+
+  if (is.matrix(parts_mat)) {
+    cmd_token_original = stringi::stri_trim_both(parts_mat[, 1])
+    rest_of_cmd = stringi::stri_trim_both(parts_mat[, 2])
+  } else {
+    # Fallback for empty strings (should not normally trigger if simplify = NA and n >= 1)
+    cmd_token_original = stringi::stri_trim_both(parts_mat)
+    rest_of_cmd = rep(NA_character_, n)
+  }
+
+  idx_empty = is.na(cmd_token_original) | cmd_token_original == ""
+  if (any(idx_empty)) {
+    cmd_token_original[idx_empty] = NA_character_
+  }
+
+  stata_cmd = get_stata_full_cmd_name_vec(cmd_token_original)
+
+  idx_by_cmd = which(!is.na(stata_cmd) & (stata_cmd == "bysort" | stata_cmd == "by"))
+  if (length(idx_by_cmd) > 0) {
+    is_by_prefix_val[idx_by_cmd] = FALSE
+    is_bysort_prefix_val[idx_by_cmd] = FALSE
+    by_group_vars[idx_by_cmd] = ""
+    by_sort_vars[idx_by_cmd] = ""
+    stata_cmd[idx_by_cmd[stata_cmd[idx_by_cmd] == "by"]] = "bysort"
+  }
+
+  return(list(
+    stata_cmd_original = cmd_token_original,
+    stata_cmd = stata_cmd,
+    rest_of_cmd = rest_of_cmd,
+    is_by_prefix = is_by_prefix_val,
+    is_bysort_prefix = is_bysort_prefix_val,
+    by_group_vars = by_group_vars,
+    by_sort_vars = by_sort_vars,
+    is_quietly_prefix = is_quietly_prefix_val,
+    is_capture_prefix = is_capture_prefix_val,
+    is_xi_prefix = is_xi_prefix_val
+  ))
+}
+
 
 # Helper to parse basic Stata command line: cmd + rest
 # Handles capture, quietly, by/bysort, and xi: prefixes.

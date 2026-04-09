@@ -36,29 +36,25 @@ do_parse = function(do_code) {
     ))
   }
 
-  cmd_list = lapply(seq_along(do_code), function(i) {
-    line_text = do_code[i]
-    parsed_info = parse_stata_command_line(line_text)
-    data.frame(
-      line = i,
-      do_code = line_text,
-      stata_cmd_original = parsed_info$stata_cmd_original,
-      stata_cmd = parsed_info$stata_cmd,
-      rest_of_cmd = parsed_info$rest_of_cmd,
-      is_by_prefix = parsed_info$is_by_prefix,
-      is_bysort_prefix = parsed_info$is_bysort_prefix,
-      by_group_vars = if (length(parsed_info$by_group_vars) > 0) paste(parsed_info$by_group_vars, collapse = ",") else "",
-      by_sort_vars = if (length(parsed_info$by_sort_vars) > 0) paste(parsed_info$by_sort_vars, collapse = ",") else "",
-      is_quietly_prefix = parsed_info$is_quietly_prefix,
-      is_capture_prefix = parsed_info$is_capture_prefix,
-      is_xi_prefix = parsed_info$is_xi_prefix,
-      stata_translation_error = NA_character_,
-      will_ignore_row_order_for_comparison = FALSE,
-      stringsAsFactors = FALSE
-    )
-  })
+  parsed_info = parse_stata_command_lines(do_code)
 
-  cmd_df = dplyr::bind_rows(cmd_list)
+  cmd_df = data.frame(
+    line = seq_len(num_lines),
+    do_code = do_code,
+    stata_cmd_original = parsed_info$stata_cmd_original,
+    stata_cmd = parsed_info$stata_cmd,
+    rest_of_cmd = parsed_info$rest_of_cmd,
+    is_by_prefix = parsed_info$is_by_prefix,
+    is_bysort_prefix = parsed_info$is_bysort_prefix,
+    by_group_vars = parsed_info$by_group_vars,
+    by_sort_vars = parsed_info$by_sort_vars,
+    is_quietly_prefix = parsed_info$is_quietly_prefix,
+    is_capture_prefix = parsed_info$is_capture_prefix,
+    is_xi_prefix = parsed_info$is_xi_prefix,
+    stata_translation_error = NA_character_,
+    will_ignore_row_order_for_comparison = FALSE,
+    stringsAsFactors = FALSE
+  )
 
   cmd_df$e_results_needed = I(replicate(nrow(cmd_df), character(0), simplify = FALSE))
   cmd_df$r_results_needed = I(replicate(nrow(cmd_df), character(0), simplify = FALSE))
