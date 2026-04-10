@@ -13,6 +13,33 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   r_expr = stata_expr
 
+  # Handle Stata functions that are fragile with direct lookup inside mutate.
+  # We translate these first into local wrappers that bind their arguments in
+  # the current evaluation context before calling the runtime helper.
+  r_expr = s2r_replace_special_function_calls(
+    r_expr,
+    "inlist",
+    function(args_str) {
+      s2r_translate_inlist_call(
+        args_str,
+        context = context,
+        r_value_mappings = r_value_mappings
+      )
+    }
+  )
+
+  r_expr = s2r_replace_special_function_calls(
+    r_expr,
+    "inrange",
+    function(args_str) {
+      s2r_translate_inrange_call(
+        args_str,
+        context = context,
+        r_value_mappings = r_value_mappings
+      )
+    }
+  )
+
   # --- Handle string literals by replacing them with unique placeholders ---
   string_literal_map = list()
   placeholder_counter = 0
@@ -29,8 +56,6 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   }
 
   # --- Handle r() and e() values using placeholders first ---
-  # This prevents later generic regex rewrites from corrupting mapped expressions
-  # such as stata2r_env$stata_r_val_L27_mean.
   macro_placeholder_map = list()
   macro_placeholder_counter = 0
   if (!is.null(r_value_mappings) && length(r_value_mappings) > 0) {
@@ -59,7 +84,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_n\\b", "dplyr::row_number()")
   r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_N\\b", "dplyr::n()")
 
-  # Step 4: Iteratively translate Stata functions (e.g., cond(), round(), log(), etc.)
+  # Step 4: Iteratively translate Stata functions (excluding inlist/inrange, handled above)
   old_r_expr = ""
   while (fast_coalesce(r_expr != old_r_expr, FALSE)) {
     old_r_expr = r_expr
@@ -113,7 +138,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     "readr", "tidyr", "labelled", "restorepoint", "stata2r_env",
     "sfun_missing", "sfun_stata_add", "sfun_stata_round", "sfun_string", "sfun_stritrim",
     "sfun_strpos", "sfun_subinstr", "sfun_stata_mdy", "sfun_stata_date", "sfun_day",
-    "sfun_month", "sfun_qofd", "sfun_dow", "sfun_normalize_string_nas", "sfun_strip_stata_attributes",
+    "sfun_month", "sfun_qofd", "sfun_dow", "sfun_inlist", "sfun_inrange", "sfun_normalize_string_nas", "sfun_strip_stata_attributes",
     "sfun_compress_col_type", "sfun_is_stata_expression_string_typed", "as.logical",
     "sfun_stata_cond", "sfun_year", "sfun_stata_date_single", "e", "sfun_flag", "sfun_fdiff",
     "NROW", "length", "unique", "sapply", "vapply", "c", "list", "intersect", "setdiff",
@@ -123,7 +148,8 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     "suppressWarnings", "as.data.frame", "rownames", "colnames", "head", "tail",
     "matrix", "data.frame", "vector", "character", "numeric", "integer", "logical",
     "factor", "double", "`_n`", "`_N`",
-    "cur_group_id", "cur_data_all", "replace", "TRUE", "FALSE"
+    "cur_group_id", "cur_data_all", "replace", "TRUE", "FALSE",
+    "local"
   )
 
   locations_list = stringi::stri_locate_all_regex(r_expr, "\\b([a-zA-Z_][a-zA-Z0-9_.]*)\\b")

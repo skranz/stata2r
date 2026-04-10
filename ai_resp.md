@@ -1,142 +1,225 @@
-You have a fantastic eye for profiling. You have found a classic, notorious R performance trap!
+This is again a new error. The previous fix changed the failure from bare-symbol lookup to `.data` pronoun lookup. The core issue is promise forcing inside helper calls during `mutate()`. A safer approach is to translate `inlist()` and `inrange()` into a small `local({ ... })` wrapper that first binds all arguments in the current data-mask, and only then calls the helper on ordinary local variables.
 
-### Why is `dplyr::coalesce` so slow?
-`dplyr::coalesce()` is built on top of the `vctrs` package. It is designed to be incredibly robust—it can safely combine factors, dates, data frames, and complex S3 classes while strictly checking types. 
-
-However, this robustness comes with **massive overhead**. When you call `dplyr::coalesce(stringi::stri_detect(...), FALSE)` on a simple `TRUE`/`FALSE` scalar inside a `while` loop or an `if` statement, `vctrs` spends milliseconds doing type-checking and S3 dispatch for an operation that should take microseconds. When executed 100,000 times across a script, this easily burns 15+ seconds.
-
-*(Note: In many places in your code, the AI agent added `dplyr::coalesce` defensively, even in places where the inner function—like `%in%` or `!is.na()`—can never return `NA` anyway!)*
-
-### The Fix
-
-We will write a lightning-fast base R replacement called `fast_coalesce()`. Because it avoids S3 dispatch and `vctrs`, it is essentially instantaneous. 
-
-You can safely do a global find-and-replace of `dplyr::coalesce` to `fast_coalesce` across your whole project. Below, I am providing the new file for `fast_coalesce`, and I am updating the two files from your profiler screenshot (`sfun_is_stata_expression_string_typed.R` and `stata_expression_translator.R`) so you can see the immediate speedup.
-
-!MODIFICATION fast_coalesce.R
+!MODIFICATION s2r_inlist_inrange_translate.R
 scope = "file"
-file = "R/fast_coalesce.R"
-is_new_file = true
-description = "Create a lightning-fast alternative to dplyr::coalesce that avoids vctrs overhead."
----
-```r
-#' Fast alternative to dplyr::coalesce for simple vectors
-#' 
-#' Avoids the heavy vctrs and S3 dispatch overhead of dplyr::coalesce.
-#' Ideal for inline use in loops, regex wrappers, and generated code.
-fast_coalesce = function(x, y) {
-  if (is.null(x)) return(y)
-  
-  idx = is.na(x)
-  if (any(idx)) {
-    if (length(y) == 1L) {
-      x[idx] = y
-    } else {
-      x[idx] = y[idx]
-    }
-  }
-  x
-}
-```
-!END_MODIFICATION fast_coalesce.R
-
-!MODIFICATION sfun_is_stata_expression_string_typed.R
-scope = "file"
-file = "R/sfun_is_stata_expression_string_typed.R"
+file = "R/s2r_inlist_inrange_translate.R"
 is_new_file = false
-description = "Replace slow dplyr::coalesce with fast_coalesce to eliminate profiling bottleneck."
----
+description = "Rewrite special inlist and inrange translation helpers to pre-bind arguments in a local block before calling the runtime helper, avoiding fragile bare-symbol and .data pronoun lookup inside dplyr mutate."
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
 ```r
-sfun_is_stata_expression_string_typed = function(stata_expr_original) {
-  restore.point("sfun_is_stata_expression_string_typed")
-  
-  # Ensure stata_expr_original is a single character string or NA
-  if (is.null(stata_expr_original) || length(stata_expr_original) == 0 || !is.character(stata_expr_original)) {
-      stata_expr_original = NA_character_
-  } else {
-      stata_expr_original = as.character(stata_expr_original[1])
+# FILE: R/s2r_inlist_inrange_translate.R
+
+s2r_find_matching_paren = function(text, open_pos) {
+  restore.point("s2r_find_matching_paren")
+  n = stringi::stri_length(text)
+  if (is.na(open_pos) || open_pos < 1 || open_pos > n) return(NA_integer_)
+  if (stringi::stri_sub(text, open_pos, open_pos) != "(") return(NA_integer_)
+
+  depth = 0L
+  in_single = FALSE
+  in_double = FALSE
+
+  for (i in seq.int(open_pos, n)) {
+    ch = stringi::stri_sub(text, i, i)
+    prev = if (i > 1) stringi::stri_sub(text, i - 1L, i - 1L) else ""
+
+    if (!in_double && ch == "'" && prev != "\\") {
+      in_single = !in_single
+      next
+    }
+    if (!in_single && ch == "\"" && prev != "\\") {
+      in_double = !in_double
+      next
+    }
+    if (in_single || in_double) next
+
+    if (ch == "(") {
+      depth = depth + 1L
+    } else if (ch == ")") {
+      depth = depth - 1L
+      if (depth == 0L) return(i)
+    }
   }
 
-  if (is.na(stata_expr_original) || stata_expr_original == "") return(FALSE)
+  NA_integer_
+}
 
-  # NEW: 1. Check for logical/comparison operators. If present, the result is numeric (0/1).
-  # This must precede the string literal check.
-  if (fast_coalesce(stringi::stri_detect_regex(stata_expr_original, "==|!=|<=|>=|<|>|&|\\|"), FALSE)) {
-    return(FALSE)
+s2r_split_top_level_commas = function(text) {
+  restore.point("s2r_split_top_level_commas")
+  if (is.na(text) || text == "") return(character(0))
+
+  n = stringi::stri_length(text)
+  parts = character(0)
+  start = 1L
+  depth = 0L
+  in_single = FALSE
+  in_double = FALSE
+
+  for (i in seq_len(n)) {
+    ch = stringi::stri_sub(text, i, i)
+    prev = if (i > 1) stringi::stri_sub(text, i - 1L, i - 1L) else ""
+
+    if (!in_double && ch == "'" && prev != "\\") {
+      in_single = !in_single
+      next
+    }
+    if (!in_single && ch == "\"" && prev != "\\") {
+      in_double = !in_double
+      next
+    }
+    if (in_single || in_double) next
+
+    if (ch == "(") {
+      depth = depth + 1L
+    } else if (ch == ")") {
+      depth = depth - 1L
+    } else if (ch == "," && depth == 0L) {
+      parts = c(parts, stringi::stri_trim_both(stringi::stri_sub(text, start, i - 1L)))
+      start = i + 1L
+    }
   }
 
-  # 2. `cond(condition, val_if_true, val_if_false)`: if any value (val_if_true, val_if_false) is string, result is string.
-  #    This check must come BEFORE generic string literal check.
-  cond_match = stringi::stri_match_first_regex(stata_expr_original, "\\bcond\\(([^,]+),([^,]+),([^)]+)\\)")
-  if (!is.na(cond_match[1,1])) {
-      val_if_true_str = stringi::stri_trim_both(cond_match[1,3])
-      val_if_false_str = stringi::stri_trim_both(cond_match[1,4])
-      # Recursively check the arguments for string type
-      if (fast_coalesce(sfun_is_stata_expression_string_typed(val_if_true_str), FALSE) ||
-          fast_coalesce(sfun_is_stata_expression_string_typed(val_if_false_str), FALSE)) {
-          return(TRUE)
-      } else {
-          # If both are numeric, cond is numeric
-          return(FALSE)
+  parts = c(parts, stringi::stri_trim_both(stringi::stri_sub(text, start, n)))
+  parts[!is.na(parts) & parts != ""]
+}
+
+s2r_make_local_helper_call = function(fun_name, r_args, temp_prefix) {
+  restore.point("s2r_make_local_helper_call")
+
+  if (length(r_args) == 0) {
+    return(paste0(fun_name, "()"))
+  }
+
+  temp_names = paste0(temp_prefix, seq_along(r_args))
+  bind_code = paste0(temp_names, " <- ", r_args)
+  call_code = paste0(fun_name, "(", paste(temp_names, collapse = ", "), ")")
+
+  paste0("local({ ", paste(c(bind_code, call_code), collapse = "; "), " })")
+}
+
+s2r_translate_inlist_call = function(args_str, context, r_value_mappings = NULL) {
+  restore.point("s2r_translate_inlist_call")
+
+  args = s2r_split_top_level_commas(args_str)
+  if (length(args) == 0) {
+    return("sfun_inlist()")
+  }
+
+  r_args = vapply(args, function(arg) {
+    translate_stata_expression_to_r(
+      arg,
+      context = context,
+      r_value_mappings = r_value_mappings
+    )
+  }, character(1))
+
+  s2r_make_local_helper_call(
+    fun_name = "sfun_inlist",
+    r_args = r_args,
+    temp_prefix = "s2r_inlist_arg"
+  )
+}
+
+s2r_translate_inrange_call = function(args_str, context, r_value_mappings = NULL) {
+  restore.point("s2r_translate_inrange_call")
+
+  args = s2r_split_top_level_commas(args_str)
+  if (length(args) == 0) {
+    return("sfun_inrange()")
+  }
+
+  r_args = vapply(args, function(arg) {
+    translate_stata_expression_to_r(
+      arg,
+      context = context,
+      r_value_mappings = r_value_mappings
+    )
+  }, character(1))
+
+  s2r_make_local_helper_call(
+    fun_name = "sfun_inrange",
+    r_args = r_args,
+    temp_prefix = "s2r_inrange_arg"
+  )
+}
+
+s2r_replace_special_function_calls = function(text, fun_name, replacer_fun) {
+  restore.point("s2r_replace_special_function_calls")
+  if (is.na(text) || text == "") return(text)
+
+  n = stringi::stri_length(text)
+  fname_n = stringi::stri_length(fun_name)
+
+  out = ""
+  last_emit = 1L
+  i = 1L
+  in_single = FALSE
+  in_double = FALSE
+
+  while (i <= n) {
+    ch = stringi::stri_sub(text, i, i)
+    prev = if (i > 1) stringi::stri_sub(text, i - 1L, i - 1L) else ""
+
+    if (!in_double && ch == "'" && prev != "\\") {
+      in_single = !in_single
+      i = i + 1L
+      next
+    }
+    if (!in_single && ch == "\"" && prev != "\\") {
+      in_double = !in_double
+      i = i + 1L
+      next
+    }
+
+    if (!in_single && !in_double) {
+      end_name = i + fname_n - 1L
+      if (end_name <= n) {
+        cand = stringi::stri_sub(text, i, end_name)
+        next_char = if (end_name < n) stringi::stri_sub(text, end_name + 1L, end_name + 1L) else ""
+        prev_char = if (i > 1L) stringi::stri_sub(text, i - 1L, i - 1L) else ""
+
+        prev_ok = prev_char == "" || !stringi::stri_detect_regex(prev_char, "[A-Za-z0-9_]")
+        next_ok = next_char == "("
+
+        if (identical(cand, fun_name) && prev_ok && next_ok) {
+          close_pos = s2r_find_matching_paren(text, end_name + 1L)
+          if (is.na(close_pos)) {
+            out = paste0(out, stringi::stri_sub(text, last_emit, n))
+            return(out)
+          }
+
+          out = paste0(out, stringi::stri_sub(text, last_emit, i - 1L))
+          inner = stringi::stri_sub(text, end_name + 2L, close_pos - 1L)
+          out = paste0(out, replacer_fun(inner))
+
+          i = close_pos + 1L
+          last_emit = i
+          next
+        }
       }
-  }
-
-  # 3. Check for explicitly numeric-returning functions. If found, return FALSE immediately.
-  numeric_producing_functions = c(
-    "log", "sqrt", "int", "round", "mod", "runiform", "mdy", "date",
-    "year", "month", "day", "qofd", "dow", "missing",
-    # Stata type casting functions that convert to numeric:
-    "float", "double", "long", "int", "byte"
-  )
-  for (func in numeric_producing_functions) {
-    if (fast_coalesce(stringi::stri_detect_regex(stata_expr_original, paste0("\\b", func, "\\s*\\(")), FALSE)) {
-      return(FALSE)
     }
+
+    i = i + 1L
   }
 
-  # 4. Check for explicitly string-returning functions.
-  string_producing_functions = c(
-    "char", "itrim", "lower", "ltrim", "proper", "rtrim", "string", "subinstr",
-    "substr", "strl", "strpos", "strreverse", "strtrim", "trim", "upper",
-    "ustrleft", "ustrlower", "ustrpos", "ustrright", "ustrtrim", "ustrunescape",
-    "ustrupper", "ustrword", "ustrwordcount", "word", "wordcount",
-    # Stata type casting functions that convert to string:
-    "string"
-  )
-  for (func in string_producing_functions) {
-    if (fast_coalesce(stringi::stri_detect_regex(stata_expr_original, paste0("\\b", func, "\\s*\\(")), FALSE)) {
-      return(TRUE)
-    }
-  }
-  
-  # NEW: 5. Check for '+' operator and string literals.
-  #    If expression contains '+' AND a string literal, it's likely string concatenation.
-  #    This check is a heuristic.
-  if (fast_coalesce(stringi::stri_detect_fixed(stata_expr_original, "+"), FALSE) &&
-      fast_coalesce(stringi::stri_detect_regex(stata_expr_original, '"[^"]*"|\'[^\']*\'' ), FALSE)) {
-      return(TRUE)
+  if (last_emit <= n) {
+    out = paste0(out, stringi::stri_sub(text, last_emit, n))
   }
 
-  # 6. Contains any string literal (text enclosed in double or single quotes)
-  #    This must come after function/operator checks.
-  if (fast_coalesce(stringi::stri_detect_regex(stata_expr_original, '"[^"]*"|\'[^\']*\'' ), FALSE)) {
-    return(TRUE)
-  }
-
-  # If none of the above rules apply, default to numeric.
-  # This implies that if it's a variable reference, it's numeric unless explicitly string.
-  # Or if it's a simple arithmetic expression, it's numeric.
-  return(FALSE)
+  out
 }
 ```
-!END_MODIFICATION sfun_is_stata_expression_string_typed.R
+
+!END_MODIFICATION s2r_inlist_inrange_translate.R
 
 !MODIFICATION stata_expression_translator.R
 scope = "file"
 file = "R/stata_expression_translator.R"
 is_new_file = false
-description = "Replace slow dplyr::coalesce with fast_coalesce to eliminate profiling bottleneck."
----
+description = "Rewrite expression translation so inlist and inrange are handled by local pre-binding wrappers instead of .data pronouns, and reserve local as a non-variable token."
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
 ```r
 translate_stata_expression_to_r = function(stata_expr, context = list(is_by_group = FALSE), r_value_mappings = NULL) {
   restore.point("translate_stata_expression_to_r")
@@ -152,6 +235,33 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   }
 
   r_expr = stata_expr
+
+  # Handle Stata functions that are fragile with direct lookup inside mutate.
+  # We translate these first into local wrappers that bind their arguments in
+  # the current evaluation context before calling the runtime helper.
+  r_expr = s2r_replace_special_function_calls(
+    r_expr,
+    "inlist",
+    function(args_str) {
+      s2r_translate_inlist_call(
+        args_str,
+        context = context,
+        r_value_mappings = r_value_mappings
+      )
+    }
+  )
+
+  r_expr = s2r_replace_special_function_calls(
+    r_expr,
+    "inrange",
+    function(args_str) {
+      s2r_translate_inrange_call(
+        args_str,
+        context = context,
+        r_value_mappings = r_value_mappings
+      )
+    }
+  )
 
   # --- Handle string literals by replacing them with unique placeholders ---
   string_literal_map = list()
@@ -169,8 +279,6 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   }
 
   # --- Handle r() and e() values using placeholders first ---
-  # This prevents later generic regex rewrites from corrupting mapped expressions
-  # such as stata2r_env$stata_r_val_L27_mean.
   macro_placeholder_map = list()
   macro_placeholder_counter = 0
   if (!is.null(r_value_mappings) && length(r_value_mappings) > 0) {
@@ -199,7 +307,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_n\\b", "dplyr::row_number()")
   r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_N\\b", "dplyr::n()")
 
-  # Step 4: Iteratively translate Stata functions (e.g., cond(), round(), log(), etc.)
+  # Step 4: Iteratively translate Stata functions (excluding inlist/inrange, handled above)
   old_r_expr = ""
   while (fast_coalesce(r_expr != old_r_expr, FALSE)) {
     old_r_expr = r_expr
@@ -253,7 +361,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     "readr", "tidyr", "labelled", "restorepoint", "stata2r_env",
     "sfun_missing", "sfun_stata_add", "sfun_stata_round", "sfun_string", "sfun_stritrim",
     "sfun_strpos", "sfun_subinstr", "sfun_stata_mdy", "sfun_stata_date", "sfun_day",
-    "sfun_month", "sfun_qofd", "sfun_dow", "sfun_normalize_string_nas", "sfun_strip_stata_attributes",
+    "sfun_month", "sfun_qofd", "sfun_dow", "sfun_inlist", "sfun_inrange", "sfun_normalize_string_nas", "sfun_strip_stata_attributes",
     "sfun_compress_col_type", "sfun_is_stata_expression_string_typed", "as.logical",
     "sfun_stata_cond", "sfun_year", "sfun_stata_date_single", "e", "sfun_flag", "sfun_fdiff",
     "NROW", "length", "unique", "sapply", "vapply", "c", "list", "intersect", "setdiff",
@@ -263,7 +371,8 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     "suppressWarnings", "as.data.frame", "rownames", "colnames", "head", "tail",
     "matrix", "data.frame", "vector", "character", "numeric", "integer", "logical",
     "factor", "double", "`_n`", "`_N`",
-    "cur_group_id", "cur_data_all", "replace", "TRUE", "FALSE"
+    "cur_group_id", "cur_data_all", "replace", "TRUE", "FALSE",
+    "local"
   )
 
   locations_list = stringi::stri_locate_all_regex(r_expr, "\\b([a-zA-Z_][a-zA-Z0-9_.]*)\\b")
@@ -332,4 +441,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   return(r_expr)
 }
 ```
+
 !END_MODIFICATION stata_expression_translator.R
+
+The important clue in your latest log is that the expression is now `sfun_inlist(.data[["i1_cat"]], ...)`, and the error is specifically thrown when that promise is forced. So the next fix is not about `sfun_inlist()` itself, but about making sure its arguments are bound before the helper is called.
