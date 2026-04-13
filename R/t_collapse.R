@@ -1,46 +1,171 @@
 # FILE: R/t_collapse.R
 
-# 1. Parsing Phase
+s2r_parse_collapse_aggs = function(agg_part) {
+  restore.point("s2r_parse_collapse_aggs")
+
+  agg_part = stringi::stri_trim_both(agg_part)
+  if (is.na(agg_part) || agg_part == "") {
+    return(data.frame(
+      stat = character(0),
+      target_var = character(0),
+      source_expr = character(0),
+      stringsAsFactors = FALSE
+    ))
+  }
+
+  agg_norm = stringi::stri_replace_all_regex(agg_part, "\\s*=\\s*", "=")
+
+  stat_locs = stringi::stri_locate_all_regex(
+    agg_norm,
+    "\\([A-Za-z_][A-Za-z0-9_]*\\)"
+  )[[1]]
+
+  rows = vector("list", 0)
+
+  add_segment = function(stat_name, segment_text) {
+    segment_text = stringi::stri_trim_both(segment_text)
+    if (is.na(segment_text) || segment_text == "") return(invisible(NULL))
+
+    tokens = stringi::stri_split_regex(segment_text, "\\s+")[[1]]
+    tokens = tokens[!is.na(tokens) & tokens != ""]
+    if (length(tokens) == 0) return(invisible(NULL))
+
+    for (tok in tokens) {
+      if (stringi::stri_detect_fixed(tok, "=")) {
+        parts = stringi::stri_split_fixed(tok, "=", n = 2)[[1]]
+        target_var = stringi::stri_trim_both(parts[1])
+        source_expr = stringi::stri_trim_both(parts[2])
+      } else {
+        target_var = stringi::stri_trim_both(tok)
+        source_expr = NA_character_
+      }
+
+      if (is.na(target_var) || target_var == "") next
+
+      rows[[length(rows) + 1]] <<- data.frame(
+        stat = stat_name,
+        target_var = target_var,
+        source_expr = source_expr,
+        stringsAsFactors = FALSE
+      )
+    }
+
+    invisible(NULL)
+  }
+
+  if (NROW(stat_locs) == 0 || is.na(stat_locs[1, 1])) {
+    add_segment("mean", agg_norm)
+  } else {
+    if (stat_locs[1, 1] > 1) {
+      prefix_text = stringi::stri_trim_both(stringi::stri_sub(agg_norm, 1, stat_locs[1, 1] - 1))
+      if (prefix_text != "") {
+        add_segment("mean", prefix_text)
+      }
+    }
+
+    for (i in seq_len(NROW(stat_locs))) {
+      stat_text = stringi::stri_sub(
+        agg_norm,
+        stat_locs[i, 1] + 1,
+        stat_locs[i, 2] - 1
+      )
+
+      seg_start = stat_locs[i, 2] + 1
+      seg_end = if (i < NROW(stat_locs)) stat_locs[i + 1, 1] - 1 else stringi::stri_length(agg_norm)
+
+      if (seg_start <= seg_end) {
+        segment_text = stringi::stri_sub(agg_norm, seg_start, seg_end)
+      } else {
+        segment_text = ""
+      }
+
+      add_segment(stat_text, segment_text)
+    }
+  }
+
+  if (length(rows) == 0) {
+    return(data.frame(
+      stat = character(0),
+      target_var = character(0),
+      source_expr = character(0),
+      stringsAsFactors = FALSE
+    ))
+  }
+
+  do.call(rbind, rows)
+}
+
 s2r_p_collapse = function(rest_of_cmd) {
   restore.point("s2r_p_collapse")
-  parts = stringi::stri_match_first_regex(stringi::stri_trim_both(rest_of_cmd), "^\\s*(.*?)(?:,\\s*(.*))?$")
-  agg_part = stringi::stri_trim_both(parts[1,2])
-  options_part = stringi::stri_trim_both(parts[1,3])
+  parts = stringi::stri_match_first_regex(
+    stringi::stri_trim_both(rest_of_cmd),
+    "^\\s*(.*?)(?:,\\s*(.*))?$"
+  )
+  agg_part = stringi::stri_trim_both(parts[1, 2])
+  options_part = stringi::stri_trim_both(parts[1, 3])
 
   parsed = s2r_parse_if_in(agg_part)
   agg_part = parsed$base_str
 
-  agg_matches = stringi::stri_match_all_regex(agg_part, "\\(([a-zA-Z_][a-zA-Z0-9_]*)\\)\\s*([a-zA-Z_][a-zA-Z0-9_.]*)(?:\\s*=\\s*([^,]+))?")[[1]]
-
   by_vars = character(0)
   if (!is.na(options_part)) {
     by_opt = stringi::stri_match_first_regex(options_part, "\\bby\\s*\\(([^)]+)\\)")
-    if (!is.na(by_opt[1,1])) by_vars = stringi::stri_split_regex(stringi::stri_trim_both(by_opt[1,2]), "\\s+")[[1]]
+    if (!is.na(by_opt[1, 1])) {
+      by_vars = stringi::stri_split_regex(
+        stringi::stri_trim_both(by_opt[1, 2]),
+        "\\s+"
+      )[[1]]
+    }
   }
 
-  list(aggs = agg_matches, by_vars = by_vars[by_vars != ""], if_str = parsed$if_str, in_str = parsed$in_str, raw_options = options_part)
+  list(
+    aggs = s2r_parse_collapse_aggs(agg_part),
+    by_vars = by_vars[by_vars != ""],
+    if_str = parsed$if_str,
+    in_str = parsed$in_str,
+    raw_options = options_part
+  )
 }
 
-# 2. Code Generation Phase
 t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   restore.point("t_collapse")
   parsed = s2r_p_collapse(rest_of_cmd)
-  if (NROW(parsed$aggs) == 0) return(paste0("# Failed to parse collapse aggregate definitions: ", rest_of_cmd))
+  if (NROW(parsed$aggs) == 0) {
+    return(paste0("# Failed to parse collapse aggregate definitions: ", rest_of_cmd))
+  }
 
   r_if_cond = NA_character_
-  if (!is.na(parsed$if_str)) r_if_cond = translate_stata_expression_with_r_values(parsed$if_str, line_num, cmd_df, list(is_by_group = FALSE))
+  if (!is.na(parsed$if_str)) {
+    r_if_cond = translate_stata_expression_with_r_values(
+      parsed$if_str,
+      line_num,
+      cmd_df,
+      list(is_by_group = FALSE)
+    )
+  }
 
   agg_list = list()
-  for (j in 1:NROW(parsed$aggs)) {
-    stat = parsed$aggs[j, 2]
-    target_var = stringi::stri_trim_both(parsed$aggs[j, 3])
-    source_expr = stringi::stri_trim_both(parsed$aggs[j, 4])
-    if (is.na(source_expr) || source_expr == "") source_expr = target_var
+  for (j in seq_len(NROW(parsed$aggs))) {
+    stat = parsed$aggs$stat[j]
+    target_var = stringi::stri_trim_both(parsed$aggs$target_var[j])
+    source_expr = stringi::stri_trim_both(parsed$aggs$source_expr[j])
 
-    r_source = translate_stata_expression_with_r_values(source_expr, line_num, cmd_df, context)
-    if (is.na(r_source)) return(paste0("# Failed to translate source expr: ", source_expr))
+    if (is.na(source_expr) || source_expr == "") {
+      source_expr = target_var
+    }
 
-    collapse_func = switch(stat,
+    r_source = translate_stata_expression_with_r_values(
+      source_expr,
+      line_num,
+      cmd_df,
+      context
+    )
+    if (is.na(r_source)) {
+      return(paste0("# Failed to translate source expr: ", source_expr))
+    }
+
+    collapse_func = switch(
+      stat,
       "mean" = paste0("collapse::fmean(", r_source, ", na.rm = TRUE)"),
       "sum" = paste0("collapse::fsum(", r_source, ", na.rm = TRUE)"),
       "count" = paste0("sum(!is.na(", r_source, "))"),
@@ -61,15 +186,40 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
       "p99" = paste0("collapse::fquantile(", r_source, ", probs = 0.99, na.rm = TRUE)"),
       NULL
     )
-    if (is.null(collapse_func)) return(paste0("# Collapse stat '", stat, "' not implemented."))
+
+    if (is.null(collapse_func)) {
+      return(paste0("# Collapse stat '", stat, "' not implemented."))
+    }
+
     agg_list[[target_var]] = collapse_func
   }
 
-  agg_r_list_str = paste0("list(", paste(sprintf("`%s` = \"%s\"", names(agg_list), gsub('"', '\\\\"', unlist(agg_list))), collapse=", "), ")")
+  agg_r_list_str = paste0(
+    "list(",
+    paste(
+      sprintf(
+        "`%s` = \"%s\"",
+        names(agg_list),
+        gsub("\"", "\\\\\"", unlist(agg_list), fixed = TRUE)
+      ),
+      collapse = ", "
+    ),
+    ")"
+  )
 
-  args = c("data = data", paste0("agg_exprs_list = ", agg_r_list_str))
-  if (length(parsed$by_vars) > 0) args = c(args, paste0("group_vars = c('", paste(parsed$by_vars, collapse="','"), "')"))
-  if (!is.na(r_if_cond)) args = c(args, paste0("r_if_cond = ", quote_for_r_literal(r_if_cond)))
+  args = c(
+    "data = data",
+    paste0("agg_exprs_list = ", agg_r_list_str)
+  )
+  if (length(parsed$by_vars) > 0) {
+    args = c(
+      args,
+      paste0("group_vars = c('", paste(parsed$by_vars, collapse = "','"), "')")
+    )
+  }
+  if (!is.na(r_if_cond)) {
+    args = c(args, paste0("r_if_cond = ", quote_for_r_literal(r_if_cond)))
+  }
 
   r_code = paste0("data = scmd_collapse(", paste(args, collapse = ", "), ")")
   r_code = paste0(r_code, "\nassign(\"has_original_order_idx\", TRUE, envir = stata2r_env)")
@@ -77,21 +227,37 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   return(r_code)
 }
 
-# 3. Runtime Execution Phase
-# 3. Runtime Execution Phase
 scmd_collapse = function(data, agg_exprs_list, group_vars = character(0), r_if_cond = NA_character_) {
   restore.point("scmd_collapse")
-  if (!is.na(r_if_cond) && r_if_cond != "") data = data[s2r_eval_cond(data, r_if_cond, envir = parent.frame()), , drop = FALSE]
+
+  if (!is.na(r_if_cond) && r_if_cond != "") {
+    data = data[s2r_eval_cond(data, r_if_cond, envir = parent.frame()), , drop = FALSE]
+  }
 
   pipe_el = c("data")
-  group_vars_actual = expand_varlist(paste(group_vars, collapse=" "), names(data))
-  if (length(group_vars_actual) > 0) pipe_el = c(pipe_el, paste0("collapse::fgroup_by(", paste(group_vars_actual, collapse=", "), ")"))
+  group_vars_actual = expand_varlist(paste(group_vars, collapse = " "), names(data))
+  if (length(group_vars_actual) > 0) {
+    pipe_el = c(
+      pipe_el,
+      paste0("collapse::fgroup_by(", paste(group_vars_actual, collapse = ", "), ")")
+    )
+  }
 
-  agg_str = paste(sprintf("`%s` = %s", names(agg_exprs_list), unlist(agg_exprs_list)), collapse = ", ")
+  agg_str = paste(
+    sprintf("`%s` = %s", names(agg_exprs_list), unlist(agg_exprs_list)),
+    collapse = ", "
+  )
   pipe_el = c(pipe_el, paste0("collapse::fsummarise(", agg_str, ")"))
-  if (length(group_vars_actual) > 0) pipe_el = c(pipe_el, "collapse::fungroup()")
+  if (length(group_vars_actual) > 0) {
+    pipe_el = c(pipe_el, "collapse::fungroup()")
+  }
 
-  data = eval(parse(text = paste(pipe_el, collapse = " %>% ")), envir = list(data = data), enclos = parent.frame())
+  data = eval(
+    parse(text = paste(pipe_el, collapse = " %>% ")),
+    envir = list(data = data),
+    enclos = parent.frame()
+  )
   data$stata2r_original_order_idx = seq_len(nrow(data))
   return(data)
 }
+

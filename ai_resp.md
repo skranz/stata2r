@@ -1,447 +1,293 @@
-This is again a new error. The previous fix changed the failure from bare-symbol lookup to `.data` pronoun lookup. The core issue is promise forcing inside helper calls during `mutate()`. A safer approach is to translate `inlist()` and `inrange()` into a small `local({ ... })` wrapper that first binds all arguments in the current data-mask, and only then calls the helper on ordinary local variables.
+Yes. The bug is in `s2r_p_collapse()` in `R/t_collapse.R`.
 
-!MODIFICATION s2r_inlist_inrange_translate.R
-scope = "file"
-file = "R/s2r_inlist_inrange_translate.R"
-is_new_file = false
-description = "Rewrite special inlist and inrange translation helpers to pre-bind arguments in a local block before calling the runtime helper, avoiding fragile bare-symbol and .data pronoun lookup inside dplyr mutate."
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+It currently uses this regex:
 
 ```r
-# FILE: R/s2r_inlist_inrange_translate.R
-
-s2r_find_matching_paren = function(text, open_pos) {
-  restore.point("s2r_find_matching_paren")
-  n = stringi::stri_length(text)
-  if (is.na(open_pos) || open_pos < 1 || open_pos > n) return(NA_integer_)
-  if (stringi::stri_sub(text, open_pos, open_pos) != "(") return(NA_integer_)
-
-  depth = 0L
-  in_single = FALSE
-  in_double = FALSE
-
-  for (i in seq.int(open_pos, n)) {
-    ch = stringi::stri_sub(text, i, i)
-    prev = if (i > 1) stringi::stri_sub(text, i - 1L, i - 1L) else ""
-
-    if (!in_double && ch == "'" && prev != "\\") {
-      in_single = !in_single
-      next
-    }
-    if (!in_single && ch == "\"" && prev != "\\") {
-      in_double = !in_double
-      next
-    }
-    if (in_single || in_double) next
-
-    if (ch == "(") {
-      depth = depth + 1L
-    } else if (ch == ")") {
-      depth = depth - 1L
-      if (depth == 0L) return(i)
-    }
-  }
-
-  NA_integer_
-}
-
-s2r_split_top_level_commas = function(text) {
-  restore.point("s2r_split_top_level_commas")
-  if (is.na(text) || text == "") return(character(0))
-
-  n = stringi::stri_length(text)
-  parts = character(0)
-  start = 1L
-  depth = 0L
-  in_single = FALSE
-  in_double = FALSE
-
-  for (i in seq_len(n)) {
-    ch = stringi::stri_sub(text, i, i)
-    prev = if (i > 1) stringi::stri_sub(text, i - 1L, i - 1L) else ""
-
-    if (!in_double && ch == "'" && prev != "\\") {
-      in_single = !in_single
-      next
-    }
-    if (!in_single && ch == "\"" && prev != "\\") {
-      in_double = !in_double
-      next
-    }
-    if (in_single || in_double) next
-
-    if (ch == "(") {
-      depth = depth + 1L
-    } else if (ch == ")") {
-      depth = depth - 1L
-    } else if (ch == "," && depth == 0L) {
-      parts = c(parts, stringi::stri_trim_both(stringi::stri_sub(text, start, i - 1L)))
-      start = i + 1L
-    }
-  }
-
-  parts = c(parts, stringi::stri_trim_both(stringi::stri_sub(text, start, n)))
-  parts[!is.na(parts) & parts != ""]
-}
-
-s2r_make_local_helper_call = function(fun_name, r_args, temp_prefix) {
-  restore.point("s2r_make_local_helper_call")
-
-  if (length(r_args) == 0) {
-    return(paste0(fun_name, "()"))
-  }
-
-  temp_names = paste0(temp_prefix, seq_along(r_args))
-  bind_code = paste0(temp_names, " <- ", r_args)
-  call_code = paste0(fun_name, "(", paste(temp_names, collapse = ", "), ")")
-
-  paste0("local({ ", paste(c(bind_code, call_code), collapse = "; "), " })")
-}
-
-s2r_translate_inlist_call = function(args_str, context, r_value_mappings = NULL) {
-  restore.point("s2r_translate_inlist_call")
-
-  args = s2r_split_top_level_commas(args_str)
-  if (length(args) == 0) {
-    return("sfun_inlist()")
-  }
-
-  r_args = vapply(args, function(arg) {
-    translate_stata_expression_to_r(
-      arg,
-      context = context,
-      r_value_mappings = r_value_mappings
-    )
-  }, character(1))
-
-  s2r_make_local_helper_call(
-    fun_name = "sfun_inlist",
-    r_args = r_args,
-    temp_prefix = "s2r_inlist_arg"
-  )
-}
-
-s2r_translate_inrange_call = function(args_str, context, r_value_mappings = NULL) {
-  restore.point("s2r_translate_inrange_call")
-
-  args = s2r_split_top_level_commas(args_str)
-  if (length(args) == 0) {
-    return("sfun_inrange()")
-  }
-
-  r_args = vapply(args, function(arg) {
-    translate_stata_expression_to_r(
-      arg,
-      context = context,
-      r_value_mappings = r_value_mappings
-    )
-  }, character(1))
-
-  s2r_make_local_helper_call(
-    fun_name = "sfun_inrange",
-    r_args = r_args,
-    temp_prefix = "s2r_inrange_arg"
-  )
-}
-
-s2r_replace_special_function_calls = function(text, fun_name, replacer_fun) {
-  restore.point("s2r_replace_special_function_calls")
-  if (is.na(text) || text == "") return(text)
-
-  n = stringi::stri_length(text)
-  fname_n = stringi::stri_length(fun_name)
-
-  out = ""
-  last_emit = 1L
-  i = 1L
-  in_single = FALSE
-  in_double = FALSE
-
-  while (i <= n) {
-    ch = stringi::stri_sub(text, i, i)
-    prev = if (i > 1) stringi::stri_sub(text, i - 1L, i - 1L) else ""
-
-    if (!in_double && ch == "'" && prev != "\\") {
-      in_single = !in_single
-      i = i + 1L
-      next
-    }
-    if (!in_single && ch == "\"" && prev != "\\") {
-      in_double = !in_double
-      i = i + 1L
-      next
-    }
-
-    if (!in_single && !in_double) {
-      end_name = i + fname_n - 1L
-      if (end_name <= n) {
-        cand = stringi::stri_sub(text, i, end_name)
-        next_char = if (end_name < n) stringi::stri_sub(text, end_name + 1L, end_name + 1L) else ""
-        prev_char = if (i > 1L) stringi::stri_sub(text, i - 1L, i - 1L) else ""
-
-        prev_ok = prev_char == "" || !stringi::stri_detect_regex(prev_char, "[A-Za-z0-9_]")
-        next_ok = next_char == "("
-
-        if (identical(cand, fun_name) && prev_ok && next_ok) {
-          close_pos = s2r_find_matching_paren(text, end_name + 1L)
-          if (is.na(close_pos)) {
-            out = paste0(out, stringi::stri_sub(text, last_emit, n))
-            return(out)
-          }
-
-          out = paste0(out, stringi::stri_sub(text, last_emit, i - 1L))
-          inner = stringi::stri_sub(text, end_name + 2L, close_pos - 1L)
-          out = paste0(out, replacer_fun(inner))
-
-          i = close_pos + 1L
-          last_emit = i
-          next
-        }
-      }
-    }
-
-    i = i + 1L
-  }
-
-  if (last_emit <= n) {
-    out = paste0(out, stringi::stri_sub(text, last_emit, n))
-  }
-
-  out
-}
+"\\(([a-zA-Z_][a-zA-Z0-9_]*)\\)\\s*([a-zA-Z_][a-zA-Z0-9_.]*)(?:\\s*=\\s*([^,]+))?"
 ```
 
-!END_MODIFICATION s2r_inlist_inrange_translate.R
+That pattern only matches a variable when it is directly attached to its own `(stat)` clause. So for
 
-!MODIFICATION stata_expression_translator.R
+```stata
+collapse (median) region met lmet metdum lgap1 corrupt lgdppcus, by(partner)
+```
+
+it sees only `(median) region` and drops `met lmet metdum lgap1 corrupt lgdppcus`.
+
+A robust fix is to parse `collapse` specs segment-wise: each `(stat)` applies to all following variables until the next `(stat)` block.
+
+!MODIFICATION t_collapse.R
 scope = "file"
-file = "R/stata_expression_translator.R"
+file = "R/t_collapse.R"
 is_new_file = false
-description = "Rewrite expression translation so inlist and inrange are handled by local pre-binding wrappers instead of .data pronouns, and reserve local as a non-variable token."
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+description = "Rewrite collapse parsing so one statistic can apply to multiple following variables, e.g. collapse (median) region met lmet ..., instead of only capturing the first variable after each (stat) block."
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 ```r
-translate_stata_expression_to_r = function(stata_expr, context = list(is_by_group = FALSE), r_value_mappings = NULL) {
-  restore.point("translate_stata_expression_to_r")
+# FILE: R/t_collapse.R
 
-  if (is.null(stata_expr) || length(stata_expr) == 0 || !is.character(stata_expr)) {
-    stata_expr = NA_character_
+s2r_parse_collapse_aggs = function(agg_part) {
+  restore.point("s2r_parse_collapse_aggs")
+
+  agg_part = stringi::stri_trim_both(agg_part)
+  if (is.na(agg_part) || agg_part == "") {
+    return(data.frame(
+      stat = character(0),
+      target_var = character(0),
+      source_expr = character(0),
+      stringsAsFactors = FALSE
+    ))
+  }
+
+  agg_norm = stringi::stri_replace_all_regex(agg_part, "\\s*=\\s*", "=")
+
+  stat_locs = stringi::stri_locate_all_regex(
+    agg_norm,
+    "\\([A-Za-z_][A-Za-z0-9_]*\\)"
+  )[[1]]
+
+  rows = vector("list", 0)
+
+  add_segment = function(stat_name, segment_text) {
+    segment_text = stringi::stri_trim_both(segment_text)
+    if (is.na(segment_text) || segment_text == "") return(invisible(NULL))
+
+    tokens = stringi::stri_split_regex(segment_text, "\\s+")[[1]]
+    tokens = tokens[!is.na(tokens) & tokens != ""]
+    if (length(tokens) == 0) return(invisible(NULL))
+
+    for (tok in tokens) {
+      if (stringi::stri_detect_fixed(tok, "=")) {
+        parts = stringi::stri_split_fixed(tok, "=", n = 2)[[1]]
+        target_var = stringi::stri_trim_both(parts[1])
+        source_expr = stringi::stri_trim_both(parts[2])
+      } else {
+        target_var = stringi::stri_trim_both(tok)
+        source_expr = NA_character_
+      }
+
+      if (is.na(target_var) || target_var == "") next
+
+      rows[[length(rows) + 1]] <<- data.frame(
+        stat = stat_name,
+        target_var = target_var,
+        source_expr = source_expr,
+        stringsAsFactors = FALSE
+      )
+    }
+
+    invisible(NULL)
+  }
+
+  if (NROW(stat_locs) == 0 || is.na(stat_locs[1, 1])) {
+    add_segment("mean", agg_norm)
   } else {
-    stata_expr = as.character(stata_expr[1])
-  }
+    if (stat_locs[1, 1] > 1) {
+      prefix_text = stringi::stri_trim_both(stringi::stri_sub(agg_norm, 1, stat_locs[1, 1] - 1))
+      if (prefix_text != "") {
+        add_segment("mean", prefix_text)
+      }
+    }
 
-  if (is.na(stata_expr) || stata_expr == "") {
-    return("NA_real_")
-  }
-
-  r_expr = stata_expr
-
-  # Handle Stata functions that are fragile with direct lookup inside mutate.
-  # We translate these first into local wrappers that bind their arguments in
-  # the current evaluation context before calling the runtime helper.
-  r_expr = s2r_replace_special_function_calls(
-    r_expr,
-    "inlist",
-    function(args_str) {
-      s2r_translate_inlist_call(
-        args_str,
-        context = context,
-        r_value_mappings = r_value_mappings
+    for (i in seq_len(NROW(stat_locs))) {
+      stat_text = stringi::stri_sub(
+        agg_norm,
+        stat_locs[i, 1] + 1,
+        stat_locs[i, 2] - 1
       )
+
+      seg_start = stat_locs[i, 2] + 1
+      seg_end = if (i < NROW(stat_locs)) stat_locs[i + 1, 1] - 1 else stringi::stri_length(agg_norm)
+
+      if (seg_start <= seg_end) {
+        segment_text = stringi::stri_sub(agg_norm, seg_start, seg_end)
+      } else {
+        segment_text = ""
+      }
+
+      add_segment(stat_text, segment_text)
     }
+  }
+
+  if (length(rows) == 0) {
+    return(data.frame(
+      stat = character(0),
+      target_var = character(0),
+      source_expr = character(0),
+      stringsAsFactors = FALSE
+    ))
+  }
+
+  do.call(rbind, rows)
+}
+
+s2r_p_collapse = function(rest_of_cmd) {
+  restore.point("s2r_p_collapse")
+  parts = stringi::stri_match_first_regex(
+    stringi::stri_trim_both(rest_of_cmd),
+    "^\\s*(.*?)(?:,\\s*(.*))?$"
+  )
+  agg_part = stringi::stri_trim_both(parts[1, 2])
+  options_part = stringi::stri_trim_both(parts[1, 3])
+
+  parsed = s2r_parse_if_in(agg_part)
+  agg_part = parsed$base_str
+
+  by_vars = character(0)
+  if (!is.na(options_part)) {
+    by_opt = stringi::stri_match_first_regex(options_part, "\\bby\\s*\\(([^)]+)\\)")
+    if (!is.na(by_opt[1, 1])) {
+      by_vars = stringi::stri_split_regex(
+        stringi::stri_trim_both(by_opt[1, 2]),
+        "\\s+"
+      )[[1]]
+    }
+  }
+
+  list(
+    aggs = s2r_parse_collapse_aggs(agg_part),
+    by_vars = by_vars[by_vars != ""],
+    if_str = parsed$if_str,
+    in_str = parsed$in_str,
+    raw_options = options_part
+  )
+}
+
+t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_collapse")
+  parsed = s2r_p_collapse(rest_of_cmd)
+  if (NROW(parsed$aggs) == 0) {
+    return(paste0("# Failed to parse collapse aggregate definitions: ", rest_of_cmd))
+  }
+
+  r_if_cond = NA_character_
+  if (!is.na(parsed$if_str)) {
+    r_if_cond = translate_stata_expression_with_r_values(
+      parsed$if_str,
+      line_num,
+      cmd_df,
+      list(is_by_group = FALSE)
+    )
+  }
+
+  agg_list = list()
+  for (j in seq_len(NROW(parsed$aggs))) {
+    stat = parsed$aggs$stat[j]
+    target_var = stringi::stri_trim_both(parsed$aggs$target_var[j])
+    source_expr = stringi::stri_trim_both(parsed$aggs$source_expr[j])
+
+    if (is.na(source_expr) || source_expr == "") {
+      source_expr = target_var
+    }
+
+    r_source = translate_stata_expression_with_r_values(
+      source_expr,
+      line_num,
+      cmd_df,
+      context
+    )
+    if (is.na(r_source)) {
+      return(paste0("# Failed to translate source expr: ", source_expr))
+    }
+
+    collapse_func = switch(
+      stat,
+      "mean" = paste0("collapse::fmean(", r_source, ", na.rm = TRUE)"),
+      "sum" = paste0("collapse::fsum(", r_source, ", na.rm = TRUE)"),
+      "count" = paste0("sum(!is.na(", r_source, "))"),
+      "N" = "dplyr::n()",
+      "first" = paste0("collapse::ffirst(", r_source, ")"),
+      "last" = paste0("collapse::flast(", r_source, ")"),
+      "min" = paste0("collapse::fmin(", r_source, ", na.rm = TRUE)"),
+      "max" = paste0("collapse::fmax(", r_source, ", na.rm = TRUE)"),
+      "median" = paste0("collapse::fmedian(", r_source, ", na.rm = TRUE)"),
+      "sd" = paste0("collapse::fsd(", r_source, ", na.rm = TRUE)"),
+      "p1" = paste0("collapse::fquantile(", r_source, ", probs = 0.01, na.rm = TRUE)"),
+      "p5" = paste0("collapse::fquantile(", r_source, ", probs = 0.05, na.rm = TRUE)"),
+      "p10" = paste0("collapse::fquantile(", r_source, ", probs = 0.10, na.rm = TRUE)"),
+      "p25" = paste0("collapse::fquantile(", r_source, ", probs = 0.25, na.rm = TRUE)"),
+      "p75" = paste0("collapse::fquantile(", r_source, ", probs = 0.75, na.rm = TRUE)"),
+      "p90" = paste0("collapse::fquantile(", r_source, ", probs = 0.90, na.rm = TRUE)"),
+      "p95" = paste0("collapse::fquantile(", r_source, ", probs = 0.95, na.rm = TRUE)"),
+      "p99" = paste0("collapse::fquantile(", r_source, ", probs = 0.99, na.rm = TRUE)"),
+      NULL
+    )
+
+    if (is.null(collapse_func)) {
+      return(paste0("# Collapse stat '", stat, "' not implemented."))
+    }
+
+    agg_list[[target_var]] = collapse_func
+  }
+
+  agg_r_list_str = paste0(
+    "list(",
+    paste(
+      sprintf(
+        "`%s` = \"%s\"",
+        names(agg_list),
+        gsub("\"", "\\\\\"", unlist(agg_list), fixed = TRUE)
+      ),
+      collapse = ", "
+    ),
+    ")"
   )
 
-  r_expr = s2r_replace_special_function_calls(
-    r_expr,
-    "inrange",
-    function(args_str) {
-      s2r_translate_inrange_call(
-        args_str,
-        context = context,
-        r_value_mappings = r_value_mappings
-      )
-    }
+  args = c(
+    "data = data",
+    paste0("agg_exprs_list = ", agg_r_list_str)
   )
-
-  # --- Handle string literals by replacing them with unique placeholders ---
-  string_literal_map = list()
-  placeholder_counter = 0
-  literal_matches_list = stringi::stri_match_all_regex(r_expr, '"[^"]*"|\'[^\']*\'')
-  if (length(literal_matches_list) > 0 && !is.null(literal_matches_list[[1]]) &&
-      NROW(literal_matches_list[[1]]) > 0 && !is.na(literal_matches_list[[1]][1,1])) {
-    unique_literals = unique(literal_matches_list[[1]][,1])
-    for (literal_text in unique_literals) {
-      placeholder_counter = placeholder_counter + 1
-      placeholder = paste0("_", placeholder_counter, "STATA2R_SLIT_")
-      r_expr = stringi::stri_replace_all_fixed(r_expr, literal_text, placeholder)
-      string_literal_map[[placeholder]] = literal_text
-    }
+  if (length(parsed$by_vars) > 0) {
+    args = c(
+      args,
+      paste0("group_vars = c('", paste(parsed$by_vars, collapse = "','"), "')")
+    )
+  }
+  if (!is.na(r_if_cond)) {
+    args = c(args, paste0("r_if_cond = ", quote_for_r_literal(r_if_cond)))
   }
 
-  # --- Handle r() and e() values using placeholders first ---
-  macro_placeholder_map = list()
-  macro_placeholder_counter = 0
-  if (!is.null(r_value_mappings) && length(r_value_mappings) > 0) {
-    sorted_macro_names = names(r_value_mappings)[order(stringi::stri_length(names(r_value_mappings)), decreasing = TRUE)]
-    for (stata_macro_name in sorted_macro_names) {
-      macro_placeholder_counter = macro_placeholder_counter + 1
-      macro_placeholder = paste0("_", macro_placeholder_counter, "STATA2R_MACRO_")
-      r_expr = stringi::stri_replace_all_fixed(r_expr, stata_macro_name, macro_placeholder)
-      macro_placeholder_map[[macro_placeholder]] = r_value_mappings[[stata_macro_name]]
-    }
+  r_code = paste0("data = scmd_collapse(", paste(args, collapse = ", "), ")")
+  r_code = paste0(r_code, "\nassign(\"has_original_order_idx\", TRUE, envir = stata2r_env)")
+
+  return(r_code)
+}
+
+scmd_collapse = function(data, agg_exprs_list, group_vars = character(0), r_if_cond = NA_character_) {
+  restore.point("scmd_collapse")
+
+  if (!is.na(r_if_cond) && r_if_cond != "") {
+    data = data[s2r_eval_cond(data, r_if_cond, envir = parent.frame()), , drop = FALSE]
   }
 
-  # Step 1: Handle Stata missing value literals '.', '.a', ..., '.z'
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![0-9a-zA-Z_])\\.[a-zA-Z]?(?![0-9a-zA-Z_])", "NA_real_")
-
-  # Step 2: Translate Stata logical operators and missing value comparisons.
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*==\\s*NA_real_", "sfun_missing($1)")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*!=\\s*NA_real_", "!sfun_missing($1)")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![<>=!~])\\s*=\\s*(?![=])", " == ")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\s+~=\\s+", " != ")
-
-  # Step 3: Translate Stata special variables and indexing (e.g., _n, _N, var[_n-1])
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*-\\s*(\\d+)\\]", "dplyr::lag(`$1`, n = $2)")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*\\+\\s*(\\d+)\\]", "dplyr::lead(`$1`, n = $2)")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\]", "`$1`")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_n\\b", "dplyr::row_number()")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_N\\b", "dplyr::n()")
-
-  # Step 4: Iteratively translate Stata functions (excluding inlist/inrange, handled above)
-  old_r_expr = ""
-  while (fast_coalesce(r_expr != old_r_expr, FALSE)) {
-    old_r_expr = r_expr
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bcond\\(([^,]+),([^,]+),([^)]+)\\)", "sfun_stata_cond($1, $2, $3)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^,]+),([^)]+)\\)", "sfun_stata_round($1, $2)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^)]+)\\)", "sfun_stata_round($1, 1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmod\\(([^,]+),([^)]+)\\)", "($1 %% $2)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmissing\\(([^)]+)\\)", "sfun_missing($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\blog\\(([^)]+)\\)", "log($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsqrt\\(([^)]+)\\)", "sqrt($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bint\\(([^)]+)\\)", "trunc($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrtrim\\(([^)]+)\\)", "stringi::stri_trim_right($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstritrim\\(([^)]+)\\)", "sfun_stritrim($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\blower\\(([^)]+)\\)", "stringi::stri_trans_tolower($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bupper\\(([^)]+)\\)", "stringi::stri_trans_toupper($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsubstr\\(([^,]+),([^,]+),([^)]+)\\)", "stringi::stri_sub($1, from = $2, length = $3)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsubinstr\\(([^,]+),([^,]+),([^,]+),([^)]+)\\)", "sfun_subinstr($1, $2, $3, $4)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrpos\\(([^,]+),([^)]+)\\)", "sfun_strpos($1, $2)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\blength\\(([^)]+)\\)", "stringi::stri_length($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrlen\\(([^)]+)\\)", "stringi::stri_length($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstring\\(([^)]+)\\)", "sfun_string($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bruniform\\(\\)", "stats::runif(dplyr::n())")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bdate\\(([^,]+),([^,]+),([^)]+)\\)", "sfun_stata_date($1, $2, $3)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bdate\\(([^,]+),([^)]+)\\)", "sfun_stata_date($1, $2)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmdy\\(([^,]+),([^,]+),([^)]+)\\)", "sfun_stata_mdy($1, $2, $3)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\byear\\(([^)]+)\\)", "sfun_year($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmonth\\(([^)]+)\\)", "sfun_month($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bday\\(([^)]+)\\)", "sfun_day($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bqofd\\(([^)]+)\\)", "sfun_qofd($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bdow\\(([^)]+)\\)", "sfun_dow($1)")
+  pipe_el = c("data")
+  group_vars_actual = expand_varlist(paste(group_vars, collapse = " "), names(data))
+  if (length(group_vars_actual) > 0) {
+    pipe_el = c(
+      pipe_el,
+      paste0("collapse::fgroup_by(", paste(group_vars_actual, collapse = ", "), ")")
+    )
   }
 
-  if (is.na(r_expr) || r_expr == "") {
-    warning(paste0("R expression became NA or empty after function translation. Original Stata expression: '", stata_expr, "'"))
-    return("NA_real_")
-  }
-
-  # Step 5: Quote bare variable names with backticks
-  r_reserved_words = c(
-    "TRUE", "FALSE", "NA_real_", "NA_character_", "NA_integer_", "NA", "NULL",
-    "if_else", "coalesce", "row_number", "n", "lag", "lead", "select", "filter",
-    "mutate", "group_by", "ungroup", "syms", "all_of", "everything", "matches",
-    "pivot_wider", "pivot_longer", "read_dta", "write_dta", "labelled", "zap_labels",
-    "zap_formats", "zap_missing", "as_factor", "parse_number",
-    "mean", "sum", "median", "sd", "min", "max", "log", "sqrt", "trunc", "rank",
-    "rowSums", "rowMeans", "setNames", "match", "tempfile", "file.path",
-    "fmean", "fsum", "fN", "ffirst", "flast", "fmin", "fmax", "fmedian", "fsd",
-    "fquantile", "fgroup_by", "fungroup", "fsubset", "frename", "bind_rows", "rep",
-    "as_tibble", "inherits", "format", "as.Date", "as.numeric", "as.character", "as.integer",
-    "sign", "floor", "abs", "pmax", "stringi", "base", "stats", "dplyr", "collapse", "haven",
-    "readr", "tidyr", "labelled", "restorepoint", "stata2r_env",
-    "sfun_missing", "sfun_stata_add", "sfun_stata_round", "sfun_string", "sfun_stritrim",
-    "sfun_strpos", "sfun_subinstr", "sfun_stata_mdy", "sfun_stata_date", "sfun_day",
-    "sfun_month", "sfun_qofd", "sfun_dow", "sfun_inlist", "sfun_inrange", "sfun_normalize_string_nas", "sfun_strip_stata_attributes",
-    "sfun_compress_col_type", "sfun_is_stata_expression_string_typed", "as.logical",
-    "sfun_stata_cond", "sfun_year", "sfun_stata_date_single", "e", "sfun_flag", "sfun_fdiff",
-    "NROW", "length", "unique", "sapply", "vapply", "c", "list", "intersect", "setdiff",
-    "warning", "stop", "paste0", "grepl", "as.logical", "ifelse", "exists", "rm",
-    "is.null", "lapply", "is.na", "is.character", "is.numeric", "is.logical", "is.factor",
-    "attributes", "attr", "names", "order", "unname", "duplicated", "trimws",
-    "suppressWarnings", "as.data.frame", "rownames", "colnames", "head", "tail",
-    "matrix", "data.frame", "vector", "character", "numeric", "integer", "logical",
-    "factor", "double", "`_n`", "`_N`",
-    "cur_group_id", "cur_data_all", "replace", "TRUE", "FALSE",
-    "local"
+  agg_str = paste(
+    sprintf("`%s` = %s", names(agg_exprs_list), unlist(agg_exprs_list)),
+    collapse = ", "
   )
-
-  locations_list = stringi::stri_locate_all_regex(r_expr, "\\b([a-zA-Z_][a-zA-Z0-9_.]*)\\b")
-  locations = locations_list[[1]]
-
-  if (!is.null(locations) && NROW(locations) > 0 && !is.na(locations[1,1])) {
-    locations = locations[order(locations[,2], decreasing = TRUE), , drop = FALSE]
-    for (k in seq_len(NROW(locations))) {
-      start_pos = locations[k,1]
-      end_pos = locations[k,2]
-      current_word = stringi::stri_sub(r_expr, start_pos, end_pos)
-
-      if (current_word %in% names(string_literal_map)) {
-        next
-      }
-      if (current_word %in% names(macro_placeholder_map)) {
-        next
-      }
-
-      is_reserved = fast_coalesce(current_word %in% r_reserved_words, FALSE)
-      is_numeric_literal = fast_coalesce(suppressWarnings(!is.na(as.numeric(current_word))), FALSE)
-
-      is_already_backticked = FALSE
-      if (fast_coalesce(start_pos > 1 && end_pos < stringi::stri_length(r_expr), FALSE)) {
-        char_before = fast_coalesce(stringi::stri_sub(r_expr, start_pos - 1, start_pos - 1), "")
-        char_after = fast_coalesce(stringi::stri_sub(r_expr, end_pos + 1, end_pos + 1), "")
-        is_already_backticked = (char_before == "`" && char_after == "`")
-      }
-
-      if (isTRUE(!is_reserved) && isTRUE(!is_numeric_literal) && isTRUE(!is_already_backticked)) {
-        r_expr = paste0(
-          stringi::stri_sub(r_expr, 1, start_pos - 1),
-          "`", current_word, "`",
-          stringi::stri_sub(r_expr, end_pos + 1, stringi::stri_length(r_expr))
-        )
-      }
-    }
+  pipe_el = c(pipe_el, paste0("collapse::fsummarise(", agg_str, ")"))
+  if (length(group_vars_actual) > 0) {
+    pipe_el = c(pipe_el, "collapse::fungroup()")
   }
 
-  # Step 6: Translate Stata '+' operator to sfun_stata_add for polymorphic behavior
-  operand_pattern = "(?:\"[^\"]*\"|'[^']*'|\\d+(?:\\.\\d+)?(?:e[+-]?\\d+)?|\\b(?:NA_real_|NULL)\\b|\\b(?:TRUE|FALSE)\\b|`[^`]+`|\\b[a-zA-Z_][a-zA-Z0-9_.]*\\s*\\(.*?\\)\\s*|_[0-9]+STATA2R_SLIT_|_[0-9]+STATA2R_MACRO_)"
-  old_r_expr_add = ""
-  while (fast_coalesce(r_expr != old_r_expr_add, FALSE)) {
-    old_r_expr_add = r_expr
-    add_regex_middle_part = "\\s*(?<![<>=!~])\\+\\s*(?!\\s*\\+|\\s*=\\s*)"
-    add_regex_full = paste0("(", operand_pattern, ")", add_regex_middle_part, "(", operand_pattern, ")")
-    r_expr = stringi::stri_replace_all_regex(r_expr, add_regex_full, "sfun_stata_add($1, $2)")
-  }
-
-  # --- Restore mapped macro expressions from placeholders ---
-  if (length(macro_placeholder_map) > 0) {
-    sorted_macro_placeholders = names(macro_placeholder_map)[order(stringi::stri_length(names(macro_placeholder_map)), names(macro_placeholder_map), decreasing = TRUE)]
-    for (macro_placeholder in sorted_macro_placeholders) {
-      r_expr = stringi::stri_replace_all_fixed(r_expr, macro_placeholder, macro_placeholder_map[[macro_placeholder]])
-    }
-  }
-
-  # --- Restore string literals from placeholders ---
-  if (length(string_literal_map) > 0) {
-    sorted_placeholders = names(string_literal_map)[order(stringi::stri_length(names(string_literal_map)), names(string_literal_map), decreasing = TRUE)]
-    for (placeholder in sorted_placeholders) {
-      r_expr = stringi::stri_replace_all_fixed(r_expr, placeholder, string_literal_map[[placeholder]])
-    }
-  }
-
-  return(r_expr)
+  data = eval(
+    parse(text = paste(pipe_el, collapse = " %>% ")),
+    envir = list(data = data),
+    enclos = parent.frame()
+  )
+  data$stata2r_original_order_idx = seq_len(nrow(data))
+  return(data)
 }
 ```
 
-!END_MODIFICATION stata_expression_translator.R
+!END_MODIFICATION t_collapse.R
 
-The important clue in your latest log is that the expression is now `sfun_inlist(.data[["i1_cat"]], ...)`, and the error is specifically thrown when that promise is forced. So the next fix is not about `sfun_inlist()` itself, but about making sure its arguments are bound before the helper is called.
+With this change, your example should translate to all seven median fields, not just `region`.
