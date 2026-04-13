@@ -159,8 +159,11 @@ stata_data_manip_cmds = c(
   "generate", "gen", "gsort", "input", "insheet", "keep", "label",
   "merge", "modify", "move", "mvdecode", "mvrecode", "order", "pctile",
   "predict",
-  "preserve", "recode", "rename", "reshape", "restore", "sample", "save", "set",
-  "sort", "stack", "statsby", "stsplit",
+  "preserve", "recode", "rename", "reshape", "restore", "sample",
+  # save will not modify the data set,
+  # it is not helpful to include in our pipeline
+  # "save",
+  "set","sort", "stack", "statsby", "stsplit",
   "svar", "sysuse",
   "tempfile", "tempvar", "tempname",
   "total",

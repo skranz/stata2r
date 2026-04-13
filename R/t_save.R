@@ -13,6 +13,10 @@ s2r_p_save = function(rest_of_cmd) {
 # 2. Code Generation Phase: Emit R code
 t_save = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   restore.point("t_save")
+
+  return("# we don't translate stata save commands to R.")
+
+
   parsed = s2r_p_save(rest_of_cmd)
 
   if (is.na(parsed$raw_filename) || parsed$raw_filename == "") {
