@@ -35,7 +35,7 @@ sfun_is_stata_expression_string_typed = function(stata_expr_original) {
   # 3. Check for explicitly numeric-returning functions. If found, return FALSE immediately.
   numeric_producing_functions = c(
     "log", "sqrt", "int", "round", "mod", "runiform", "mdy", "date",
-    "year", "month", "day", "qofd", "dow", "missing", "inlist", "inrange",
+    "year", "month", "day", "qofd", "dow", "missing", "inlist", "inrange", "real",
     # Stata type casting functions that convert to numeric:
     "float", "double", "long", "int", "byte"
   )

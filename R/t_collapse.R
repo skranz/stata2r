@@ -144,72 +144,16 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     )
   }
 
-  agg_list = list()
-  for (j in seq_len(NROW(parsed$aggs))) {
-    stat = parsed$aggs$stat[j]
-    target_var = stringi::stri_trim_both(parsed$aggs$target_var[j])
-    source_expr = stringi::stri_trim_both(parsed$aggs$source_expr[j])
+  source_expr_vals = ifelse(is.na(parsed$aggs$source_expr), "NA_character_", paste0("'", parsed$aggs$source_expr, "'"))
 
-    if (is.na(source_expr) || source_expr == "") {
-      source_expr = target_var
-    }
-
-    r_source = translate_stata_expression_with_r_values(
-      source_expr,
-      line_num,
-      cmd_df,
-      context
-    )
-    if (is.na(r_source)) {
-      return(paste0("# Failed to translate source expr: ", source_expr))
-    }
-
-    collapse_func = switch(
-      stat,
-      "mean" = paste0("collapse::fmean(", r_source, ", na.rm = TRUE)"),
-      "sum" = paste0("collapse::fsum(", r_source, ", na.rm = TRUE)"),
-      "count" = paste0("sum(!is.na(", r_source, "))"),
-      "N" = "dplyr::n()",
-      "first" = paste0("collapse::ffirst(", r_source, ")"),
-      "last" = paste0("collapse::flast(", r_source, ")"),
-      "min" = paste0("collapse::fmin(", r_source, ", na.rm = TRUE)"),
-      "max" = paste0("collapse::fmax(", r_source, ", na.rm = TRUE)"),
-      "median" = paste0("collapse::fmedian(", r_source, ", na.rm = TRUE)"),
-      "sd" = paste0("collapse::fsd(", r_source, ", na.rm = TRUE)"),
-      "p1" = paste0("collapse::fquantile(", r_source, ", probs = 0.01, na.rm = TRUE)"),
-      "p5" = paste0("collapse::fquantile(", r_source, ", probs = 0.05, na.rm = TRUE)"),
-      "p10" = paste0("collapse::fquantile(", r_source, ", probs = 0.10, na.rm = TRUE)"),
-      "p25" = paste0("collapse::fquantile(", r_source, ", probs = 0.25, na.rm = TRUE)"),
-      "p75" = paste0("collapse::fquantile(", r_source, ", probs = 0.75, na.rm = TRUE)"),
-      "p90" = paste0("collapse::fquantile(", r_source, ", probs = 0.90, na.rm = TRUE)"),
-      "p95" = paste0("collapse::fquantile(", r_source, ", probs = 0.95, na.rm = TRUE)"),
-      "p99" = paste0("collapse::fquantile(", r_source, ", probs = 0.99, na.rm = TRUE)"),
-      NULL
-    )
-
-    if (is.null(collapse_func)) {
-      return(paste0("# Collapse stat '", stat, "' not implemented."))
-    }
-
-    agg_list[[target_var]] = collapse_func
-  }
-
-  agg_r_list_str = paste0(
-    "list(",
-    paste(
-      sprintf(
-        "`%s` = \"%s\"",
-        names(agg_list),
-        gsub("\"", "\\\\\"", unlist(agg_list), fixed = TRUE)
-      ),
-      collapse = ", "
-    ),
-    ")"
-  )
+  aggs_df_str = paste0("data.frame(stat = c('", paste(parsed$aggs$stat, collapse="','"), "'), ",
+                       "target_var = c('", paste(parsed$aggs$target_var, collapse="','"), "'), ",
+                       "source_expr = c(", paste(source_expr_vals, collapse=", "), "), ",
+                       "stringsAsFactors = FALSE)")
 
   args = c(
     "data = data",
-    paste0("agg_exprs_list = ", agg_r_list_str)
+    paste0("aggs_df = ", aggs_df_str)
   )
   if (length(parsed$by_vars) > 0) {
     args = c(
@@ -227,7 +171,7 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   return(r_code)
 }
 
-scmd_collapse = function(data, agg_exprs_list, group_vars = character(0), r_if_cond = NA_character_) {
+scmd_collapse = function(data, aggs_df, group_vars = character(0), r_if_cond = NA_character_) {
   restore.point("scmd_collapse")
 
   r_if_cond = resolve_abbrevs_in_expr(r_if_cond, names(data))
@@ -236,24 +180,88 @@ scmd_collapse = function(data, agg_exprs_list, group_vars = character(0), r_if_c
     data = data[s2r_eval_cond(data, r_if_cond, envir = parent.frame()), , drop = FALSE]
   }
 
-  pipe_el = c("data")
   group_vars_actual = expand_varlist(paste(group_vars, collapse = " "), names(data))
+
+  agg_exprs = character(0)
+  agg_names = character(0)
+
+  for (i in seq_len(nrow(aggs_df))) {
+    stat = aggs_df$stat[i]
+    tgt = aggs_df$target_var[i]
+    src = aggs_df$source_expr[i]
+
+    if (is.na(src) || src == "") {
+      src_vars = expand_varlist(tgt, names(data))
+      tgt_vars = src_vars
+    } else {
+      src_vars = expand_varlist(src, names(data))
+      if (length(src_vars) == 0) {
+        src_vars = src
+      }
+      if (length(src_vars) > 1) {
+        tgt_vars = paste0(tgt, seq_along(src_vars))
+      } else {
+        tgt_vars = tgt
+      }
+    }
+
+    for (k in seq_along(src_vars)) {
+      s_var = src_vars[k]
+      t_var = tgt_vars[k]
+
+      r_source = paste0("`", s_var, "`")
+
+      collapse_func = switch(
+        stat,
+        "mean" = paste0("collapse::fmean(", r_source, ", na.rm = TRUE)"),
+        "sum" = paste0("collapse::fsum(", r_source, ", na.rm = TRUE)"),
+        "count" = paste0("sum(!is.na(", r_source, "))"),
+        "N" = "dplyr::n()",
+        "first" = paste0("collapse::ffirst(", r_source, ")"),
+        "last" = paste0("collapse::flast(", r_source, ")"),
+        "min" = paste0("collapse::fmin(", r_source, ", na.rm = TRUE)"),
+        "max" = paste0("collapse::fmax(", r_source, ", na.rm = TRUE)"),
+        "median" = paste0("collapse::fmedian(", r_source, ", na.rm = TRUE)"),
+        "p50" = paste0("collapse::fmedian(", r_source, ", na.rm = TRUE)"),
+        "sd" = paste0("collapse::fsd(", r_source, ", na.rm = TRUE)"),
+        "p1" = paste0("collapse::fquantile(", r_source, ", probs = 0.01, na.rm = TRUE)"),
+        "p5" = paste0("collapse::fquantile(", r_source, ", probs = 0.05, na.rm = TRUE)"),
+        "p10" = paste0("collapse::fquantile(", r_source, ", probs = 0.10, na.rm = TRUE)"),
+        "p25" = paste0("collapse::fquantile(", r_source, ", probs = 0.25, na.rm = TRUE)"),
+        "p75" = paste0("collapse::fquantile(", r_source, ", probs = 0.75, na.rm = TRUE)"),
+        "p90" = paste0("collapse::fquantile(", r_source, ", probs = 0.90, na.rm = TRUE)"),
+        "p95" = paste0("collapse::fquantile(", r_source, ", probs = 0.95, na.rm = TRUE)"),
+        "p99" = paste0("collapse::fquantile(", r_source, ", probs = 0.99, na.rm = TRUE)"),
+        paste0("collapse::fmean(", r_source, ", na.rm = TRUE)")
+      )
+
+      agg_exprs = c(agg_exprs, collapse_func)
+      agg_names = c(agg_names, t_var)
+    }
+  }
+
+  pipe_el = c("data")
   if (length(group_vars_actual) > 0) {
     pipe_el = c(
       pipe_el,
-      paste0("collapse::fgroup_by(", paste(group_vars_actual, collapse = ", "), ")")
+      paste0("collapse::fgroup_by(", paste(paste0("`", group_vars_actual, "`"), collapse = ", "), ")")
     )
   }
 
-  agg_exprs_list = lapply(agg_exprs_list, function(expr) resolve_abbrevs_in_expr(expr, names(data)))
+  if (length(agg_exprs) > 0) {
+    agg_str = paste(
+      sprintf("`%s` = %s", agg_names, agg_exprs),
+      collapse = ", "
+    )
+    pipe_el = c(pipe_el, paste0("collapse::fsummarise(", agg_str, ")"))
+  } else {
+    pipe_el = c(pipe_el, "dplyr::distinct()")
+  }
 
-  agg_str = paste(
-    sprintf("`%s` = %s", names(agg_exprs_list), unlist(agg_exprs_list)),
-    collapse = ", "
-  )
-  pipe_el = c(pipe_el, paste0("collapse::fsummarise(", agg_str, ")"))
-  if (length(group_vars_actual) > 0) {
+  if (length(group_vars_actual) > 0 && length(agg_exprs) > 0) {
     pipe_el = c(pipe_el, "collapse::fungroup()")
+  } else if (length(group_vars_actual) > 0) {
+    pipe_el = c(pipe_el, "dplyr::ungroup()")
   }
 
   data = eval(
@@ -264,5 +272,3 @@ scmd_collapse = function(data, agg_exprs_list, group_vars = character(0), r_if_c
   data$stata2r_original_order_idx = seq_len(nrow(data))
   return(data)
 }
-
-
