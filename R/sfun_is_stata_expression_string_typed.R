@@ -12,7 +12,7 @@ sfun_is_stata_expression_string_typed = function(stata_expr_original) {
 
   # NEW: 1. Check for logical/comparison operators. If present, the result is numeric (0/1).
   # This must precede the string literal check.
-  if (fast_coalesce(stringi::stri_detect_regex(stata_expr_original, "==|!=|<=|>=|<|>|&|\\|"), FALSE)) {
+  if (fast_coalesce(stringi::stri_detect_regex(stata_expr_original, "==|!=|~=|<=|>=|<|>|&|\\|"), FALSE)) {
     return(FALSE)
   }
 
@@ -79,3 +79,4 @@ sfun_is_stata_expression_string_typed = function(stata_expr_original) {
   # Or if it's a simple arithmetic expression, it's numeric.
   return(FALSE)
 }
+

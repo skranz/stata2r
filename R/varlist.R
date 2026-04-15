@@ -52,3 +52,26 @@ expand_varlist = function(varlist_str, data_cols) {
 
   return(unique(expanded_vars))
 }
+#' Expand Stata variable abbreviations inside a translated R expression
+#' @param r_expr Translated R expression string
+#' @param data_cols Character vector of available columns in the dataset
+#' @return R expression string with abbreviations replaced by full names
+resolve_abbrevs_in_expr = function(r_expr, data_cols) {
+  if (is.na(r_expr) || r_expr == "") return(r_expr)
+  expr = try(base::parse(text = r_expr), silent = TRUE)
+  if (inherits(expr, "try-error")) return(r_expr)
+
+  used_vars = all.vars(expr)
+  for (v in used_vars) {
+    if (!(v %in% data_cols)) {
+      mcols = data_cols[startsWith(data_cols, v)]
+      if (length(mcols) == 1) {
+        # Escape v for regex
+        v_escaped = stringi::stri_replace_all_regex(v, "([.])", "\\\\$1")
+        regex = paste0("(?<![a-zA-Z0-9_\\.])`?", v_escaped, "`?(?![a-zA-Z0-9_\\.])")
+        r_expr = stringi::stri_replace_all_regex(r_expr, regex, paste0("`", mcols[1], "`"))
+      }
+    }
+  }
+  return(r_expr)
+}

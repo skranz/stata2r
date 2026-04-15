@@ -58,6 +58,9 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 scmd_generate = function(data, new_var, r_expr_str, r_if_cond = NA_character_, group_vars = character(0), is_string = FALSE, force_integer = FALSE) {
   restore.point("scmd_generate")
 
+  r_expr_str = resolve_abbrevs_in_expr(r_expr_str, names(data))
+  r_if_cond = resolve_abbrevs_in_expr(r_if_cond, names(data))
+
   expr_val = r_expr_str
   if (is_string) {
     if (expr_val == "NA_real_") expr_val = '""' else expr_val = paste0("as.character(", expr_val, ")")
@@ -71,6 +74,7 @@ scmd_generate = function(data, new_var, r_expr_str, r_if_cond = NA_character_, g
   }
 
   pipe_el = c("data")
+  group_vars = expand_varlist(paste(group_vars, collapse=" "), names(data))
   if (length(group_vars) > 0) pipe_el = c(pipe_el, paste0("dplyr::group_by(!!!dplyr::syms(c('", paste(group_vars, collapse="','"), "')))"))
   pipe_el = c(pipe_el, paste0("dplyr::mutate(`", new_var, "` = ", expr_val, ")"))
   if (length(group_vars) > 0) pipe_el = c(pipe_el, "dplyr::ungroup()")
@@ -78,3 +82,4 @@ scmd_generate = function(data, new_var, r_expr_str, r_if_cond = NA_character_, g
   # Evaluate code inside parent.frame() to capture previous steps' variables
   eval(parse(text = paste(pipe_el, collapse = " %>% ")), envir = list(data = data), enclos = parent.frame())
 }
+

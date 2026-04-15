@@ -230,6 +230,8 @@ t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 scmd_collapse = function(data, agg_exprs_list, group_vars = character(0), r_if_cond = NA_character_) {
   restore.point("scmd_collapse")
 
+  r_if_cond = resolve_abbrevs_in_expr(r_if_cond, names(data))
+
   if (!is.na(r_if_cond) && r_if_cond != "") {
     data = data[s2r_eval_cond(data, r_if_cond, envir = parent.frame()), , drop = FALSE]
   }
@@ -242,6 +244,8 @@ scmd_collapse = function(data, agg_exprs_list, group_vars = character(0), r_if_c
       paste0("collapse::fgroup_by(", paste(group_vars_actual, collapse = ", "), ")")
     )
   }
+
+  agg_exprs_list = lapply(agg_exprs_list, function(expr) resolve_abbrevs_in_expr(expr, names(data)))
 
   agg_str = paste(
     sprintf("`%s` = %s", names(agg_exprs_list), unlist(agg_exprs_list)),
@@ -260,4 +264,5 @@ scmd_collapse = function(data, agg_exprs_list, group_vars = character(0), r_if_c
   data$stata2r_original_order_idx = seq_len(nrow(data))
   return(data)
 }
+
 

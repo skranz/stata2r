@@ -60,6 +60,9 @@ scmd_replace = function(data, var_to_replace, r_expr_str, r_if_cond = NA_charact
 
   var_actual = expand_varlist(var_to_replace, names(data))[1]
 
+  r_expr_str = resolve_abbrevs_in_expr(r_expr_str, names(data))
+  r_if_cond = resolve_abbrevs_in_expr(r_if_cond, names(data))
+
   expr_val = r_expr_str
   if (is_string) {
     if (expr_val == "NA_real_") expr_val = '""' else expr_val = paste0("as.character(", expr_val, ")")
@@ -72,9 +75,11 @@ scmd_replace = function(data, var_to_replace, r_expr_str, r_if_cond = NA_charact
   }
 
   pipe_el = c("data")
+  group_vars = expand_varlist(paste(group_vars, collapse=" "), names(data))
   if (length(group_vars) > 0) pipe_el = c(pipe_el, paste0("dplyr::group_by(!!!dplyr::syms(c('", paste(group_vars, collapse="','"), "')))"))
   pipe_el = c(pipe_el, paste0("dplyr::mutate(`", var_actual, "` = ", expr_val, ")"))
   if (length(group_vars) > 0) pipe_el = c(pipe_el, "dplyr::ungroup()")
 
   eval(parse(text = paste(pipe_el, collapse = " %>% ")), envir = list(data = data), enclos = parent.frame())
 }
+

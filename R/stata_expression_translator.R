@@ -73,9 +73,10 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   # Step 2: Translate Stata logical operators and missing value comparisons.
   r_expr = stringi::stri_replace_all_regex(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*==\\s*NA_real_", "sfun_missing($1)")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*!=\\s*NA_real_", "!sfun_missing($1)")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*(?:!=|~=)\\s*NA_real_", "!sfun_missing($1)")
   r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![<>=!~])\\s*=\\s*(?![=])", " == ")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\s+~=\\s+", " != ")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "\\s*~=\\s*", " != ")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![a-zA-Z0-9_\\.])~", "!")
 
   # Step 3: Translate Stata special variables and indexing (e.g., _n, _N, var[_n-1])
   r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*-\\s*(\\d+)\\]", "dplyr::lag(`$1`, n = $2)")
@@ -217,3 +218,4 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   return(r_expr)
 }
+
