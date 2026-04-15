@@ -172,8 +172,6 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste0("data = scmd_recode(", paste(args, collapse = ", "), ")"))
 }
-
-# 3. Runtime Execution Phase: Evaluate against actual data
 scmd_recode = function(data, varlist_str, rules_templates, gen_vars_str = NA_character_, r_if_cond = NA_character_, is_string = FALSE, labels_map = NULL) {
   restore.point("scmd_recode")
 
@@ -186,6 +184,8 @@ scmd_recode = function(data, varlist_str, rules_templates, gen_vars_str = NA_cha
     if (length(new_vars) != length(vars_actual)) stop("scmd_recode: gen() requires same number of vars.")
   }
 
+  r_if_cond = resolve_abbrevs_in_expr(r_if_cond, names(data))
+
   for (i in seq_along(vars_actual)) {
     old_var = vars_actual[i]
     new_var = new_vars[i]
@@ -193,6 +193,8 @@ scmd_recode = function(data, varlist_str, rules_templates, gen_vars_str = NA_cha
     old_attrs = attributes(data[[old_var]])
 
     r_rules = gsub(".VAR.", paste0("`", old_var, "`"), rules_templates, fixed = TRUE)
+    # Also resolve abbreviations in rules
+    r_rules = vapply(r_rules, function(r) resolve_abbrevs_in_expr(r, names(data)), character(1))
 
     # STATA FALLBACK: If values do not match any conditions, they are left unchanged.
     fallback = if (is_string) paste0("as.character(`", old_var, "`)") else paste0("as.numeric(`", old_var, "`)")

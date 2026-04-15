@@ -85,66 +85,61 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   return(paste0("data = scmd_egen(", paste(args, collapse = ", "), ")"))
 }
 
-# 3. Runtime Execution Phase
-scmd_recode = function(data, varlist_str, rules_templates, gen_vars_str = NA_character_, r_if_cond = NA_character_, is_string = FALSE, labels_map = NULL) {
-  restore.point("scmd_recode")
+scmd_egen = function(data, new_var, func_name, calc_expr, group_vars = character(0), args_str = NA_character_, needs_temp_sort = FALSE, is_row = FALSE) {
+  restore.point("scmd_egen")
 
-  vars_actual = expand_varlist(varlist_str, names(data))
-
-  new_vars = vars_actual
-  if (!is.na(gen_vars_str)) {
-    new_vars = stringi::stri_split_regex(gen_vars_str, "\\s+")[[1]]
-    new_vars = new_vars[new_vars != ""]
-    if (length(new_vars) != length(vars_actual)) stop("scmd_recode: gen() requires same number of vars.")
+  group_vars_actual = expand_varlist(paste(group_vars, collapse=" "), names(data))
+  if (func_name %in% c("group", "tag")) {
+    arg_vars = expand_varlist(args_str, names(data))
+    group_vars_actual = unique(c(group_vars_actual, arg_vars))
   }
 
-  r_if_cond = resolve_abbrevs_in_expr(r_if_cond, names(data))
+  if (is_row) {
+    row_vars = expand_varlist(args_str, names(data))
+    if (func_name == "rowtotal") {
+      calc_expr = paste0("base::rowSums(replace(dplyr::select(data, dplyr::all_of(c('", paste(row_vars, collapse="','"), "'))), is.na(dplyr::select(data, dplyr::all_of(c('", paste(row_vars, collapse="','"), "')))), 0), na.rm = FALSE)")
+    } else if (func_name == "rowmean") {
+      calc_expr = paste0("base::rowMeans(dplyr::select(data, dplyr::all_of(c('", paste(row_vars, collapse="','"), "'))), na.rm = TRUE)")
+    } else if (func_name == "concat") {
+      na_checks = paste0("is.na(data[['", row_vars, "']])", collapse=" & ")
+      stri_args = paste0("dplyr::if_else(is.na(as.character(data[['", row_vars, "']])), \"\", as.character(data[['", row_vars, "']]))", collapse=", ")
+      calc_expr = paste0("dplyr::if_else(", na_checks, ", NA_character_, stringi::stri_paste(", stri_args, ", sep = ''))")
+    }
+  } else {
+    calc_expr = resolve_abbrevs_in_expr(calc_expr, names(data))
+  }
 
-  for (i in seq_along(vars_actual)) {
-    old_var = vars_actual[i]
-    new_var = new_vars[i]
+  if (needs_temp_sort) {
+    tmp = data
+    sort_vars = group_vars_actual
+    if (func_name == "rank") sort_vars = unique(c(sort_vars, expand_varlist(args_str, names(data))))
+    if ("stata2r_original_order_idx" %in% names(tmp)) sort_vars = c(sort_vars, "stata2r_original_order_idx")
 
-    old_attrs = attributes(data[[old_var]])
+    if (length(sort_vars) > 0) {
+      sort_cmd = paste0("dplyr::arrange(tmp, ", paste(paste0("`", sort_vars, "`"), collapse=", "), ")")
+      tmp = eval(parse(text = sort_cmd), envir = list(tmp = tmp), enclos = parent.frame())
+    }
 
-    r_rules = gsub(".VAR.", paste0("`", old_var, "`"), rules_templates, fixed = TRUE)
-    # Also resolve abbreviations in rules
-    r_rules = vapply(r_rules, function(r) resolve_abbrevs_in_expr(r, names(data)), character(1))
+    pipe_el = c("tmp")
+    if (length(group_vars_actual) > 0) pipe_el = c(pipe_el, paste0("dplyr::group_by(!!!dplyr::syms(c('", paste(group_vars_actual, collapse="','"), "')))"))
+    pipe_el = c(pipe_el, paste0("dplyr::mutate(`", new_var, "` = ", calc_expr, ")"))
+    if (length(group_vars_actual) > 0) pipe_el = c(pipe_el, "dplyr::ungroup()")
 
-    # STATA FALLBACK: If values do not match any conditions, they are left unchanged.
-    fallback = if (is_string) paste0("as.character(`", old_var, "`)") else paste0("as.numeric(`", old_var, "`)")
-    r_rules = c(r_rules, paste0("TRUE ~ ", fallback))
+    tmp = eval(parse(text = paste(pipe_el, collapse = " %>% ")), envir = list(tmp = tmp), enclos = parent.frame())
 
-    case_when_expr = paste0("dplyr::case_when(\n    ", paste(r_rules, collapse = ",\n    "), "\n  )")
-
-    if (!is.na(r_if_cond) && r_if_cond != "") {
-      final_val_expr = paste0("dplyr::if_else((fast_coalesce(as.numeric(", r_if_cond, "), 0) != 0), ", case_when_expr, ", `", old_var, "`)")
+    if ("stata2r_original_order_idx" %in% names(data)) {
+      data = dplyr::left_join(data, tmp[, c("stata2r_original_order_idx", new_var)], by = "stata2r_original_order_idx")
     } else {
-      final_val_expr = case_when_expr
+      data[[new_var]] = tmp[[new_var]]
     }
 
-    if (is_string) {
-      final_val_expr = paste0("as.character(", final_val_expr, ")")
-    } else {
-      final_val_expr = paste0("as.numeric(", final_val_expr, ")")
-    }
-
-    data = eval(parse(text = paste0("dplyr::mutate(data, `", new_var, "` = ", final_val_expr, ")")), envir = list(data = data), enclos = parent.frame())
-
-    # Restore or Assign Labels
-    if (!is.null(labels_map)) {
-      data[[new_var]] = haven::labelled(data[[new_var]], labels = labels_map)
-    } else if (old_var == new_var && !is_string) {
-      # If replacing and no new labels are provided, keep original labels matching Stata
-      if (!is.null(old_attrs$labels)) attr(data[[new_var]], "labels") = old_attrs$labels
-      if (!is.null(old_attrs$label)) attr(data[[new_var]], "label") = old_attrs$label
-      if (!is.null(old_attrs$class) && "haven_labelled" %in% old_attrs$class) {
-        class(data[[new_var]]) = old_attrs$class
-      }
-    }
+  } else {
+    pipe_el = c("data")
+    if (length(group_vars_actual) > 0 && !is_row) pipe_el = c(pipe_el, paste0("dplyr::group_by(!!!dplyr::syms(c('", paste(group_vars_actual, collapse="','"), "')))"))
+    pipe_el = c(pipe_el, paste0("dplyr::mutate(`", new_var, "` = ", calc_expr, ")"))
+    if (length(group_vars_actual) > 0 && !is_row) pipe_el = c(pipe_el, "dplyr::ungroup()")
+    data = eval(parse(text = paste(pipe_el, collapse = " %>% ")), envir = list(data = data), enclos = parent.frame())
   }
 
   return(data)
 }
-
-
-
