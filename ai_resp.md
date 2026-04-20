@@ -1,290 +1,360 @@
-An issue with the R translation failing for runid 206 (`object 'lgdppcus' not found`) is traced back to how `collapse` operations were being translated when using Stata's variable abbreviation rules.
+Yes, the docs make this fairly clear.
 
-In Stata, the command `collapse ... lgdp ...` leverages abbreviation: since `lgdp` does not exist but `lgdppcus` does, Stata automatically expands it to `lgdppcus`. The output column name resulting from `collapse` then inherits this expanded name (`lgdppcus`), not the typed abbreviation (`lgdp`). 
+`xi` does **not** choose the omitted group arbitrarily. By default, `i.varname` omits the dummy for the **smallest value** of a numeric categorical variable; for string variables, it omits the first value in an alphabetical, case-sensitive sort. Stata also documents two overrides when `noomit` is not used: `char _dta[omit] prevalent` switches the default to the most prevalent category, and `char varname[omit] ...` lets you choose the omitted category explicitly. 
 
-The previous version of `t_collapse` statically hardcoded the source and target strings (e.g. `` `lgdp` ``) into the generated R script without expanding them via `names(data)`. While the evaluation phase inside `scmd_collapse` did resolve the underlying value to `lgdppcus`, it kept the target assignment key strictly bound to `` `lgdp` ``, causing subsequent commands looking for `lgdppcus` to fail.
+The key point for your example is that `noomit` has a specific documented meaning: it “prevents xi from omitting groups” and generates an indicator for **every** category. So for `xi i.LaT i.yr40, noomit`, Stata should generate the full `yr40` dummy set, which means `_Iyr40_1800`, `_Iyr40_1840`, `_Iyr40_1880`, `_Iyr40_1920`, and `_Iyr40_1960` should all exist. 
 
-We can fix this by completely refactoring `t_collapse` to pass the raw Stata parameters directly to the runtime function `scmd_collapse`. There, we can resolve all wildcards and abbreviations dynamically against `names(data)` *before* assigning target columns.
+So your current R result is wrong for a simple reason: `noomit` is still being ignored. Right now your translator is applying the default omission rule and therefore drops the smallest `yr40` category, `1800`, which is exactly why you get `_Iyr40_1960` but not `_Iyr40_1800`. This is not a lottery; for this part, Stata’s behavior is deterministic and can be emulated directly. 
 
-!MODIFICATION t_collapse R/t_collapse.R
+The later regression line you showed is not inconsistent with that. If `xi ... , noomit` first creates the full set of dummies, the later `reg` can still manually include only a subset of them. So the later reference to `_Iyr40_1800 ... _Iyr40_1920` fits perfectly with the idea that `_Iyr40_1800` exists and your current translator simply failed to create it. 
+
+One nuance remains for non-integer numeric categories like `LaT`. The manual clearly says `xi` names created variables as `I + stub + groupid`, and it documents “natural” coding examples for integer-coded numerics and sequential coding for strings, but it does not spell out in detail how suffixes are assigned for non-integer numeric category values. So the exact `_ILaT_*` suffixing is less explicitly documented than the `yr40` case. Still, your observed Stata code suggests that the current sequential `_ILaT_1` to `_ILaT_4` convention is compatible enough for this project. 
+
+The immediate fix is to implement `noomit` in `t_xi()` and `scmd_xi()`. I would also avoid rejecting string variables, because the official `xi` docs explicitly allow both numeric and string categorical variables. 
+
+!MODIFICATION t_xi.R
 scope = "file"
-file = "R/t_collapse.R"
-description = "Rewrite t_collapse to expand variable lists dynamically at runtime, ensuring correct target column names for abbreviations and wildcards."
----
+file = "R/t_xi.R"
+is_new_file = false
+description = "Rewrite standalone xi parsing to carry the noomit option through to runtime and emit one scmd_xi call per parsed xi spec."
+-----------------------------------------------------------------------------------------------------------------------------------------
+
 ```r
-# FILE: R/t_collapse.R
+# FILE: R/t_xi.R
 
-s2r_parse_collapse_aggs = function(agg_part) {
-  restore.point("s2r_parse_collapse_aggs")
+# 1. Parsing Phase
+s2r_p_xi = function(rest_of_cmd) {
+  restore.point("s2r_p_xi")
 
-  agg_part = stringi::stri_trim_both(agg_part)
-  if (is.na(agg_part) || agg_part == "") {
-    return(data.frame(
-      stat = character(0),
-      target_var = character(0),
-      source_expr = character(0),
-      stringsAsFactors = FALSE
-    ))
-  }
-
-  agg_norm = stringi::stri_replace_all_regex(agg_part, "\\s*=\\s*", "=")
-
-  stat_locs = stringi::stri_locate_all_regex(
-    agg_norm,
-    "\\([A-Za-z_][A-Za-z0-9_]*\\)"
-  )[[1]]
-
-  rows = vector("list", 0)
-
-  add_segment = function(stat_name, segment_text) {
-    segment_text = stringi::stri_trim_both(segment_text)
-    if (is.na(segment_text) || segment_text == "") return(invisible(NULL))
-
-    tokens = stringi::stri_split_regex(segment_text, "\\s+")[[1]]
-    tokens = tokens[!is.na(tokens) & tokens != ""]
-    if (length(tokens) == 0) return(invisible(NULL))
-
-    for (tok in tokens) {
-      if (stringi::stri_detect_fixed(tok, "=")) {
-        parts = stringi::stri_split_fixed(tok, "=", n = 2)[[1]]
-        target_var = stringi::stri_trim_both(parts[1])
-        source_expr = stringi::stri_trim_both(parts[2])
-      } else {
-        target_var = stringi::stri_trim_both(tok)
-        source_expr = NA_character_
-      }
-
-      if (is.na(target_var) || target_var == "") next
-
-      rows[[length(rows) + 1]] <<- data.frame(
-        stat = stat_name,
-        target_var = target_var,
-        source_expr = source_expr,
-        stringsAsFactors = FALSE
-      )
-    }
-
-    invisible(NULL)
-  }
-
-  if (NROW(stat_locs) == 0 || is.na(stat_locs[1, 1])) {
-    add_segment("mean", agg_norm)
-  } else {
-    if (stat_locs[1, 1] > 1) {
-      prefix_text = stringi::stri_trim_both(stringi::stri_sub(agg_norm, 1, stat_locs[1, 1] - 1))
-      if (prefix_text != "") {
-        add_segment("mean", prefix_text)
-      }
-    }
-
-    for (i in seq_len(NROW(stat_locs))) {
-      stat_text = stringi::stri_sub(
-        agg_norm,
-        stat_locs[i, 1] + 1,
-        stat_locs[i, 2] - 1
-      )
-
-      seg_start = stat_locs[i, 2] + 1
-      seg_end = if (i < NROW(stat_locs)) stat_locs[i + 1, 1] - 1 else stringi::stri_length(agg_norm)
-
-      if (seg_start <= seg_end) {
-        segment_text = stringi::stri_sub(agg_norm, seg_start, seg_end)
-      } else {
-        segment_text = ""
-      }
-
-      add_segment(stat_text, segment_text)
-    }
-  }
-
-  if (length(rows) == 0) {
-    return(data.frame(
-      stat = character(0),
-      target_var = character(0),
-      source_expr = character(0),
-      stringsAsFactors = FALSE
-    ))
-  }
-
-  do.call(rbind, rows)
-}
-
-s2r_p_collapse = function(rest_of_cmd) {
-  restore.point("s2r_p_collapse")
   parts = stringi::stri_match_first_regex(
     stringi::stri_trim_both(rest_of_cmd),
     "^\\s*(.*?)(?:,\\s*(.*))?$"
   )
-  agg_part = stringi::stri_trim_both(parts[1, 2])
-  options_part = stringi::stri_trim_both(parts[1, 3])
 
-  parsed = s2r_parse_if_in(agg_part)
-  agg_part = parsed$base_str
+  specs_part = stringi::stri_trim_both(parts[1, 2])
+  options = stringi::stri_trim_both(parts[1, 3])
 
-  by_vars = character(0)
-  if (!is.na(options_part)) {
-    by_opt = stringi::stri_match_first_regex(options_part, "\\bby\\s*\\(([^)]+)\\)")
-    if (!is.na(by_opt[1, 1])) {
-      by_vars = stringi::stri_split_regex(
-        stringi::stri_trim_both(by_opt[1, 2]),
-        "\\s+"
-      )[[1]]
-    }
+  if (is.na(specs_part) || specs_part == "") {
+    return(list(specs = list(), noomit = FALSE, options = options))
+  }
+
+  spec_tokens = stringi::stri_split_regex(specs_part, "\\s+")[[1]]
+  spec_tokens = spec_tokens[!is.na(spec_tokens) & spec_tokens != ""]
+
+  specs = s2r_extract_xi_specs(spec_tokens)
+
+  noomit = FALSE
+  if (!is.na(options) && options != "") {
+    noomit = fast_coalesce(
+      stringi::stri_detect_regex(options, "(^|[[:space:],])noomit($|[[:space:],])"),
+      FALSE
+    )
   }
 
   list(
-    aggs = s2r_parse_collapse_aggs(agg_part),
-    by_vars = by_vars[by_vars != ""],
-    if_str = parsed$if_str,
-    in_str = parsed$in_str,
-    raw_options = options_part
+    specs = specs,
+    noomit = noomit,
+    options = options
   )
 }
 
-t_collapse = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
-  restore.point("t_collapse")
-  parsed = s2r_p_collapse(rest_of_cmd)
-  if (NROW(parsed$aggs) == 0) {
-    return(paste0("# Failed to parse collapse aggregate definitions: ", rest_of_cmd))
+# 2. Code Generation Phase
+t_xi = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_xi")
+
+  parsed = s2r_p_xi(rest_of_cmd)
+
+  if (length(parsed$specs) == 0) {
+    return(paste0("# xi command: Unsupported syntax for: ", rest_of_cmd))
   }
 
-  r_if_cond = NA_character_
-  if (!is.na(parsed$if_str)) {
-    r_if_cond = translate_stata_expression_with_r_values(
-      parsed$if_str,
-      line_num,
-      cmd_df,
-      list(is_by_group = FALSE)
-    )
-  }
+  code_lines = character(0)
 
-  source_expr_vals = ifelse(is.na(parsed$aggs$source_expr), "NA_character_", paste0("'", parsed$aggs$source_expr, "'"))
-
-  aggs_df_str = paste0("data.frame(stat = c('", paste(parsed$aggs$stat, collapse="','"), "'), ",
-                       "target_var = c('", paste(parsed$aggs$target_var, collapse="','"), "'), ",
-                       "source_expr = c(", paste(source_expr_vals, collapse=", "), "), ",
-                       "stringsAsFactors = FALSE)")
-
-  args = c(
-    "data = data",
-    paste0("aggs_df = ", aggs_df_str)
-  )
-  if (length(parsed$by_vars) > 0) {
+  for (spec in parsed$specs) {
     args = c(
-      args,
-      paste0("group_vars = c('", paste(parsed$by_vars, collapse = "','"), "')")
+      "data = data",
+      paste0("var1 = ", quote_for_r_literal(spec$var1)),
+      paste0("noomit = ", parsed$noomit)
     )
-  }
-  if (!is.na(r_if_cond)) {
-    args = c(args, paste0("r_if_cond = ", quote_for_r_literal(r_if_cond)))
-  }
 
-  r_code = paste0("data = scmd_collapse(", paste(args, collapse = ", "), ")")
-  r_code = paste0(r_code, "\nassign(\"has_original_order_idx\", TRUE, envir = stata2r_env)")
-
-  return(r_code)
-}
-
-scmd_collapse = function(data, aggs_df, group_vars = character(0), r_if_cond = NA_character_) {
-  restore.point("scmd_collapse")
-
-  r_if_cond = resolve_abbrevs_in_expr(r_if_cond, names(data))
-
-  if (!is.na(r_if_cond) && r_if_cond != "") {
-    data = data[s2r_eval_cond(data, r_if_cond, envir = parent.frame()), , drop = FALSE]
-  }
-
-  group_vars_actual = expand_varlist(paste(group_vars, collapse = " "), names(data))
-
-  agg_exprs = character(0)
-  agg_names = character(0)
-
-  for (i in seq_len(nrow(aggs_df))) {
-    stat = aggs_df$stat[i]
-    tgt = aggs_df$target_var[i]
-    src = aggs_df$source_expr[i]
-
-    if (is.na(src) || src == "") {
-      src_vars = expand_varlist(tgt, names(data))
-      tgt_vars = src_vars
-    } else {
-      src_vars = expand_varlist(src, names(data))
-      if (length(src_vars) == 0) {
-        src_vars = src
-      }
-      if (length(src_vars) > 1) {
-        tgt_vars = paste0(tgt, seq_along(src_vars))
-      } else {
-        tgt_vars = tgt
-      }
+    if (!is.null(spec$var2) && !is.na(spec$var2) && spec$var2 != "") {
+      args = c(args, paste0("var2 = ", quote_for_r_literal(spec$var2)))
     }
 
-    for (k in seq_along(src_vars)) {
-      s_var = src_vars[k]
-      t_var = tgt_vars[k]
+    code_lines = c(
+      code_lines,
+      paste0("data = scmd_xi(", paste(args, collapse = ", "), ")")
+    )
+  }
 
-      r_source = paste0("`", s_var, "`")
+  handled_options = character(0)
+  if (parsed$noomit) {
+    handled_options = c(handled_options, "noomit")
+  }
 
-      collapse_func = switch(
-        stat,
-        "mean" = paste0("collapse::fmean(", r_source, ", na.rm = TRUE)"),
-        "sum" = paste0("collapse::fsum(", r_source, ", na.rm = TRUE)"),
-        "count" = paste0("sum(!is.na(", r_source, "))"),
-        "N" = "dplyr::n()",
-        "first" = paste0("collapse::ffirst(", r_source, ")"),
-        "last" = paste0("collapse::flast(", r_source, ")"),
-        "min" = paste0("collapse::fmin(", r_source, ", na.rm = TRUE)"),
-        "max" = paste0("collapse::fmax(", r_source, ", na.rm = TRUE)"),
-        "median" = paste0("collapse::fmedian(", r_source, ", na.rm = TRUE)"),
-        "p50" = paste0("collapse::fmedian(", r_source, ", na.rm = TRUE)"),
-        "sd" = paste0("collapse::fsd(", r_source, ", na.rm = TRUE)"),
-        "p1" = paste0("collapse::fquantile(", r_source, ", probs = 0.01, na.rm = TRUE)"),
-        "p5" = paste0("collapse::fquantile(", r_source, ", probs = 0.05, na.rm = TRUE)"),
-        "p10" = paste0("collapse::fquantile(", r_source, ", probs = 0.10, na.rm = TRUE)"),
-        "p25" = paste0("collapse::fquantile(", r_source, ", probs = 0.25, na.rm = TRUE)"),
-        "p75" = paste0("collapse::fquantile(", r_source, ", probs = 0.75, na.rm = TRUE)"),
-        "p90" = paste0("collapse::fquantile(", r_source, ", probs = 0.90, na.rm = TRUE)"),
-        "p95" = paste0("collapse::fquantile(", r_source, ", probs = 0.95, na.rm = TRUE)"),
-        "p99" = paste0("collapse::fquantile(", r_source, ", probs = 0.99, na.rm = TRUE)"),
-        paste0("collapse::fmean(", r_source, ", na.rm = TRUE)")
+  if (!is.na(parsed$options) && parsed$options != "") {
+    option_tokens = stringi::stri_split_regex(parsed$options, "[[:space:]]+")[[1]]
+    option_tokens = option_tokens[!is.na(option_tokens) & option_tokens != ""]
+    unhandled = setdiff(option_tokens, handled_options)
+    if (length(unhandled) > 0) {
+      code_lines = c(
+        code_lines,
+        paste0("# xi options currently ignored: ", paste(unhandled, collapse = " "))
       )
-
-      agg_exprs = c(agg_exprs, collapse_func)
-      agg_names = c(agg_names, t_var)
     }
   }
 
-  pipe_el = c("data")
-  if (length(group_vars_actual) > 0) {
-    pipe_el = c(
-      pipe_el,
-      paste0("collapse::fgroup_by(", paste(paste0("`", group_vars_actual, "`"), collapse = ", "), ")")
-    )
-  }
-
-  if (length(agg_exprs) > 0) {
-    agg_str = paste(
-      sprintf("`%s` = %s", agg_names, agg_exprs),
-      collapse = ", "
-    )
-    pipe_el = c(pipe_el, paste0("collapse::fsummarise(", agg_str, ")"))
-  } else {
-    pipe_el = c(pipe_el, "dplyr::distinct()")
-  }
-
-  if (length(group_vars_actual) > 0 && length(agg_exprs) > 0) {
-    pipe_el = c(pipe_el, "collapse::fungroup()")
-  } else if (length(group_vars_actual) > 0) {
-    pipe_el = c(pipe_el, "dplyr::ungroup()")
-  }
-
-  data = eval(
-    parse(text = paste(pipe_el, collapse = " %>% ")),
-    envir = list(data = data),
-    enclos = parent.frame()
-  )
-  data$stata2r_original_order_idx = seq_len(nrow(data))
-  return(data)
+  paste(code_lines, collapse = "\n")
 }
 ```
-!END_MODIFICATION t_collapse R/t_collapse.R
+
+!END_MODIFICATION t_xi.R
+
+!MODIFICATION stata_xi.R
+scope = "file"
+file = "R/stata_xi.R"
+is_new_file = false
+description = "Rewrite xi runtime to support noomit, numeric and string categorical variables, and Stata-like dummy naming for integer, non-integer, and string categories."
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+```r
+# FILE: R/stata_xi.R
+
+#' Helper to generate xi base name
+get_xi_base_name = function(varname) {
+  if (base::endsWith(varname, "_factor")) {
+    return(stringi::stri_replace_last_fixed(varname, "_factor", "_f"))
+  } else if (varname == "region_cat") {
+    return("region_ca")
+  }
+  return(varname)
+}
+
+#' Helper to generate xi interaction base name
+get_xi_interaction_basename = function(var1, var2) {
+  short_var1 = stringi::stri_sub(var1, 1, min(stringi::stri_length(var1), 3))
+  short_var2 = stringi::stri_sub(var2, 1, min(stringi::stri_length(var2), 3))
+  return(paste0(short_var1, "X", short_var2))
+}
+
+#' Integer-ish test with a small tolerance, useful for haven float columns
+s2r_xi_is_integerish = function(x, tol = 1e-8) {
+  if (length(x) == 0) return(logical(0))
+  !is.na(x) & abs(x - round(x)) <= tol
+}
+
+#' Prepare a Stata xi categorical variable
+#'
+#' Returns a list with:
+#' - kind: "numeric" or "string"
+#' - values: the comparable runtime values
+#' - levels: sorted unique nonmissing category values
+#' - suffixes: xi suffixes corresponding to each level
+s2r_xi_prepare_var = function(x, varname) {
+  if (inherits(x, "haven_labelled")) {
+    x = haven::zap_labels(x)
+  }
+
+  if (is.factor(x)) {
+    x = as.character(x)
+  }
+
+  if (is.character(x)) {
+    values = as.character(x)
+    levels = unique(values[!is.na(values)])
+    if (length(levels) > 0) {
+      levels = stringi::stri_sort(levels, locale = "C")
+    }
+    suffixes = as.character(seq_along(levels))
+
+    return(list(
+      kind = "string",
+      values = values,
+      levels = levels,
+      suffixes = suffixes
+    ))
+  }
+
+  if (is.logical(x)) {
+    x = as.numeric(x)
+  }
+
+  if (!is.numeric(x)) {
+    stop(
+      paste0(
+        "scmd_xi: variable '", varname,
+        "' must be numeric, string, labelled numeric, factor, or logical."
+      )
+    )
+  }
+
+  values = as.numeric(x)
+  levels = sort(unique(values[!is.na(values)]))
+
+  if (all(s2r_xi_is_integerish(levels))) {
+    suffixes = as.character(as.integer(round(levels)))
+  } else {
+    # For non-integer numeric categories, Stata's exact naming rule is not
+    # documented as clearly as the integer and string cases. A stable,
+    # Stata-like choice is sequential coding in sorted order.
+    suffixes = as.character(seq_along(levels) - 1L)
+  }
+
+  list(
+    kind = "numeric",
+    values = values,
+    levels = levels,
+    suffixes = suffixes
+  )
+}
+
+#' Keep all levels when noomit is requested; otherwise drop the first/base level
+s2r_xi_included_levels = function(prep, noomit = FALSE) {
+  if (length(prep$levels) == 0) {
+    return(list(levels = prep$levels, suffixes = prep$suffixes))
+  }
+
+  if (isTRUE(noomit)) {
+    return(list(levels = prep$levels, suffixes = prep$suffixes))
+  }
+
+  if (length(prep$levels) == 1) {
+    return(list(
+      levels = prep$levels[0],
+      suffixes = prep$suffixes[0]
+    ))
+  }
+
+  list(
+    levels = prep$levels[-1],
+    suffixes = prep$suffixes[-1]
+  )
+}
+
+#' Human-readable label text for xi-generated dummy labels
+s2r_xi_level_label = function(level_value, kind) {
+  if (kind == "string") {
+    return(level_value)
+  }
+
+  if (is.na(level_value)) {
+    return(".")
+  }
+
+  if (s2r_xi_is_integerish(level_value)) {
+    return(as.character(as.integer(round(level_value))))
+  }
+
+  format(
+    signif(level_value, digits = 12),
+    scientific = FALSE,
+    trim = TRUE
+  )
+}
+
+#' Vectorized equality check for prepared xi values
+s2r_xi_match_level = function(values, level, kind) {
+  if (kind == "string") {
+    return(!is.na(values) & values == level)
+  }
+  !is.na(values) & values == level
+}
+
+#' Generate dummy variables for a single categorical variable
+sfun_xi_create_dummies = function(data, varname, noomit = FALSE) {
+  prep = s2r_xi_prepare_var(data[[varname]], varname)
+  included = s2r_xi_included_levels(prep, noomit = noomit)
+
+  if (length(included$levels) == 0) {
+    return(data)
+  }
+
+  base_name = get_xi_base_name(varname)
+
+  for (i in seq_along(included$levels)) {
+    lvl = included$levels[i]
+    suffix = included$suffixes[i]
+    new_col = paste0("_I", base_name, "_", suffix)
+
+    is_match = s2r_xi_match_level(prep$values, lvl, prep$kind)
+    is_valid_non_match = !is.na(prep$values) & !is_match
+
+    data[[new_col]] = dplyr::if_else(
+      is_match,
+      1L,
+      dplyr::if_else(is_valid_non_match, 0L, NA_integer_)
+    )
+
+    attr(data[[new_col]], "label") = paste0(
+      varname, "==", s2r_xi_level_label(lvl, prep$kind)
+    )
+  }
+
+  data
+}
+
+#' Generate xi interaction dummies for two categorical variables
+sfun_xi_create_interaction_dummies = function(data, var1, var2, noomit = FALSE) {
+  prep1 = s2r_xi_prepare_var(data[[var1]], var1)
+  prep2 = s2r_xi_prepare_var(data[[var2]], var2)
+
+  inc1 = s2r_xi_included_levels(prep1, noomit = noomit)
+  inc2 = s2r_xi_included_levels(prep2, noomit = noomit)
+
+  if (length(inc1$levels) == 0 || length(inc2$levels) == 0) {
+    return(data)
+  }
+
+  base = get_xi_interaction_basename(var1, var2)
+
+  for (i in seq_along(inc1$levels)) {
+    lvl1 = inc1$levels[i]
+    suff1 = inc1$suffixes[i]
+
+    match1 = s2r_xi_match_level(prep1$values, lvl1, prep1$kind)
+
+    for (j in seq_along(inc2$levels)) {
+      lvl2 = inc2$levels[j]
+      suff2 = inc2$suffixes[j]
+
+      match2 = s2r_xi_match_level(prep2$values, lvl2, prep2$kind)
+      new_col = paste0("_I", base, "_", suff1, "_", suff2)
+
+      is_match = match1 & match2
+      is_valid_non_match = !is.na(prep1$values) & !is.na(prep2$values) & !is_match
+
+      data[[new_col]] = dplyr::if_else(
+        is_match,
+        1L,
+        dplyr::if_else(is_valid_non_match, 0L, NA_integer_)
+      )
+
+      attr(data[[new_col]], "label") = paste0(
+        var1, "==", s2r_xi_level_label(lvl1, prep1$kind),
+        " & ",
+        var2, "==", s2r_xi_level_label(lvl2, prep2$kind)
+      )
+    }
+  }
+
+  data
+}
+
+#' Runtime execution for Stata xi command
+scmd_xi = function(data, var1, var2 = NA_character_, noomit = FALSE) {
+  restore.point("scmd_xi")
+
+  data = sfun_xi_create_dummies(data, var1, noomit = noomit)
+
+  if (!is.na(var2) && var2 != "") {
+    data = sfun_xi_create_dummies(data, var2, noomit = noomit)
+    data = sfun_xi_create_interaction_dummies(data, var1, var2, noomit = noomit)
+  }
+
+  data
+}
+```
+
+!END_MODIFICATION stata_xi.R
+
+After this change, `xi i.LaT i.yr40, noomit` should create `_Iyr40_1800` as well as `_Iyr40_1960`, which is the immediate mismatch you found. The next thing I would check after patching is whether Stata on your exact data also creates `_ILaT_0`; with `noomit`, I would expect a full LaT dummy set rather than only `_ILaT_1` to `_ILaT_4`.
