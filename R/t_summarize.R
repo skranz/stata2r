@@ -4,15 +4,16 @@
 s2r_p_summarize = function(rest_of_cmd) {
   restore.point("s2r_p_summarize")
   parts = stringi::stri_match_first_regex(rest_of_cmd, "^\\s*([^,]*?)(?:,\\s*(.*))?$")
-  parsed = s2r_parse_if_in(stringi::stri_trim_both(parts[1,2]))
+  parsed = s2r_parse_if_in(stringi::stri_trim_both(parts[1, 2]))
 
   vars = stringi::stri_split_regex(stringi::stri_trim_both(parsed$base_str), "\\s+")[[1]]
-  list(varlist = vars[vars != ""], if_str = parsed$if_str, options = parts[1,3])
+  list(varlist = vars[vars != ""], if_str = parsed$if_str, options = parts[1, 3])
 }
 
 # 2. Code Generation Phase
 t_summarize = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   restore.point("t_summarize")
+
   needed_r = unlist(cmd_obj$r_results_needed)
   if (length(needed_r) == 0) {
     return(paste0("# summarize at line ", line_num, " is no-op (no r() used)."))
@@ -27,12 +28,15 @@ t_summarize = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   r_if_cond = NA_character_
   if (!is.na(parsed$if_str)) {
-    r_if_cond = translate_stata_expression_with_r_values(parsed$if_str, line_num, cmd_df, list(is_by_group = FALSE))
+    r_if_cond = translate_stata_expression_with_r_values(
+      parsed$if_str,
+      line_num,
+      cmd_df,
+      list(is_by_group = FALSE)
+    )
   }
 
-  needed_r_str = paste0("c('", paste(needed_r, collapse = "','"), "')")
-
-  args = c("data = data", paste0("needed_r = ", needed_r_str))
+  args = c("data = data", paste0("needed_r = ", s2r_chr_vec_to_r(needed_r)))
   if (!is.na(var_for_r)) {
     args = c(args, paste0("var_for_r = ", quote_for_r_literal(var_for_r)))
   }
@@ -40,86 +44,16 @@ t_summarize = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     args = c(args, paste0("r_if_cond = ", quote_for_r_literal(r_if_cond)))
   }
 
-  r_code = paste0("res_L", line_num, " = scmd_summarize(", paste(args, collapse = ", "), ")")
-
-  if ("r(N)" %in% needed_r) {
-    r_code = paste0(
-      r_code,
-      "\nassign(",
-      quote_for_r_literal(paste0("stata_r_val_L", line_num, "_N")),
-      ", res_L",
-      line_num,
-      "$r_N, envir = stata2r_env)"
-    )
-  }
-  if ("r(mean)" %in% needed_r) {
-    r_code = paste0(
-      r_code,
-      "\nassign(",
-      quote_for_r_literal(paste0("stata_r_val_L", line_num, "_mean")),
-      ", res_L",
-      line_num,
-      "$r_mean, envir = stata2r_env)"
-    )
-  }
-  if ("r(sd)" %in% needed_r) {
-    r_code = paste0(
-      r_code,
-      "\nassign(",
-      quote_for_r_literal(paste0("stata_r_val_L", line_num, "_sd")),
-      ", res_L",
-      line_num,
-      "$r_sd, envir = stata2r_env)"
-    )
-  }
-  if ("r(min)" %in% needed_r) {
-    r_code = paste0(
-      r_code,
-      "\nassign(",
-      quote_for_r_literal(paste0("stata_r_val_L", line_num, "_min")),
-      ", res_L",
-      line_num,
-      "$r_min, envir = stata2r_env)"
-    )
-  }
-  if ("r(max)" %in% needed_r) {
-    r_code = paste0(
-      r_code,
-      "\nassign(",
-      quote_for_r_literal(paste0("stata_r_val_L", line_num, "_max")),
-      ", res_L",
-      line_num,
-      "$r_max, envir = stata2r_env)"
-    )
-  }
-  if ("r(sum)" %in% needed_r) {
-    r_code = paste0(
-      r_code,
-      "\nassign(",
-      quote_for_r_literal(paste0("stata_r_val_L", line_num, "_sum")),
-      ", res_L",
-      line_num,
-      "$r_sum, envir = stata2r_env)"
-    )
-  }
-  if ("r(p50)" %in% needed_r) {
-    r_code = paste0(
-      r_code,
-      "\nassign(",
-      quote_for_r_literal(paste0("stata_r_val_L", line_num, "_p50")),
-      ", res_L",
-      line_num,
-      "$r_p50, envir = stata2r_env)"
-    )
-  }
+  r_code = paste0("s2r_r_res = scmd_summarize(", paste(args, collapse = ", "), ")")
+  r_code = paste0(r_code, "\ns2r_store_r_results(s2r_r_res)")
 
   return(r_code)
 }
 
 # 3. Runtime Execution Phase
-# 3. Runtime Execution Phase
 scmd_summarize = function(data, needed_r, var_for_r = NA_character_, r_if_cond = NA_character_) {
   restore.point("scmd_summarize")
+
   if (!is.na(r_if_cond) && r_if_cond != "") {
     data = data[s2r_eval_cond(data, r_if_cond, envir = parent.frame()), , drop = FALSE]
   }
@@ -132,6 +66,7 @@ scmd_summarize = function(data, needed_r, var_for_r = NA_character_, r_if_cond =
   } else {
     v = expand_varlist(var_for_r, names(data))[1]
     col = data[[v]]
+
     if ("r(N)" %in% needed_r) {
       res$r_N = sum(!is.na(col))
     }
@@ -139,7 +74,7 @@ scmd_summarize = function(data, needed_r, var_for_r = NA_character_, r_if_cond =
       res$r_mean = mean(col, na.rm = TRUE)
     }
     if ("r(sd)" %in% needed_r) {
-      res$r_sd = sd(col, na.rm = TRUE)
+      res$r_sd = stats::sd(col, na.rm = TRUE)
     }
     if ("r(min)" %in% needed_r) {
       res$r_min = min(col, na.rm = TRUE)
@@ -151,8 +86,10 @@ scmd_summarize = function(data, needed_r, var_for_r = NA_character_, r_if_cond =
       res$r_sum = sum(col, na.rm = TRUE)
     }
     if ("r(p50)" %in% needed_r) {
-      res$r_p50 = median(col, na.rm = TRUE)
+      res$r_p50 = stats::median(col, na.rm = TRUE)
     }
   }
+
   return(res)
 }
+
