@@ -1,5 +1,4 @@
 DESCRIPTION
-aicoder_work/tests/do4/do4.log
 R/aic_do_test.R
 R/do_cmd_to_r.R
 R/do_parse.R
@@ -10,6 +9,7 @@ R/mark_data_manip_cmd.R
 R/s2r_check_mod.R
 R/s2r_estimation_utils.R
 R/s2r_inlist_inrange_translate.R
+R/s2r_store_results.R
 R/s2r_ts_op.R
 R/sfun_compress_col_type.R
 R/sfun_date_utils.R
@@ -21,6 +21,7 @@ R/sfun_is_stata_expression_string_typed.R
 R/sfun_missing.R
 R/sfun_month.R
 R/sfun_normalize_string_nas.R
+R/sfun_others.R
 R/sfun_qofd.R
 R/sfun_stata_add.R
 R/sfun_stata_cond.R
@@ -78,4 +79,3 @@ R/t_use.R
 R/t_xi.R
 R/t_xtreg.R
 R/varlist.R
-aicoder_work/test_report.txt

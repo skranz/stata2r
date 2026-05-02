@@ -78,14 +78,14 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   r_expr = stringi::stri_replace_all_regex(r_expr, "\\s*~=\\s*", " != ")
   r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![a-zA-Z0-9_\\.])~", "!")
 
-  # Step 3: Translate Stata special variables and indexing (e.g., _n, _N, var[_n-1])
+  # Step 3: Translate Stata special variables and indexing, e.g. _n, _N, var[_n-1]
   r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*-\\s*(\\d+)\\]", "dplyr::lag(`$1`, n = $2)")
   r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*\\+\\s*(\\d+)\\]", "dplyr::lead(`$1`, n = $2)")
   r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\]", "`$1`")
   r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_n\\b", "dplyr::row_number()")
   r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_N\\b", "dplyr::n()")
 
-  # Step 4: Iteratively translate Stata functions (excluding inlist/inrange, handled above)
+  # Step 4: Iteratively translate Stata functions, excluding inlist/inrange handled above.
   old_r_expr = ""
   while (fast_coalesce(r_expr != old_r_expr, FALSE)) {
     old_r_expr = r_expr
@@ -191,14 +191,40 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     }
   }
 
-  # Step 6: Translate Stata '+' operator to sfun_stata_add for polymorphic behavior
-  operand_pattern = "(?:\"[^\"]*\"|'[^']*'|\\d+(?:\\.\\d+)?(?:e[+-]?\\d+)?|\\b(?:NA_real_|NULL)\\b|\\b(?:TRUE|FALSE)\\b|`[^`]+`|\\b[a-zA-Z_][a-zA-Z0-9_.]*\\s*\\(.*?\\)\\s*|_[0-9]+STATA2R_SLIT_|_[0-9]+STATA2R_MACRO_)"
-  old_r_expr_add = ""
-  while (fast_coalesce(r_expr != old_r_expr_add, FALSE)) {
-    old_r_expr_add = r_expr
-    add_regex_middle_part = "\\s*(?<![<>=!~])\\+\\s*(?!\\s*\\+|\\s*=\\s*)"
-    add_regex_full = paste0("(", operand_pattern, ")", add_regex_middle_part, "(", operand_pattern, ")")
-    r_expr = stringi::stri_replace_all_regex(r_expr, add_regex_full, "sfun_stata_add($1, $2)")
+  # Step 6: Translate Stata string '+' to sfun_stata_add.
+  #
+  # Important:
+  # Numeric Stata addition should remain plain R '+'. Rewriting every '+'
+  # corrupts numeric expressions such as dplyr::lag(`year`, n = 1) + 1:
+  # the old regex could match only the lag(...) suffix and leave dplyr::
+  # in front, yielding invalid code like dplyr::sfun_stata_add(...).
+  #
+  # We only need sfun_stata_add for Stata string concatenation. The helper
+  # sfun_is_stata_expression_string_typed() is intentionally applied to the
+  # original Stata expression, before placeholders and function rewriting.
+  if (isTRUE(sfun_is_stata_expression_string_typed(stata_expr))) {
+    function_call_pattern = "\\b(?:[a-zA-Z_][a-zA-Z0-9_.]*::)*[a-zA-Z_][a-zA-Z0-9_.]*\\s*\\(.*?\\)\\s*"
+    operand_pattern = paste0(
+      "(?:",
+      "\"[^\"]*\"",
+      "|'[^']*'",
+      "|\\d+(?:\\.\\d+)?(?:e[+-]?\\d+)?",
+      "|\\b(?:NA_real_|NULL)\\b",
+      "|\\b(?:TRUE|FALSE)\\b",
+      "|`[^`]+`",
+      "|", function_call_pattern,
+      "|_[0-9]+STATA2R_SLIT_",
+      "|_[0-9]+STATA2R_MACRO_",
+      ")"
+    )
+
+    old_r_expr_add = ""
+    while (fast_coalesce(r_expr != old_r_expr_add, FALSE)) {
+      old_r_expr_add = r_expr
+      add_regex_middle_part = "\\s*(?<![<>=!~])\\+\\s*(?!\\s*\\+|\\s*=\\s*)"
+      add_regex_full = paste0("(", operand_pattern, ")", add_regex_middle_part, "(", operand_pattern, ")")
+      r_expr = stringi::stri_replace_all_regex(r_expr, add_regex_full, "sfun_stata_add($1, $2)")
+    }
   }
 
   # --- Restore mapped macro expressions from placeholders ---
@@ -219,4 +245,3 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
 
   return(r_expr)
 }
-
