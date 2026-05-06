@@ -21,6 +21,7 @@ s2r_p_drop = function(rest_of_cmd) {
   return(res)
 }
 
+
 # 2. Code Generation Phase: Translate expressions and emit R code
 t_drop = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   restore.point("t_drop")
@@ -37,6 +38,12 @@ t_drop = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   # Translate in expression to R numeric range
   r_in_range = s2r_in_str_to_r_range_str(parsed$in_str)
 
+  group_vars_list_bare = character(0)
+  if (isTRUE(cmd_obj$is_by_prefix) && !is.na(cmd_obj$by_group_vars) && cmd_obj$by_group_vars != "") {
+    group_vars_list = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
+    group_vars_list_bare = group_vars_list[!is.na(group_vars_list) & group_vars_list != ""]
+  }
+
   # Build call to runtime execution function `scmd_drop`
   args = c("data = data")
   if (!is.na(parsed$varlist)) {
@@ -47,6 +54,9 @@ t_drop = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   }
   if (!is.na(r_in_range)) {
     args = c(args, paste0("r_in_range = ", quote_for_r_literal(r_in_range)))
+  }
+  if (length(group_vars_list_bare) > 0) {
+    args = c(args, paste0("group_vars = c('", paste(group_vars_list_bare, collapse = "','"), "')"))
   }
 
   r_code_str = paste0("data = scmd_drop(", paste(args, collapse = ", "), ")")
@@ -59,15 +69,21 @@ t_drop = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   return(r_code_str)
 }
 
+
 # 3. Runtime Execution Phase: Evaluate against actual data columns and environments
 # 3. Runtime Execution Phase: Evaluate against actual data columns and environments
-scmd_drop = function(data, varlist_str = NA_character_, r_if_cond = NA_character_, r_in_range = NA_character_) {
+scmd_drop = function(data, varlist_str = NA_character_, r_if_cond = NA_character_, r_in_range = NA_character_, group_vars = character(0)) {
   restore.point("scmd_drop")
 
-  # 1. Row dropping (`if` condition)
+  # 1. Row dropping (`if` condition).
+  # With a by-prefix, _n and _N must be group-relative.
   if (!is.na(r_if_cond) && r_if_cond != "") {
-    cond_val = s2r_eval_cond(data, r_if_cond, envir = parent.frame())
-    # Inverse of keep: we retain FALSE / NAs
+    cond_val = s2r_eval_cond_by_group(
+      data = data,
+      r_cond = r_if_cond,
+      group_vars = group_vars,
+      envir = parent.frame()
+    )
     data = data[!cond_val, , drop = FALSE]
   }
 
@@ -94,5 +110,6 @@ scmd_drop = function(data, varlist_str = NA_character_, r_if_cond = NA_character
     }
   }
 
+  rownames(data) = NULL
   return(data)
 }

@@ -11,6 +11,13 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     return("NA_real_")
   }
 
+  stata_expr_original = stata_expr
+  is_logical_or_comparison_expr = fast_coalesce(
+    stringi::stri_detect_regex(stata_expr_original, "==|!=|~=|<=|>=|<|>|&|\\|") ||
+      stringi::stri_detect_regex(stata_expr_original, "\\b(?:missing|inlist|inrange)\\s*\\("),
+    FALSE
+  )
+
   r_expr = stata_expr
 
   # Handle Stata functions that are fragile with direct lookup inside mutate.
@@ -143,6 +150,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     "sfun_month", "sfun_qofd", "sfun_dow", "sfun_inlist", "sfun_inrange", "sfun_normalize_string_nas", "sfun_strip_stata_attributes",
     "sfun_compress_col_type", "sfun_is_stata_expression_string_typed", "as.logical",
     "sfun_stata_cond", "sfun_year", "sfun_stata_date_single", "e", "sfun_flag", "sfun_fdiff",
+    "s2r_stata_logical",
     "NROW", "length", "unique", "sapply", "vapply", "c", "list", "intersect", "setdiff",
     "warning", "stop", "paste0", "grepl", "as.logical", "ifelse", "exists", "rm",
     "is.null", "lapply", "is.na", "is.character", "is.numeric", "is.logical", "is.factor",
@@ -192,16 +200,6 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   }
 
   # Step 6: Translate Stata string '+' to sfun_stata_add.
-  #
-  # Important:
-  # Numeric Stata addition should remain plain R '+'. Rewriting every '+'
-  # corrupts numeric expressions such as dplyr::lag(`year`, n = 1) + 1:
-  # the old regex could match only the lag(...) suffix and leave dplyr::
-  # in front, yielding invalid code like dplyr::sfun_stata_add(...).
-  #
-  # We only need sfun_stata_add for Stata string concatenation. The helper
-  # sfun_is_stata_expression_string_typed() is intentionally applied to the
-  # original Stata expression, before placeholders and function rewriting.
   if (isTRUE(sfun_is_stata_expression_string_typed(stata_expr))) {
     function_call_pattern = "\\b(?:[a-zA-Z_][a-zA-Z0-9_.]*::)*[a-zA-Z_][a-zA-Z0-9_.]*\\s*\\(.*?\\)\\s*"
     operand_pattern = paste0(
@@ -241,6 +239,10 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     for (placeholder in sorted_placeholders) {
       r_expr = stringi::stri_replace_all_fixed(r_expr, placeholder, string_literal_map[[placeholder]])
     }
+  }
+
+  if (isTRUE(is_logical_or_comparison_expr)) {
+    r_expr = paste0("s2r_stata_logical(", r_expr, ")")
   }
 
   return(r_expr)

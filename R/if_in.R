@@ -52,8 +52,11 @@ s2r_prepare_runtime_cond = function(r_cond) {
 }
 
 #' Evaluate a Stata condition string at runtime, returning a boolean vector
-s2r_eval_cond = function(data, r_cond, envir = parent.frame()) {
+s2r_eval_cond = function(data, r_cond, envir = parent.frame(),
+                         stata_row_index = NULL,
+                         stata_n_rows = NULL) {
   restore.point("s2r_eval_cond")
+
   if (is.na(r_cond) || r_cond == "") return(rep(TRUE, NROW(data)))
 
   r_cond = s2r_prepare_runtime_cond(r_cond)
@@ -62,26 +65,123 @@ s2r_eval_cond = function(data, r_cond, envir = parent.frame()) {
   used_vars = all.vars(expr)
   data_cols = names(data)
 
-  eval_list = s2r_setup_eval_list(data)
-  eval_list[[".stata_row_index"]] = seq_len(NROW(data))
-  eval_list[[".stata_n_rows"]] = NROW(data)
+  n = NROW(data)
+
+  if (is.null(stata_row_index)) {
+    stata_row_index = seq_len(n)
+  }
+  if (is.null(stata_n_rows)) {
+    stata_n_rows = n
+  }
+
+  eval_list = list(
+    ".stata_row_index" = stata_row_index,
+    ".stata_n_rows" = stata_n_rows,
+    "NA_real_" = Inf,
+    "NA_integer_" = Inf,
+    "NA_character_" = "",
+    "NA" = Inf,
+    ".data" = data,
+    "sfun_missing" = function(x) {
+      if (is.numeric(x)) {
+        return(is.na(x) | is.infinite(x))
+      } else if (is.character(x)) {
+        return(is.na(x) | stringi::stri_trim_both(x) == "")
+      }
+      return(is.na(x))
+    }
+  )
 
   reserved = c(s2r_eval_reserved_words(), ".stata_row_index", ".stata_n_rows")
 
   for (v in used_vars) {
-    if (!(v %in% c(data_cols, reserved))) {
-      mcols = data_cols[startsWith(data_cols, v)]
-      if (length(mcols) == 1) {
-        eval_list[[v]] = to_stata_na(data[[mcols[1]]])
-      } else if (length(mcols) > 1) {
-        stop(paste("Ambiguous abbreviation in condition:", v))
-      }
+    if (v %in% reserved) next
+
+    if (v %in% data_cols) {
+      eval_list[[v]] = to_stata_na(data[[v]])
+      next
+    }
+
+    mcols = data_cols[startsWith(data_cols, v)]
+    if (length(mcols) == 1) {
+      eval_list[[v]] = to_stata_na(data[[mcols[1]]])
+    } else if (length(mcols) > 1) {
+      stop(paste("Ambiguous abbreviation in condition:", v))
     }
   }
 
   cond_val = base::eval(expr, envir = eval_list, enclos = envir)
   return(fast_coalesce(as.logical(cond_val), FALSE))
 }
+
+#' Evaluate a Stata condition string within by-groups
+#'
+#' This is needed for commands like:
+#'   by id: keep if _n == 1
+#'   by id: drop if _n == _N
+#'
+#' The important semantic point is that Stata evaluates _n and _N inside
+#' the current by-group. This implementation computes group-wise _n and _N
+#' vectors once and then evaluates the condition once over the full data.
+s2r_eval_cond_by_group = function(data, r_cond, group_vars = character(0), envir = parent.frame()) {
+  restore.point("s2r_eval_cond_by_group")
+
+  if (is.na(r_cond) || r_cond == "") {
+    return(rep(TRUE, NROW(data)))
+  }
+
+  n = NROW(data)
+  if (n == 0) return(logical(0))
+
+  group_vars = group_vars[!is.na(group_vars) & group_vars != ""]
+  group_vars = expand_varlist(paste(group_vars, collapse = " "), names(data))
+
+  if (length(group_vars) == 0) {
+    return(s2r_eval_cond(data, r_cond, envir = envir))
+  }
+
+  # Normalize the condition for fast paths.
+  cond_norm = stringi::stri_replace_all_regex(r_cond, "\\s+", "")
+  cond_norm = s2r_prepare_runtime_cond(cond_norm)
+
+  group_list = lapply(group_vars, function(v) {
+    x = data[[v]]
+    x = as.character(x)
+    x[is.na(x)] = "<STATA2R_NA_GROUP_VALUE>"
+    x
+  })
+  names(group_list) = group_vars
+
+  # Common Stata idioms. These avoid constructing grouped _n/_N vectors.
+  # They preserve the current row order, which is exactly what Stata's by:
+  # prefix uses after the preceding sort.
+  group_df = data.frame(group_list, check.names = FALSE, stringsAsFactors = FALSE)
+
+  if (cond_norm %in% c(".stata_row_index==1", "1==.stata_row_index")) {
+    return(!duplicated(group_df))
+  }
+
+  if (cond_norm %in% c(".stata_row_index==.stata_n_rows", ".stata_n_rows==.stata_row_index")) {
+    return(!duplicated(group_df, fromLast = TRUE))
+  }
+
+  group_fac = do.call(
+    interaction,
+    c(group_list, list(drop = TRUE, lex.order = FALSE))
+  )
+
+  stata_row_index = ave(seq_len(n), group_fac, FUN = seq_along)
+  stata_n_rows = ave(rep.int(1L, n), group_fac, FUN = length)
+
+  s2r_eval_cond(
+    data = data,
+    r_cond = r_cond,
+    envir = envir,
+    stata_row_index = stata_row_index,
+    stata_n_rows = stata_n_rows
+  )
+}
+
 
 #' Evaluate a Stata 'in' range string at runtime, returning matched indices
 s2r_eval_range = function(data, r_range) {

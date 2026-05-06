@@ -43,3 +43,25 @@ s2r_setup_eval_list = function(data) {
 s2r_eval_reserved_words = function() {
   c("NA_real_", "NA_integer_", "NA_character_", "NA", ".data", "sfun_missing")
 }
+#' Convert R logical results to Stata-style 0/1 indicators
+#'
+#' Stata logical and comparison expressions used in generate/replace create
+#' numeric 0/1 values. In particular, expressions like
+#'   missing_numeric == 0
+#' evaluate to 0 in Stata, while R returns NA.
+#'
+#' This helper is intentionally narrow: it should be applied to translated
+#' logical/comparison expressions, not to arbitrary numeric expressions where
+#' missing values should remain missing.
+s2r_stata_logical = function(x) {
+  if (is.logical(x)) {
+    return(fast_coalesce(x, FALSE))
+  }
+
+  if (is.numeric(x)) {
+    return(fast_coalesce(x != 0, FALSE))
+  }
+
+  fast_coalesce(as.logical(x), FALSE)
+}
+
