@@ -17,6 +17,23 @@ s2r_check_mod = function(stata_code) {
   s2r_check_mod_df(cmd_df)
 }
 
+s2r_tabulate_has_gen_option = function(rest_of_cmd) {
+  if (is.na(rest_of_cmd) || rest_of_cmd == "") return(FALSE)
+
+  parts = stringi::stri_match_first_regex(
+    rest_of_cmd,
+    "^\\s*[^,]*?(?:,\\s*(.*))?$"
+  )
+
+  options_str = stringi::stri_trim_both(parts[1, 2])
+  if (is.na(options_str) || options_str == "") return(FALSE)
+
+  fast_coalesce(
+    stringi::stri_detect_regex(options_str, "\\b(?:gen|generate)\\s*\\("),
+    FALSE
+  )
+}
+
 s2r_check_mod_df = function(cmd_df) {
   restore.point("s2r_check_mod_df")
 
@@ -44,6 +61,17 @@ s2r_check_mod_df = function(cmd_df) {
 
   # Commands that are inherently data-modifying are always kept.
   cmd_df$is_mod = !is.na(cmd_df$stata_cmd) & (cmd_df$stata_cmd %in% stata_data_manip_cmds)
+
+  # tabulate is usually display-only, but tabulate ..., gen(...) creates dummy variables.
+  idx_tabulate_gen = which(!is.na(cmd_df$stata_cmd) & cmd_df$stata_cmd %in% c("tabulate", "tab"))
+  if (length(idx_tabulate_gen) > 0) {
+    has_gen = vapply(
+      cmd_df$rest_of_cmd[idx_tabulate_gen],
+      s2r_tabulate_has_gen_option,
+      logical(1)
+    )
+    cmd_df$is_mod[idx_tabulate_gen[has_gen]] = TRUE
+  }
 
   # Prepare string vector to avoid slow fast_coalesce inside the loop
   rest_of_cmd_vec = cmd_df$rest_of_cmd

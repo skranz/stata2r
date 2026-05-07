@@ -38,6 +38,8 @@ do_cmd_to_r = function(cmd_obj, line, cmd_df) {
       "replace" = t_replace(rest_of_cmd_clean, cmd_obj, cmd_df, line, translation_context),
       "summarize" = t_summarize(rest_of_cmd_clean, cmd_obj, cmd_df, line, translation_context),
       "su" = t_summarize(rest_of_cmd_clean, cmd_obj, cmd_df, line, translation_context),
+      "tabulate" = t_tabulate(rest_of_cmd_clean, cmd_obj, cmd_df, line, translation_context),
+      "tab" = t_tabulate(rest_of_cmd_clean, cmd_obj, cmd_df, line, translation_context),
       "egen" = t_egen(rest_of_cmd_clean, cmd_obj, cmd_df, line, translation_context),
       "sort" = t_sort(rest_of_cmd_clean, cmd_obj, cmd_df, line, type = "sort"),
       "gsort" = t_sort(rest_of_cmd_clean, cmd_obj, cmd_df, line, type = "gsort"),
