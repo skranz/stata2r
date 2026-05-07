@@ -1,349 +1,576 @@
-Exactly. Your `fixum_test` confirms the mismatch is caused by missing-value semantics in generated logical indicators, not by the `by keep` step.
-
-You already have the right low-level machinery:
-
-```r
-to_stata_na()
-s2r_setup_eval_list()
-s2r_eval_cond()
-```
-
-but `scmd_generate()` and `scmd_replace()` currently evaluate expressions inside `dplyr::mutate()` on the raw data columns. So this expression:
+!MODIFICATION t_tabulate.R
+scope = "file"
+file = "R/t_tabulate.R"
+is_new_file = true
+description = "Implement Stata tabulate with generate() side effects and minimal r() result storage."
+-----------------------------------------------------------------------------------------------------
 
 ```r
-`piece_rate` == 0
-```
+# FILE: R/t_tabulate.R
 
-uses R semantics and returns `NA` when `piece_rate` is `NA`, whereas Stata returns `0`.
+# 1. Parsing Phase: Extract Stata syntax components
+s2r_p_tabulate = function(rest_of_cmd) {
+  restore.point("s2r_p_tabulate")
 
-A better fix than my previous casting-only patch is to make the expression translator wrap comparison/logical expressions with a Stata-style logical helper. That way the generated R code is explicit and still works inside `mutate()`.
+  rest = stringi::stri_trim_both(rest_of_cmd)
 
-!MODIFICATION add Stata logical helper in stata_na_handling.R
-scope = "function"
-file = "stata_na_handling.R"
-insert_bottom = true
-description = "Add a vectorized helper that converts R logical NA values to FALSE for Stata-style generated indicator expressions."
------------------------------------------------------------------------------------------------------------------------------------
+  parts = stringi::stri_match_first_regex(
+    rest,
+    "^\\s*([^,]*?)(?:,\\s*(.*))?$"
+  )
 
-```r
-#' Convert R logical results to Stata-style 0/1 indicators
-#'
-#' Stata logical and comparison expressions used in generate/replace create
-#' numeric 0/1 values. In particular, expressions like
-#'   missing_numeric == 0
-#' evaluate to 0 in Stata, while R returns NA.
-#'
-#' This helper is intentionally narrow: it should be applied to translated
-#' logical/comparison expressions, not to arbitrary numeric expressions where
-#' missing values should remain missing.
-s2r_stata_logical = function(x) {
-  if (is.logical(x)) {
-    return(fast_coalesce(x, FALSE))
+  main_part = stringi::stri_trim_both(parts[1, 2])
+  options_str = stringi::stri_trim_both(parts[1, 3])
+
+  parsed = s2r_parse_if_in(main_part)
+  var_tokens = character(0)
+  if (!is.na(parsed$base_str) && parsed$base_str != "") {
+    var_tokens = stringi::stri_split_regex(parsed$base_str, "\\s+")[[1]]
+    var_tokens = var_tokens[!is.na(var_tokens) & var_tokens != ""]
   }
 
-  if (is.numeric(x)) {
-    return(fast_coalesce(x != 0, FALSE))
+  gen_stub = NA_character_
+  if (!is.na(options_str) && options_str != "") {
+    gen_match = stringi::stri_match_first_regex(
+      options_str,
+      "\\b(?:gen|generate)\\s*\\(([^)]+)\\)"
+    )
+    if (!is.na(gen_match[1, 1])) {
+      gen_stub = stringi::stri_trim_both(gen_match[1, 2])
+    }
   }
 
-  fast_coalesce(as.logical(x), FALSE)
+  include_missing = FALSE
+  if (!is.na(options_str) && options_str != "") {
+    include_missing = fast_coalesce(
+      stringi::stri_detect_regex(options_str, "(^|[[:space:],])missing($|[[:space:],])"),
+      FALSE
+    )
+  }
+
+  list(
+    var_tokens = var_tokens,
+    if_str = parsed$if_str,
+    in_str = parsed$in_str,
+    options = options_str,
+    gen_stub = gen_stub,
+    include_missing = include_missing
+  )
+}
+
+# 2. Code Generation Phase: Emit R code
+t_tabulate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
+  restore.point("t_tabulate")
+
+  parsed = s2r_p_tabulate(rest_of_cmd)
+  needed_r = unlist(cmd_obj$r_results_needed)
+
+  has_gen = !is.na(parsed$gen_stub) && parsed$gen_stub != ""
+
+  if (!has_gen && length(needed_r) == 0) {
+    return(paste0("# tabulate at line ", line_num, " is no-op (no generated dummies or later-used r())."))
+  }
+
+  if (length(parsed$var_tokens) == 0) {
+    return(paste0("# Failed to parse tabulate command: ", rest_of_cmd))
+  }
+
+  if (has_gen && length(parsed$var_tokens) != 1) {
+    return(paste0("# tabulate generate() is only implemented for one-way tabulate: ", rest_of_cmd))
+  }
+
+  varname = parsed$var_tokens[1]
+
+  r_if_cond = NA_character_
+  if (!is.na(parsed$if_str) && parsed$if_str != "") {
+    r_if_cond = translate_stata_expression_with_r_values(
+      parsed$if_str,
+      line_num,
+      cmd_df,
+      list(is_by_group = FALSE)
+    )
+  }
+
+  r_in_range = s2r_in_str_to_r_range_str(parsed$in_str)
+
+  args = c(
+    "data = data",
+    paste0("varname = ", quote_for_r_literal(varname)),
+    paste0("needed_r = ", s2r_chr_vec_to_r(needed_r))
+  )
+
+  if (has_gen) {
+    args = c(args, paste0("gen_stub = ", quote_for_r_literal(parsed$gen_stub)))
+  }
+  if (!is.na(r_if_cond)) {
+    args = c(args, paste0("r_if_cond = ", quote_for_r_literal(r_if_cond)))
+  }
+  if (!is.na(r_in_range)) {
+    args = c(args, paste0("r_in_range = ", quote_for_r_literal(r_in_range)))
+  }
+
+  args = c(args, paste0("include_missing = ", parsed$include_missing))
+
+  r_code = paste0("s2r_tab_res = scmd_tabulate(", paste(args, collapse = ", "), ")")
+
+  if (has_gen) {
+    r_code = paste0(r_code, "\ndata = s2r_tab_res$data")
+  }
+
+  if (length(needed_r) > 0) {
+    r_code = paste0(r_code, "\ns2r_store_r_results(s2r_tab_res$r_results)")
+  }
+
+  return(r_code)
+}
+
+# 3. Runtime Execution Phase: Evaluate against actual data
+scmd_tabulate = function(data, varname, needed_r = character(0), gen_stub = NA_character_,
+                         r_if_cond = NA_character_, r_in_range = NA_character_,
+                         include_missing = FALSE) {
+  restore.point("scmd_tabulate")
+
+  var_actual = expand_varlist(varname, names(data))[1]
+  if (is.na(var_actual) || !(var_actual %in% names(data))) {
+    stop(paste0("scmd_tabulate: variable '", varname, "' not found"))
+  }
+
+  n = NROW(data)
+  mask = rep(TRUE, n)
+
+  if (!is.na(r_if_cond) && r_if_cond != "") {
+    r_if_cond = resolve_abbrevs_in_expr(r_if_cond, names(data))
+    mask = mask & s2r_eval_cond(data, r_if_cond, envir = parent.frame())
+  }
+
+  if (!is.na(r_in_range) && r_in_range != "") {
+    idx = s2r_eval_range(data, r_in_range)
+    in_mask = rep(FALSE, n)
+    in_mask[idx] = TRUE
+    mask = mask & in_mask
+  }
+
+  x = data[[var_actual]]
+  x_for_tab = x[mask]
+
+  is_missing_value = function(v) {
+    if (is.character(v)) {
+      return(is.na(v) | stringi::stri_trim_both(v) == "")
+    }
+    is.na(v)
+  }
+
+  missing_x_for_tab = is_missing_value(x_for_tab)
+
+  if (!include_missing) {
+    levels_source = x_for_tab[!missing_x_for_tab]
+  } else {
+    levels_source = x_for_tab
+  }
+
+  if (is.character(levels_source) || is.factor(levels_source)) {
+    levels_chr = as.character(levels_source)
+    levels_chr[is.na(levels_chr)] = ""
+    levs = unique(levels_chr)
+    levs = stringi::stri_sort(levs, locale = "C")
+  } else {
+    levs = sort(unique(as.numeric(levels_source)), na.last = TRUE)
+  }
+
+  r_results = list()
+  if ("r(N)" %in% needed_r) {
+    if (include_missing) {
+      r_results$r_N = sum(mask)
+    } else {
+      r_results$r_N = sum(mask & !is_missing_value(x))
+    }
+  }
+
+  has_gen = !is.na(gen_stub) && gen_stub != ""
+  if (has_gen) {
+    if (length(levs) > 0) {
+      new_names = paste0(gen_stub, seq_along(levs))
+      existing_new = intersect(new_names, names(data))
+      if (length(existing_new) > 0) {
+        stop(paste0(
+          "scmd_tabulate: generated variable(s) already exist: ",
+          paste(existing_new, collapse = ", ")
+        ))
+      }
+
+      x_cmp = x
+      if (is.character(x_cmp) || is.factor(x_cmp)) {
+        x_cmp = as.character(x_cmp)
+        x_cmp[is.na(x_cmp)] = ""
+      } else {
+        x_cmp = as.numeric(x_cmp)
+      }
+
+      for (i in seq_along(levs)) {
+        level_i = levs[i]
+        new_var = new_names[i]
+
+        if (is.character(x_cmp)) {
+          match_i = x_cmp == as.character(level_i)
+        } else if (is.na(level_i)) {
+          match_i = is.na(x_cmp)
+        } else {
+          match_i = x_cmp == level_i
+        }
+
+        match_i[is.na(match_i)] = FALSE
+
+        out = rep(NA_integer_, n)
+        out[mask] = 0L
+        out[mask & match_i] = 1L
+
+        data[[new_var]] = out
+        attr(data[[new_var]], "label") = paste0(var_actual, "==", as.character(level_i))
+      }
+    }
+  }
+
+  return(list(data = data, r_results = r_results))
 }
 ```
 
-!END_MODIFICATION add Stata logical helper in stata_na_handling.R
+!END_MODIFICATION t_tabulate.R
 
-!MODIFICATION translate_stata_expression_to_r in stata_expression_translator.R
-scope = "function"
-file = "stata_expression_translator.R"
-function_name = "translate_stata_expression_to_r"
-description = "Wrap translated logical/comparison expressions in s2r_stata_logical so generated Stata indicators do not propagate R NA values."
------------------------------------------------------------------------------------------------------------------------------------------------
+!MODIFICATION do_cmd_to_r.R
+scope = "file"
+file = "R/do_cmd_to_r.R"
+is_new_file = false
+description = "Dispatch tabulate and tab commands to the new tabulate translator."
+----------------------------------------------------------------------------------
 
 ```r
-translate_stata_expression_to_r = function(stata_expr, context = list(is_by_group = FALSE), r_value_mappings = NULL) {
-  restore.point("translate_stata_expression_to_r")
+# r_obj will be a single row tibble
+# at least with the field r_code
+# r_obj will be a single row tibble
+# at least with the field r_code
+do_cmd_to_r = function(cmd_obj, line, cmd_df) {
+  restore.point("do_cmd_to_r")
 
-  if (is.null(stata_expr) || length(stata_expr) == 0 || !is.character(stata_expr)) {
-    stata_expr = NA_character_
-  } else {
-    stata_expr = as.character(stata_expr[1])
+  if (!cmd_obj$do_translate || is.na(cmd_obj$stata_cmd)) {
+    return(data.frame(
+      line = line,
+      r_code = NA_character_,
+      do_code = cmd_obj$do_code,
+      stata_translation_error = NA_character_,
+      ignore_row_order_for_comparison = cmd_obj$will_ignore_row_order_for_comparison,
+      stringsAsFactors = FALSE
+    ))
   }
 
-  if (is.na(stata_expr) || stata_expr == "") {
-    return("NA_real_")
-  }
+  r_code = NA_character_
+  stata_translation_error = NA_character_
 
-  stata_expr_original = stata_expr
-  is_logical_or_comparison_expr = fast_coalesce(
-    stringi::stri_detect_regex(stata_expr_original, "==|!=|~=|<=|>=|<|>|&|\\|") ||
-      stringi::stri_detect_regex(stata_expr_original, "\\b(?:missing|inlist|inrange)\\s*\\("),
-    FALSE
+  translation_context = list(
+    is_by_group = cmd_obj$is_by_prefix,
+    is_quietly_prefix = cmd_obj$is_quietly_prefix,
+    is_capture_prefix = cmd_obj$is_capture_prefix,
+    is_xi_prefix = cmd_obj$is_xi_prefix,
+    is_bysort_prefix = if ("is_bysort_prefix" %in% names(cmd_obj)) cmd_obj$is_bysort_prefix else FALSE
   )
 
-  r_expr = stata_expr
+  rest_of_cmd_clean = ifelse(is.na(cmd_obj$rest_of_cmd), "", cmd_obj$rest_of_cmd)
+  stata_command = cmd_obj$stata_cmd
 
-  # Handle Stata functions that are fragile with direct lookup inside mutate.
-  # We translate these first into local wrappers that bind their arguments in
-  # the current evaluation context before calling the runtime helper.
-  r_expr = s2r_replace_special_function_calls(
-    r_expr,
-    "inlist",
-    function(args_str) {
-      s2r_translate_inlist_call(
-        args_str,
-        context = context,
-        r_value_mappings = r_value_mappings
-      )
-    }
-  )
-
-  r_expr = s2r_replace_special_function_calls(
-    r_expr,
-    "inrange",
-    function(args_str) {
-      s2r_translate_inrange_call(
-        args_str,
-        context = context,
-        r_value_mappings = r_value_mappings
-      )
-    }
-  )
-
-  # --- Handle string literals by replacing them with unique placeholders ---
-  string_literal_map = list()
-  placeholder_counter = 0
-  literal_matches_list = stringi::stri_match_all_regex(r_expr, '"[^"]*"|\'[^\']*\'')
-  if (length(literal_matches_list) > 0 && !is.null(literal_matches_list[[1]]) &&
-      NROW(literal_matches_list[[1]]) > 0 && !is.na(literal_matches_list[[1]][1,1])) {
-    unique_literals = unique(literal_matches_list[[1]][,1])
-    for (literal_text in unique_literals) {
-      placeholder_counter = placeholder_counter + 1
-      placeholder = paste0("_", placeholder_counter, "STATA2R_SLIT_")
-      r_expr = stringi::stri_replace_all_fixed(r_expr, literal_text, placeholder)
-      string_literal_map[[placeholder]] = literal_text
-    }
-  }
-
-  # --- Handle r() and e() values using placeholders first ---
-  macro_placeholder_map = list()
-  macro_placeholder_counter = 0
-  if (!is.null(r_value_mappings) && length(r_value_mappings) > 0) {
-    sorted_macro_names = names(r_value_mappings)[order(stringi::stri_length(names(r_value_mappings)), decreasing = TRUE)]
-    for (stata_macro_name in sorted_macro_names) {
-      macro_placeholder_counter = macro_placeholder_counter + 1
-      macro_placeholder = paste0("_", macro_placeholder_counter, "STATA2R_MACRO_")
-      r_expr = stringi::stri_replace_all_fixed(r_expr, stata_macro_name, macro_placeholder)
-      macro_placeholder_map[[macro_placeholder]] = r_value_mappings[[stata_macro_name]]
-    }
-  }
-
-  # Step 1: Handle Stata missing value literals '.', '.a', ..., '.z'
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![0-9a-zA-Z_])\\.[a-zA-Z]?(?![0-9a-zA-Z_])", "NA_real_")
-
-  # Step 2: Translate Stata logical operators and missing value comparisons.
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*==\\s*NA_real_", "sfun_missing($1)")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*(?:!=|~=)\\s*NA_real_", "!sfun_missing($1)")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![<>=!~])\\s*=\\s*(?![=])", " == ")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\s*~=\\s*", " != ")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![a-zA-Z0-9_\\.])~", "!")
-
-  # Step 3: Translate Stata special variables and indexing, e.g. _n, _N, var[_n-1]
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*-\\s*(\\d+)\\]", "dplyr::lag(`$1`, n = $2)")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*\\+\\s*(\\d+)\\]", "dplyr::lead(`$1`, n = $2)")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\]", "`$1`")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_n\\b", "dplyr::row_number()")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_N\\b", "dplyr::n()")
-
-  # Step 4: Iteratively translate Stata functions, excluding inlist/inrange handled above.
-  old_r_expr = ""
-  while (fast_coalesce(r_expr != old_r_expr, FALSE)) {
-    old_r_expr = r_expr
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bcond\\(([^,]+),([^,]+),([^)]+)\\)", "sfun_stata_cond($1, $2, $3)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^,]+),([^)]+)\\)", "sfun_stata_round($1, $2)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^)]+)\\)", "sfun_stata_round($1, 1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmod\\(([^,]+),([^)]+)\\)", "($1 %% $2)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmissing\\(([^)]+)\\)", "sfun_missing($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\blog\\(([^)]+)\\)", "log($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsqrt\\(([^)]+)\\)", "sqrt($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bint\\(([^)]+)\\)", "trunc($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\breal\\(([^)]+)\\)", "suppressWarnings(as.numeric($1))")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrtrim\\(([^)]+)\\)", "stringi::stri_trim_right($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstritrim\\(([^)]+)\\)", "sfun_stritrim($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\blower\\(([^)]+)\\)", "stringi::stri_trans_tolower($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bupper\\(([^)]+)\\)", "stringi::stri_trans_toupper($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsubstr\\(([^,]+),([^,]+),([^)]+)\\)", "stringi::stri_sub($1, from = $2, length = $3)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsubinstr\\(([^,]+),([^,]+),([^,]+),([^)]+)\\)", "sfun_subinstr($1, $2, $3, $4)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrpos\\(([^,]+),([^)]+)\\)", "sfun_strpos($1, $2)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\blength\\(([^)]+)\\)", "stringi::stri_length($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrlen\\(([^)]+)\\)", "stringi::stri_length($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstring\\(([^)]+)\\)", "sfun_string($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bruniform\\(\\)", "stats::runif(dplyr::n())")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bdate\\(([^,]+),([^,]+),([^)]+)\\)", "sfun_stata_date($1, $2, $3)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bdate\\(([^,]+),([^)]+)\\)", "sfun_stata_date($1, $2)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmdy\\(([^,]+),([^,]+),([^)]+)\\)", "sfun_stata_mdy($1, $2, $3)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\byear\\(([^)]+)\\)", "sfun_year($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmonth\\(([^)]+)\\)", "sfun_month($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bday\\(([^)]+)\\)", "sfun_day($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bqofd\\(([^)]+)\\)", "sfun_qofd($1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bdow\\(([^)]+)\\)", "sfun_dow($1)")
-  }
-
-  if (is.na(r_expr) || r_expr == "") {
-    warning(paste0("R expression became NA or empty after function translation. Original Stata expression: '", stata_expr, "'"))
-    return("NA_real_")
-  }
-
-  # Step 5: Quote bare variable names with backticks
-  r_reserved_words = c(
-    "TRUE", "FALSE", "NA_real_", "NA_character_", "NA_integer_", "NA", "NULL",
-    "if_else", "coalesce", "row_number", "n", "lag", "lead", "select", "filter",
-    "mutate", "group_by", "ungroup", "syms", "all_of", "everything", "matches",
-    "pivot_wider", "pivot_longer", "read_dta", "write_dta", "labelled", "zap_labels",
-    "zap_formats", "zap_missing", "as_factor", "parse_number",
-    "mean", "sum", "median", "sd", "min", "max", "log", "sqrt", "trunc", "rank",
-    "rowSums", "rowMeans", "setNames", "match", "tempfile", "file.path",
-    "fmean", "fsum", "fN", "ffirst", "flast", "fmin", "fmax", "fmedian", "fsd",
-    "fquantile", "fgroup_by", "fungroup", "fsubset", "frename", "bind_rows", "rep",
-    "as_tibble", "inherits", "format", "as.Date", "as.numeric", "as.character", "as.integer",
-    "sign", "floor", "abs", "pmax", "stringi", "base", "stats", "dplyr", "collapse", "haven",
-    "readr", "tidyr", "labelled", "restorepoint", "stata2r_env",
-    "sfun_missing", "sfun_stata_add", "sfun_stata_round", "sfun_string", "sfun_stritrim",
-    "sfun_strpos", "sfun_subinstr", "sfun_stata_mdy", "sfun_stata_date", "sfun_day",
-    "sfun_month", "sfun_qofd", "sfun_dow", "sfun_inlist", "sfun_inrange", "sfun_normalize_string_nas", "sfun_strip_stata_attributes",
-    "sfun_compress_col_type", "sfun_is_stata_expression_string_typed", "as.logical",
-    "sfun_stata_cond", "sfun_year", "sfun_stata_date_single", "e", "sfun_flag", "sfun_fdiff",
-    "s2r_stata_logical",
-    "NROW", "length", "unique", "sapply", "vapply", "c", "list", "intersect", "setdiff",
-    "warning", "stop", "paste0", "grepl", "as.logical", "ifelse", "exists", "rm",
-    "is.null", "lapply", "is.na", "is.character", "is.numeric", "is.logical", "is.factor",
-    "attributes", "attr", "names", "order", "unname", "duplicated", "trimws",
-    "suppressWarnings", "as.data.frame", "rownames", "colnames", "head", "tail",
-    "matrix", "data.frame", "vector", "character", "numeric", "integer", "logical",
-    "factor", "double", "`_n`", "`_N`",
-    "cur_group_id", "cur_data_all", "replace", "TRUE", "FALSE",
-    "local"
-  )
-
-  locations_list = stringi::stri_locate_all_regex(r_expr, "\\b([a-zA-Z_][a-zA-Z0-9_.]*)\\b")
-  locations = locations_list[[1]]
-
-  if (!is.null(locations) && NROW(locations) > 0 && !is.na(locations[1,1])) {
-    locations = locations[order(locations[,2], decreasing = TRUE), , drop = FALSE]
-    for (k in seq_len(NROW(locations))) {
-      start_pos = locations[k,1]
-      end_pos = locations[k,2]
-      current_word = stringi::stri_sub(r_expr, start_pos, end_pos)
-
-      if (current_word %in% names(string_literal_map)) {
-        next
-      }
-      if (current_word %in% names(macro_placeholder_map)) {
-        next
-      }
-
-      is_reserved = fast_coalesce(current_word %in% r_reserved_words, FALSE)
-      is_numeric_literal = fast_coalesce(suppressWarnings(!is.na(as.numeric(current_word))), FALSE)
-
-      is_already_backticked = FALSE
-      if (fast_coalesce(start_pos > 1 && end_pos < stringi::stri_length(r_expr), FALSE)) {
-        char_before = fast_coalesce(stringi::stri_sub(r_expr, start_pos - 1, start_pos - 1), "")
-        char_after = fast_coalesce(stringi::stri_sub(r_expr, end_pos + 1, end_pos + 1), "")
-        is_already_backticked = (char_before == "`" && char_after == "`")
-      }
-
-      if (isTRUE(!is_reserved) && isTRUE(!is_numeric_literal) && isTRUE(!is_already_backticked)) {
-        r_expr = paste0(
-          stringi::stri_sub(r_expr, 1, start_pos - 1),
-          "`", current_word, "`",
-          stringi::stri_sub(r_expr, end_pos + 1, stringi::stri_length(r_expr))
-        )
-      }
-    }
-  }
-
-  # Step 6: Translate Stata string '+' to sfun_stata_add.
-  if (isTRUE(sfun_is_stata_expression_string_typed(stata_expr))) {
-    function_call_pattern = "\\b(?:[a-zA-Z_][a-zA-Z0-9_.]*::)*[a-zA-Z_][a-zA-Z0-9_.]*\\s*\\(.*?\\)\\s*"
-    operand_pattern = paste0(
-      "(?:",
-      "\"[^\"]*\"",
-      "|'[^']*'",
-      "|\\d+(?:\\.\\d+)?(?:e[+-]?\\d+)?",
-      "|\\b(?:NA_real_|NULL)\\b",
-      "|\\b(?:TRUE|FALSE)\\b",
-      "|`[^`]+`",
-      "|", function_call_pattern,
-      "|_[0-9]+STATA2R_SLIT_",
-      "|_[0-9]+STATA2R_MACRO_",
-      ")"
+  res = tryCatch({
+    r_code_translated = switch(stata_command,
+      "use" = t_use(rest_of_cmd_clean, cmd_obj, cmd_df, line),
+      "generate" = t_generate(rest_of_cmd_clean, cmd_obj, cmd_df, line, translation_context),
+      "gen" = t_generate(rest_of_cmd_clean, cmd_obj, cmd_df, line, translation_context),
+      "replace" = t_replace(rest_of_cmd_clean, cmd_obj, cmd_df, line, translation_context),
+      "summarize" = t_summarize(rest_of_cmd_clean, cmd_obj, cmd_df, line, translation_context),
+      "su" = t_summarize(rest_of_cmd_clean, cmd_obj, cmd_df, line, translation_context),
+      "tabulate" = t_tabulate(rest_of_cmd_clean, cmd_obj, cmd_df, line, translation_context),
+      "tab" = t_tabulate(rest_of_cmd_clean, cmd_obj, cmd_df, line, translation_context),
+      "egen" = t_egen(rest_of_cmd_clean, cmd_obj, cmd_df, line, translation_context),
+      "sort" = t_sort(rest_of_cmd_clean, cmd_obj, cmd_df, line, type = "sort"),
+      "gsort" = t_sort(rest_of_cmd_clean, cmd_obj, cmd_df, line, type = "gsort"),
+      "drop" = t_drop(rest_of_cmd_clean, cmd_obj, cmd_df, line, translation_context),
+      "keep" = t_keep(rest_of_cmd_clean, cmd_obj, cmd_df, line, translation_context),
+      "collapse" = t_collapse(rest_of_cmd_clean, cmd_obj, cmd_df, line, translation_context),
+      "rename" = t_rename(rest_of_cmd_clean, cmd_obj, cmd_df, line),
+      "save" = t_save(rest_of_cmd_clean, cmd_obj, cmd_df, line),
+      "tempfile" = t_tempfile(rest_of_cmd_clean, cmd_obj, cmd_df, line),
+      "merge" = t_merge(rest_of_cmd_clean, cmd_obj, cmd_df, line, translation_context),
+      "append" = t_append(rest_of_cmd_clean, cmd_obj, cmd_df, line),
+      "reshape" = t_reshape(rest_of_cmd_clean, cmd_obj, cmd_df, line),
+      "recode" = t_recode(rest_of_cmd_clean, cmd_obj, cmd_df, line, translation_context),
+      "order" = t_order(rest_of_cmd_clean, cmd_obj, cmd_df, line),
+      "expand" = t_expand(rest_of_cmd_clean, cmd_obj, cmd_df, line, translation_context),
+      "duplicates" = t_duplicates(rest_of_cmd_clean, cmd_obj, cmd_df, line),
+      "encode" = t_encode(rest_of_cmd_clean, cmd_obj, cmd_df, line, translation_context),
+      "decode" = t_decode(rest_of_cmd_clean, cmd_obj, cmd_df, line, translation_context),
+      "destring" = t_destring(rest_of_cmd_clean, cmd_obj, cmd_df, line, translation_context),
+      "preserve" = t_preserve_restore(cmd_obj, type = "preserve"),
+      "restore" = t_preserve_restore(cmd_obj, type = "restore"),
+      "format" = t_format(rest_of_cmd_clean, cmd_obj, cmd_df, line),
+      "label" = t_label(rest_of_cmd_clean, cmd_obj, cmd_df, line),
+      "compress" = t_compress(rest_of_cmd_clean, cmd_obj, cmd_df, line),
+      "regress" = t_regress(rest_of_cmd_clean, cmd_obj, cmd_df, line, translation_context),
+      "areg" = t_areg(rest_of_cmd_clean, cmd_obj, cmd_df, line, translation_context),
+      "xtreg" = t_xtreg(rest_of_cmd_clean, cmd_obj, cmd_df, line, translation_context),
+      "probit" = t_probit(rest_of_cmd_clean, cmd_obj, cmd_df, line, translation_context),
+      "reghdfe" = t_reghdfe(rest_of_cmd_clean, cmd_obj, cmd_df, line, translation_context),
+      "logit" = t_logit(rest_of_cmd_clean, cmd_obj, cmd_df, line, translation_context),
+      "ivregress" = t_ivregress(rest_of_cmd_clean, cmd_obj, cmd_df, line, translation_context),
+      "xi" = t_xi(rest_of_cmd_clean, cmd_obj, cmd_df, line, translation_context),
+      "scalar" = t_scalar(rest_of_cmd_clean, cmd_obj, cmd_df, line),
+      "sc" = t_scalar(rest_of_cmd_clean, cmd_obj, cmd_df, line),
+      paste0("# Stata command '", cmd_obj$stata_cmd_original, " ", rest_of_cmd_clean, "' not yet fully translated.")
     )
 
-    old_r_expr_add = ""
-    while (fast_coalesce(r_expr != old_r_expr_add, FALSE)) {
-      old_r_expr_add = r_expr
-      add_regex_middle_part = "\\s*(?<![<>=!~])\\+\\s*(?!\\s*\\+|\\s*=\\s*)"
-      add_regex_full = paste0("(", operand_pattern, ")", add_regex_middle_part, "(", operand_pattern, ")")
-      r_expr = stringi::stri_replace_all_regex(r_expr, add_regex_full, "sfun_stata_add($1, $2)")
+    if (is.null(r_code_translated)) {
+      r_code_translated = paste0("# Stata command '", cmd_obj$stata_cmd_original, " ", rest_of_cmd_clean, "' (", stata_command, ") translation not implemented.")
     }
-  }
 
-  # --- Restore mapped macro expressions from placeholders ---
-  if (length(macro_placeholder_map) > 0) {
-    sorted_macro_placeholders = names(macro_placeholder_map)[order(stringi::stri_length(names(macro_placeholder_map)), names(macro_placeholder_map), decreasing = TRUE)]
-    for (macro_placeholder in sorted_macro_placeholders) {
-      r_expr = stringi::stri_replace_all_fixed(r_expr, macro_placeholder, macro_placeholder_map[[macro_placeholder]])
+    if (isTRUE(translation_context$is_bysort_prefix)) {
+      sort_vars = character(0)
+
+      if (!is.na(cmd_obj$by_group_vars) && cmd_obj$by_group_vars != "") {
+        sort_vars = c(sort_vars, stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]])
+      }
+      if (!is.na(cmd_obj$by_sort_vars) && cmd_obj$by_sort_vars != "") {
+        sort_vars = c(sort_vars, stringi::stri_split_fixed(cmd_obj$by_sort_vars, ",")[[1]])
+      }
+
+      sort_vars = stringi::stri_trim_both(sort_vars)
+      sort_vars = sort_vars[sort_vars != "" & !is.na(sort_vars)]
+
+      if (length(sort_vars) > 0) {
+        sort_code = paste0(
+          "data = scmd_sort(data = data, varlist_str = ",
+          quote_for_r_literal(paste(sort_vars, collapse = " ")),
+          ", type = \"sort\")"
+        )
+        r_code_translated = paste(sort_code, r_code_translated, sep = "\n")
+      }
     }
-  }
 
-  # --- Restore string literals from placeholders ---
-  if (length(string_literal_map) > 0) {
-    sorted_placeholders = names(string_literal_map)[order(stringi::stri_length(names(string_literal_map)), names(string_literal_map), decreasing = TRUE)]
-    for (placeholder in sorted_placeholders) {
-      r_expr = stringi::stri_replace_all_fixed(r_expr, placeholder, string_literal_map[[placeholder]])
-    }
-  }
+    list(r_code = r_code_translated, stata_translation_error = NA_character_)
+  }, error = function(e) {
+    list(
+      r_code = paste0("# Translation failed for: ", cmd_obj$do_code, "\n# Error: ", e$message),
+      stata_translation_error = e$message
+    )
+  })
 
-  if (isTRUE(is_logical_or_comparison_expr)) {
-    r_expr = paste0("s2r_stata_logical(", r_expr, ")")
-  }
-
-  return(r_expr)
+  r_obj = data.frame(
+    line = line,
+    r_code = res$r_code,
+    do_code = cmd_obj$do_code,
+    stata_translation_error = res$stata_translation_error,
+    ignore_row_order_for_comparison = cmd_obj$will_ignore_row_order_for_comparison,
+    stringsAsFactors = FALSE
+  )
+  return(r_obj)
 }
 ```
 
-!END_MODIFICATION translate_stata_expression_to_r in stata_expression_translator.R
+!END_MODIFICATION do_cmd_to_r.R
 
-This should make the translation become:
-
-```r
-data = scmd_generate(
-  data = data,
-  new_var = "fixum",
-  r_expr_str = "s2r_stata_logical(`piece_rate`==0)",
-  is_string = FALSE,
-  force_integer = FALSE
-)
-```
-
-Then the existing `scmd_generate()` can keep doing:
+!MODIFICATION s2r_check_mod.R
+scope = "file"
+file = "R/s2r_check_mod.R"
+is_new_file = false
+description = "Mark tabulate commands with gen()/generate() as data-modifying while preserving r() dependency handling."
+------------------------------------------------------------------------------------------------------------------------
 
 ```r
-as.numeric(...)
+# Public helper and internal engine for identifying commands that matter for later data preparation
+
+s2r_check_mod = function(stata_code) {
+  restore.point("s2r_check_mod")
+
+  if (length(stata_code) == 1 && is.character(stata_code) && fast_coalesce(stringi::stri_detect_fixed(stata_code, "\n"), FALSE)) {
+    stata_code = stringi::stri_split_fixed(stata_code, "\n")[[1]]
+  }
+  if (is.list(stata_code)) {
+    stata_code = unlist(stata_code)
+  }
+  if (!is.character(stata_code)) {
+    stata_code = as.character(stata_code)
+  }
+
+  cmd_df = do_parse(stata_code)
+  s2r_check_mod_df(cmd_df)
+}
+
+s2r_tabulate_has_gen_option = function(rest_of_cmd) {
+  if (is.na(rest_of_cmd) || rest_of_cmd == "") return(FALSE)
+
+  parts = stringi::stri_match_first_regex(
+    rest_of_cmd,
+    "^\\s*[^,]*?(?:,\\s*(.*))?$"
+  )
+
+  options_str = stringi::stri_trim_both(parts[1, 2])
+  if (is.na(options_str) || options_str == "") return(FALSE)
+
+  fast_coalesce(
+    stringi::stri_detect_regex(options_str, "\\b(?:gen|generate)\\s*\\("),
+    FALSE
+  )
+}
+
+s2r_check_mod_df = function(cmd_df) {
+  restore.point("s2r_check_mod_df")
+
+  n_rows = NROW(cmd_df)
+  if (n_rows == 0) {
+    if (!("is_mod" %in% names(cmd_df))) cmd_df$is_mod = logical(0)
+    if (!("do_translate" %in% names(cmd_df))) cmd_df$do_translate = logical(0)
+    if (!("need_e_sample" %in% names(cmd_df))) cmd_df$need_e_sample = logical(0)
+    if (!("need_xi" %in% names(cmd_df))) cmd_df$need_xi = logical(0)
+    if (!("need_e_results" %in% names(cmd_df))) cmd_df$need_e_results = logical(0)
+    if (!("need_r_results" %in% names(cmd_df))) cmd_df$need_r_results = logical(0)
+    if (!("e_results_needed" %in% names(cmd_df))) cmd_df$e_results_needed = I(vector("list", 0))
+    if (!("r_results_needed" %in% names(cmd_df))) cmd_df$r_results_needed = I(vector("list", 0))
+    return(cmd_df)
+  }
+
+  if (!("is_xi_prefix" %in% names(cmd_df))) cmd_df$is_xi_prefix = rep(FALSE, n_rows)
+
+  cmd_df$is_mod = rep(FALSE, n_rows)
+  cmd_df$do_translate = rep(FALSE, n_rows)
+  cmd_df$need_e_sample = rep(FALSE, n_rows)
+  cmd_df$need_xi = rep(FALSE, n_rows)
+  cmd_df$need_e_results = rep(FALSE, n_rows)
+  cmd_df$need_r_results = rep(FALSE, n_rows)
+
+  # Commands that are inherently data-modifying are always kept.
+  cmd_df$is_mod = !is.na(cmd_df$stata_cmd) & (cmd_df$stata_cmd %in% stata_data_manip_cmds)
+
+  # tabulate is usually display-only, but tabulate ..., gen(...) creates dummy variables.
+  idx_tabulate_gen = which(!is.na(cmd_df$stata_cmd) & cmd_df$stata_cmd %in% c("tabulate", "tab"))
+  if (length(idx_tabulate_gen) > 0) {
+    has_gen = vapply(
+      cmd_df$rest_of_cmd[idx_tabulate_gen],
+      s2r_tabulate_has_gen_option,
+      logical(1)
+    )
+    cmd_df$is_mod[idx_tabulate_gen[has_gen]] = TRUE
+  }
+
+  # Prepare string vector to avoid slow fast_coalesce inside the loop
+  rest_of_cmd_vec = cmd_df$rest_of_cmd
+  rest_of_cmd_vec[is.na(rest_of_cmd_vec)] = ""
+
+  # Vectorized extraction of all e() and r() macros at once
+  e_matches_list = stringi::stri_match_all_regex(rest_of_cmd_vec, "e\\(([^)]+)\\)")
+  r_matches_list = stringi::stri_match_all_regex(rest_of_cmd_vec, "r\\(([^)]+)\\)")
+
+  # Precompute logical vectors for fast lookup
+  cmd_is_est = !is.na(cmd_df$stata_cmd) & (cmd_df$stata_cmd %in% stata_estimation_cmds)
+  cmd_is_r_res = !is.na(cmd_df$stata_cmd) & (cmd_df$stata_cmd %in% stata_r_result_cmds)
+
+  potential_e_results_produced = c("e(sample)", "e(N)", "e(r2)", "e(df_r)", "e(rmse)", "e(b)", "e(V)")
+  potential_r_results_produced = c("r(N)", "r(mean)", "r(sd)", "r(min)", "r(max)", "r(sum)", "r(p50)")
+
+  e_results_needed_list = vector("list", n_rows)
+  r_results_needed_list = vector("list", n_rows)
+
+  active_needed_e_results = character(0)
+  active_needed_r_results = character(0)
+
+  # Backward pass to resolve macro dependencies
+  for (i in n_rows:1) {
+    # Check if current command fulfills needed macros
+    if (cmd_is_est[i]) {
+      intersect_e = intersect(potential_e_results_produced, active_needed_e_results)
+      if (length(intersect_e) > 0) {
+        cmd_df$is_mod[i] = TRUE
+        e_results_needed_list[[i]] = intersect_e
+        active_needed_e_results = setdiff(active_needed_e_results, potential_e_results_produced)
+      }
+    }
+
+    if (cmd_is_r_res[i]) {
+      intersect_r = intersect(potential_r_results_produced, active_needed_r_results)
+      if (length(intersect_r) > 0) {
+        cmd_df$is_mod[i] = TRUE
+        r_results_needed_list[[i]] = intersect_r
+        active_needed_r_results = setdiff(active_needed_r_results, potential_r_results_produced)
+      }
+    }
+
+    # Add new requirements from this command
+    mat_e = e_matches_list[[i]]
+    if (!is.na(mat_e[1,1])) {
+      used_e_macros = unique(paste0("e(", mat_e[,2], ")"))
+      active_needed_e_results = union(active_needed_e_results, used_e_macros)
+    }
+
+    mat_r = r_matches_list[[i]]
+    if (!is.na(mat_r[1,1])) {
+      used_r_macros = unique(paste0("r(", mat_r[,2], ")"))
+      active_needed_r_results = union(active_needed_r_results, used_r_macros)
+    }
+  }
+
+  cmd_df$e_results_needed = I(e_results_needed_list)
+  cmd_df$r_results_needed = I(r_results_needed_list)
+
+  # Xi side effects from xi-prefixed estimation commands
+  idx_xi_est = which(cmd_df$is_xi_prefix & cmd_is_est)
+  if (length(idx_xi_est) > 0) {
+    do_code_vec = cmd_df$do_code
+    do_code_vec[is.na(do_code_vec)] = ""
+
+    for (i in idx_xi_est) {
+      parsed_est = s2r_p_estimation_cmd(rest_of_cmd_vec[i], estimator = cmd_df$stata_cmd[i])
+      xi_prefixes = s2r_xi_specs_to_prefixes(parsed_est$xi_specs)
+
+      need_xi_i = FALSE
+      if (length(xi_prefixes) > 0 && i < n_rows) {
+        later_lines = do_code_vec[(i + 1):n_rows]
+
+        # Fast vectorized check across all later lines at once
+        if (any(stringi::stri_detect_fixed(later_lines, "_I*"))) {
+          need_xi_i = TRUE
+        } else {
+          for (pref in xi_prefixes) {
+            if (any(stringi::stri_detect_fixed(later_lines, pref))) {
+              need_xi_i = TRUE
+              break
+            }
+          }
+        }
+      }
+
+      cmd_df$need_xi[i] = need_xi_i
+      if (need_xi_i) {
+        cmd_df$is_mod[i] = TRUE
+      }
+    }
+  }
+
+  cmd_df$need_e_sample = vapply(e_results_needed_list, function(x) "e(sample)" %in% x, logical(1))
+  cmd_df$need_e_results = lengths(e_results_needed_list) > 0
+  cmd_df$need_r_results = lengths(r_results_needed_list) > 0
+
+  # Final explicit overrides (vectorized)
+  is_non_manip = !is.na(cmd_df$stata_cmd) & (cmd_df$stata_cmd %in% stata_non_data_manip_cmds)
+  keep_due_to_results = cmd_df$need_e_results | cmd_df$need_r_results | cmd_df$need_xi
+
+  override_idx = is_non_manip & !keep_due_to_results
+  if (any(override_idx)) {
+    cmd_df$is_mod[override_idx] = FALSE
+  }
+
+  cmd_df$is_mod[is.na(cmd_df$stata_cmd)] = FALSE
+
+  is_standalone_clear = !is.na(cmd_df$stata_cmd) & cmd_df$stata_cmd == "clear" & (rest_of_cmd_vec == "")
+  if (any(is_standalone_clear)) {
+    cmd_df$is_mod[is_standalone_clear] = TRUE
+  }
+
+  cmd_df$do_translate = cmd_df$is_mod
+  return(cmd_df)
+}
 ```
 
-and the result becomes `0/1` with no `NA`s for comparison-generated indicators.
-
-The same wrapper will also help `replace` conditions and similar generated indicators, because `translate_stata_expression_with_r_values()` calls the same expression translator.
-
-After applying this, rerun:
-
-```r
-data = scmd_generate(data = data, new_var = "fixum", r_expr_str = "s2r_stata_logical(`piece_rate`==0)", is_string = FALSE, force_integer = FALSE)
-data = scmd_replace(data = data, var_to_replace = "fixum", r_expr_str = "1", r_if_cond = "s2r_stata_logical(`tournament`==0)", is_string = FALSE, force_integer = FALSE)
-data = scmd_replace(data = data, var_to_replace = "fixum", r_expr_str = "1", r_if_cond = "s2r_stata_logical(`revenue_sharing`==0)", is_string = FALSE, force_integer = FALSE)
-
-reg_vars = c("correct", "difficulty", "fixum")
-sum(complete.cases(data[reg_vars]))
-mean(data$fixum[complete.cases(data[reg_vars])])
-```
-
-You should get `17606` and approximately `0.2881972`.
+!END_MODIFICATION s2r_check_mod.R
