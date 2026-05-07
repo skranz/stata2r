@@ -2,6 +2,8 @@
 # at least with the field r_code
 # r_obj will be a single row tibble
 # at least with the field r_code
+# r_obj will be a single row tibble
+# at least with the field r_code
 do_cmd_to_r = function(cmd_obj, line, cmd_df) {
   restore.point("do_cmd_to_r")
 
@@ -98,7 +100,7 @@ do_cmd_to_r = function(cmd_obj, line, cmd_df) {
         sort_code = paste0(
           "data = scmd_sort(data = data, varlist_str = ",
           quote_for_r_literal(paste(sort_vars, collapse = " ")),
-          ", type = \"sort\")"
+          ", type = \"sort\")\nif (isTRUE(stata2r_env$has_original_order_idx)) { data = dplyr::mutate(data, stata2r_original_order_idx = dplyr::row_number()) }"
         )
         r_code_translated = paste(sort_code, r_code_translated, sep = "\n")
       }

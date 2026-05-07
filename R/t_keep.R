@@ -22,6 +22,7 @@ s2r_p_keep = function(rest_of_cmd) {
 }
 
 # 2. Code Generation Phase: Translate expressions and emit R code
+# 2. Code Generation Phase: Translate expressions and emit R code
 t_keep = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   restore.point("t_keep")
 
@@ -60,10 +61,8 @@ t_keep = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   r_code_str = paste0("data = scmd_keep(", paste(args, collapse = ", "), ")")
 
-  # Maintain package internal tracking variables
-  if (isTRUE(stata2r_env$has_original_order_idx)) {
-    r_code_str = paste0(r_code_str, " %>% \n  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number())")
-  }
+  # Maintain package internal tracking variables at runtime
+  r_code_str = paste0(r_code_str, "\nif (isTRUE(stata2r_env$has_original_order_idx)) { data = dplyr::mutate(data, stata2r_original_order_idx = dplyr::row_number()) }")
 
   return(r_code_str)
 }

@@ -55,6 +55,8 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 }
 
 # 3. Runtime Execution Phase: Evaluate against actual data
+# 3. Runtime Execution Phase: Evaluate against actual data
+# 3. Runtime Execution Phase: Evaluate against actual data
 scmd_generate = function(data, new_var, r_expr_str, r_if_cond = NA_character_, group_vars = character(0), is_string = FALSE, force_integer = FALSE) {
   restore.point("scmd_generate")
 
@@ -62,15 +64,19 @@ scmd_generate = function(data, new_var, r_expr_str, r_if_cond = NA_character_, g
   r_if_cond = resolve_abbrevs_in_expr(r_if_cond, names(data))
 
   expr_val = r_expr_str
+
   if (is_string) {
     if (expr_val == "NA_real_") expr_val = '""' else expr_val = paste0("as.character(", expr_val, ")")
+  } else if (force_integer) {
+    expr_val = paste0("as.integer(", expr_val, ")")
   } else {
-    if (force_integer) expr_val = paste0("as.integer(", expr_val, ")") else expr_val = paste0("as.numeric(", expr_val, ")")
+    # Dynamic fallback: if it evaluates to character, keep it.
+    # Otherwise coerce to numeric (turns R logicals TRUE/FALSE into Stata's 1/0)
+    expr_val = paste0("{ .val <- ", expr_val, "; if(is.character(.val)) .val else as.numeric(.val) }")
   }
 
-  na_val = if (is_string) '""' else "NA_real_"
   if (!is.na(r_if_cond) && r_if_cond != "") {
-    expr_val = paste0("dplyr::if_else((fast_coalesce(as.numeric(", r_if_cond, "), 0) != 0), ", expr_val, ", ", na_val, ")")
+    expr_val = paste0("{ .val <- ", expr_val, "; dplyr::if_else((fast_coalesce(as.numeric(", r_if_cond, "), 0) != 0), .val, if(is.character(.val)) \"\" else NA_real_) }")
   }
 
   pipe_el = c("data")

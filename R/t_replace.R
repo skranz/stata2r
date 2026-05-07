@@ -55,18 +55,24 @@ t_replace = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 }
 
 # 3. Runtime Execution Phase: Evaluate against actual data
+# 3. Runtime Execution Phase: Evaluate against actual data
+# 3. Runtime Execution Phase: Evaluate against actual data
 scmd_replace = function(data, var_to_replace, r_expr_str, r_if_cond = NA_character_, group_vars = character(0), is_string = FALSE, force_integer = FALSE) {
   restore.point("scmd_replace")
 
   var_actual = expand_varlist(var_to_replace, names(data))[1]
-
   r_expr_str = resolve_abbrevs_in_expr(r_expr_str, names(data))
   r_if_cond = resolve_abbrevs_in_expr(r_if_cond, names(data))
+
+  # If the target is character, we safely flag it as string to prevent NA coercion
+  target_is_char = is.character(data[[var_actual]])
+  is_string = is_string || target_is_char
 
   expr_val = r_expr_str
   if (is_string) {
     if (expr_val == "NA_real_") expr_val = '""' else expr_val = paste0("as.character(", expr_val, ")")
   } else {
+    # Restore standard coercion for numeric targets to force any logicals into 1/0
     if (force_integer) expr_val = paste0("as.integer(", expr_val, ")") else expr_val = paste0("as.numeric(", expr_val, ")")
   }
 

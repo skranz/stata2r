@@ -7,6 +7,7 @@ s2r_p_sort = function(rest_of_cmd) {
 }
 
 # 2. Code Generation Phase: Emit R code
+# 2. Code Generation Phase: Emit R code
 t_sort = function(rest_of_cmd, cmd_obj, cmd_df, line_num, type = "sort") {
   restore.point("t_sort")
   parsed = s2r_p_sort(rest_of_cmd)
@@ -21,10 +22,8 @@ t_sort = function(rest_of_cmd, cmd_obj, cmd_df, line_num, type = "sort") {
 
   r_code_str = paste0("data = scmd_sort(", paste(args, collapse = ", "), ")")
 
-  # Maintain package internal tracking variables (updating after sort)
-  if (isTRUE(stata2r_env$has_original_order_idx)) {
-    r_code_str = paste0(r_code_str, " %>% \n  dplyr::mutate(stata2r_original_order_idx = dplyr::row_number())")
-  }
+  # Maintain package internal tracking variables at runtime
+  r_code_str = paste0(r_code_str, "\nif (isTRUE(stata2r_env$has_original_order_idx)) { data = dplyr::mutate(data, stata2r_original_order_idx = dplyr::row_number()) }")
 
   return(r_code_str)
 }

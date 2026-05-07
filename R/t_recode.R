@@ -190,6 +190,10 @@ scmd_recode = function(data, varlist_str, rules_templates, gen_vars_str = NA_cha
     old_var = vars_actual[i]
     new_var = new_vars[i]
 
+    # Dynamically capture character targets to prevent NA string coercion
+    target_is_char = is.character(data[[old_var]])
+    current_is_string = is_string || target_is_char
+
     old_attrs = attributes(data[[old_var]])
 
     r_rules = gsub(".VAR.", paste0("`", old_var, "`"), rules_templates, fixed = TRUE)
@@ -197,7 +201,7 @@ scmd_recode = function(data, varlist_str, rules_templates, gen_vars_str = NA_cha
     r_rules = vapply(r_rules, function(r) resolve_abbrevs_in_expr(r, names(data)), character(1))
 
     # STATA FALLBACK: If values do not match any conditions, they are left unchanged.
-    fallback = if (is_string) paste0("as.character(`", old_var, "`)") else paste0("as.numeric(`", old_var, "`)")
+    fallback = if (current_is_string) paste0("as.character(`", old_var, "`)") else paste0("as.numeric(`", old_var, "`)")
     r_rules = c(r_rules, paste0("TRUE ~ ", fallback))
 
     case_when_expr = paste0("dplyr::case_when(\n    ", paste(r_rules, collapse = ",\n    "), "\n  )")
@@ -208,7 +212,7 @@ scmd_recode = function(data, varlist_str, rules_templates, gen_vars_str = NA_cha
       final_val_expr = case_when_expr
     }
 
-    if (is_string) {
+    if (current_is_string) {
       final_val_expr = paste0("as.character(", final_val_expr, ")")
     } else {
       final_val_expr = paste0("as.numeric(", final_val_expr, ")")
@@ -219,7 +223,7 @@ scmd_recode = function(data, varlist_str, rules_templates, gen_vars_str = NA_cha
     # Restore or Assign Labels
     if (!is.null(labels_map)) {
       data[[new_var]] = haven::labelled(data[[new_var]], labels = labels_map)
-    } else if (old_var == new_var && !is_string) {
+    } else if (old_var == new_var && !current_is_string) {
       # If replacing and no new labels are provided, keep original labels matching Stata
       if (!is.null(old_attrs$labels)) attr(data[[new_var]], "labels") = old_attrs$labels
       if (!is.null(old_attrs$label)) attr(data[[new_var]], "label") = old_attrs$label
