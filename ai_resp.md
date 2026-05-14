@@ -1,93 +1,97 @@
-The issue in the screenshot (`tenure_miss` becoming `tenure_missTRUE`) happened because my previous fix removed the `as.numeric()` coercion completely. 
+The bug is in `to_stata_na()`: it currently treats `Date` like ordinary numeric and uses `as.numeric(x)`, which gives R days since `1970-01-01`. But `sfun_stata_mdy()` returns Stata daily dates, i.e. days since `1960-01-01`. Thus the comparison is made on different date origins and returns all `FALSE`.
 
-In Stata, boolean/logical expressions (e.g., `tenure_miss = missing(tenure)`) return numeric `1` or `0`. In R, they return `TRUE` or `FALSE`. Because I removed `as.numeric()`, those logical values were preserved in the dataframe as `logical` vectors. Later, when passed to the R regression, R automatically converts logicals to factors and appends `"TRUE"` to the variable name (creating `tenure_missTRUE`), leading to mismatched coefficient names.
+!MODIFICATION stata_na_handling.R
+scope = "file"
+file = "R/stata_na_handling.R"
+is_new_file = false
+description = "Fix Stata condition evaluation for R Date columns by converting Date values to Stata daily-date numeric values before comparison."
+-------------------------------------------------------------------------------------------------------------------------------------------------
 
-To fix this **without** causing the original "NAs introduced by coercion" warnings for actual strings, we need to bring back `as.numeric()` but guard it dynamically at runtime. 
+```r
+# FILE: R/stata_na.R
 
-If the variable is a string, it stays a string. If it's anything else (like a logical `TRUE`/`FALSE`), we cast it via `as.numeric()` to force it to Stata's `1`/`0` format. 
+#' Convert R Date values to Stata daily-date numeric values
+#'
+#' Stata daily dates are stored as days since 1960-01-01.
+#' R Date objects are internally days since 1970-01-01, so plain
+#' as.numeric(Date) cannot be compared to values created by Stata-style
+#' functions such as mdy() or date().
+s2r_date_to_stata_numeric = function(x) {
+  as.numeric(as.Date(x) - as.Date("1960-01-01"))
+}
 
-Here are the fixes to properly rollback the detrimental part of the previous change:
+#' Helper to transform NA to Stata's encoding for conditions
+#'
+#' In Stata, numeric missing (.) is treated as positive infinity in
+#' comparisons. String missing is the empty string.
+to_stata_na = function(x) {
+  if (inherits(x, "Date")) {
+    x = s2r_date_to_stata_numeric(x)
+    x[is.na(x)] = Inf
+  } else if (is.numeric(x)) {
+    x = as.numeric(x)
+    x[is.na(x)] = Inf
+  } else if (is.character(x)) {
+    x[is.na(x)] = ""
+  }
+  x
+}
 
-!MODIFICATION scmd_generate in R/t_generate.R
-scope = "function"
-file = "R/t_generate.R"
-function_name = "scmd_generate"
-description = "Restore as.numeric coercion for non-character variables to ensure logicals become 1/0."
----
-```R
-# 3. Runtime Execution Phase: Evaluate against actual data
-scmd_generate = function(data, new_var, r_expr_str, r_if_cond = NA_character_, group_vars = character(0), is_string = FALSE, force_integer = FALSE) {
-  restore.point("scmd_generate")
+#' Initialize an evaluation list with Stata NA rules
+#' @param data The dataframe to base the evaluation list on
+#' @return A list ready for `eval()` containing data and Stata NA mappings
+s2r_setup_eval_list = function(data) {
+  eval_list = lapply(data, to_stata_na)
 
-  r_expr_str = resolve_abbrevs_in_expr(r_expr_str, names(data))
-  r_if_cond = resolve_abbrevs_in_expr(r_if_cond, names(data))
+  eval_list[["NA_real_"]] = Inf
+  eval_list[["NA_integer_"]] = Inf
+  eval_list[["NA_character_"]] = ""
+  eval_list[["NA"]] = Inf
 
-  expr_val = r_expr_str
-  
-  if (is_string) {
-    if (expr_val == "NA_real_") expr_val = '""' else expr_val = paste0("as.character(", expr_val, ")")
-  } else if (force_integer) {
-    expr_val = paste0("as.integer(", expr_val, ")")
-  } else {
-    # Dynamic fallback: if it evaluates to character, keep it. 
-    # Otherwise coerce to numeric (turns R logicals TRUE/FALSE into Stata's 1/0)
-    expr_val = paste0("{ .val <- ", expr_val, "; if(is.character(.val)) .val else as.numeric(.val) }")
+  # Allow expressions rewritten to .data[[...]] to work both in plain eval()
+  # and in dplyr data-masked contexts.
+  eval_list[[".data"]] = data
+
+  eval_list[["sfun_missing"]] = function(x) {
+    if (inherits(x, "Date")) {
+      return(is.na(x))
+    } else if (is.numeric(x)) {
+      return(is.na(x) | is.infinite(x))
+    } else if (is.character(x)) {
+      return(is.na(x) | stringi::stri_trim_both(x) == "")
+    }
+    return(is.na(x))
   }
 
-  if (!is.na(r_if_cond) && r_if_cond != "") {
-    expr_val = paste0("{ .val <- ", expr_val, "; dplyr::if_else((fast_coalesce(as.numeric(", r_if_cond, "), 0) != 0), .val, if(is.character(.val)) \"\" else NA_real_) }")
+  return(eval_list)
+}
+
+#' List of reserved words injected by s2r_setup_eval_list
+s2r_eval_reserved_words = function() {
+  c("NA_real_", "NA_integer_", "NA_character_", "NA", ".data", "sfun_missing")
+}
+
+#' Convert R logical results to Stata-style 0/1 indicators
+#'
+#' Stata logical and comparison expressions used in generate/replace create
+#' numeric 0/1 values. In particular, expressions like
+#'   missing_numeric == 0
+#' evaluate to 0 in Stata, while R returns NA.
+#'
+#' This helper is intentionally narrow: it should be applied to translated
+#' logical/comparison expressions, not to arbitrary numeric expressions where
+#' missing values should remain missing.
+s2r_stata_logical = function(x) {
+  if (is.logical(x)) {
+    return(fast_coalesce(x, FALSE))
   }
 
-  pipe_el = c("data")
-  group_vars = expand_varlist(paste(group_vars, collapse=" "), names(data))
-  if (length(group_vars) > 0) pipe_el = c(pipe_el, paste0("dplyr::group_by(!!!dplyr::syms(c('", paste(group_vars, collapse="','"), "')))"))
-  pipe_el = c(pipe_el, paste0("dplyr::mutate(`", new_var, "` = ", expr_val, ")"))
-  if (length(group_vars) > 0) pipe_el = c(pipe_el, "dplyr::ungroup()")
+  if (is.numeric(x)) {
+    return(fast_coalesce(x != 0, FALSE))
+  }
 
-  # Evaluate code inside parent.frame() to capture previous steps' variables
-  eval(parse(text = paste(pipe_el, collapse = " %>% ")), envir = list(data = data), enclos = parent.frame())
+  fast_coalesce(as.logical(x), FALSE)
 }
 ```
-!END_MODIFICATION scmd_generate in R/t_generate.R
 
-!MODIFICATION scmd_replace in R/t_replace.R
-scope = "function"
-file = "R/t_replace.R"
-function_name = "scmd_replace"
-description = "Restore as.numeric coercion for target variables that are not explicitly character vectors."
----
-```R
-# 3. Runtime Execution Phase: Evaluate against actual data
-scmd_replace = function(data, var_to_replace, r_expr_str, r_if_cond = NA_character_, group_vars = character(0), is_string = FALSE, force_integer = FALSE) {
-  restore.point("scmd_replace")
-
-  var_actual = expand_varlist(var_to_replace, names(data))[1]
-  r_expr_str = resolve_abbrevs_in_expr(r_expr_str, names(data))
-  r_if_cond = resolve_abbrevs_in_expr(r_if_cond, names(data))
-
-  # If the target is character, we safely flag it as string to prevent NA coercion
-  target_is_char = is.character(data[[var_actual]])
-  is_string = is_string || target_is_char
-
-  expr_val = r_expr_str
-  if (is_string) {
-    if (expr_val == "NA_real_") expr_val = '""' else expr_val = paste0("as.character(", expr_val, ")")
-  } else {
-    # Restore standard coercion for numeric targets to force any logicals into 1/0
-    if (force_integer) expr_val = paste0("as.integer(", expr_val, ")") else expr_val = paste0("as.numeric(", expr_val, ")")
-  }
-
-  if (!is.na(r_if_cond) && r_if_cond != "") {
-    expr_val = paste0("dplyr::if_else((fast_coalesce(as.numeric(", r_if_cond, "), 0) != 0), ", expr_val, ", data$`", var_actual, "`)")
-  }
-
-  pipe_el = c("data")
-  group_vars = expand_varlist(paste(group_vars, collapse=" "), names(data))
-  if (length(group_vars) > 0) pipe_el = c(pipe_el, paste0("dplyr::group_by(!!!dplyr::syms(c('", paste(group_vars, collapse="','"), "')))"))
-  pipe_el = c(pipe_el, paste0("dplyr::mutate(`", var_actual, "` = ", expr_val, ")"))
-  if (length(group_vars) > 0) pipe_el = c(pipe_el, "dplyr::ungroup()")
-
-  eval(parse(text = paste(pipe_el, collapse = " %>% ")), envir = list(data = data), enclos = parent.frame())
-}
-```
-!END_MODIFICATION scmd_replace in R/t_replace.R
+!END_MODIFICATION stata_na_handling.R

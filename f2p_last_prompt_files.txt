@@ -74,8 +74,10 @@ R/t_save.R
 R/t_scalar.R
 R/t_sort.R
 R/t_summarize.R
+R/t_tabulate.R
 R/t_tempfile.R
 R/t_use.R
 R/t_xi.R
 R/t_xtreg.R
 R/varlist.R
+aicoder_work/test_report.txt

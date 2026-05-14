@@ -1,9 +1,24 @@
 # FILE: R/stata_na.R
 
+#' Convert R Date values to Stata daily-date numeric values
+#'
+#' Stata daily dates are stored as days since 1960-01-01.
+#' R Date objects are internally days since 1970-01-01, so plain
+#' as.numeric(Date) cannot be compared to values created by Stata-style
+#' functions such as mdy() or date().
+s2r_date_to_stata_numeric = function(x) {
+  as.numeric(as.Date(x) - as.Date("1960-01-01"))
+}
+
 #' Helper to transform NA to Stata's encoding for conditions
-#' In Stata, numeric missing (.) is treated as positive infinity.
+#'
+#' In Stata, numeric missing (.) is treated as positive infinity in
+#' comparisons. String missing is the empty string.
 to_stata_na = function(x) {
-  if (is.numeric(x) || inherits(x, "Date")) {
+  if (inherits(x, "Date")) {
+    x = s2r_date_to_stata_numeric(x)
+    x[is.na(x)] = Inf
+  } else if (is.numeric(x)) {
     x = as.numeric(x)
     x[is.na(x)] = Inf
   } else if (is.character(x)) {
@@ -28,7 +43,9 @@ s2r_setup_eval_list = function(data) {
   eval_list[[".data"]] = data
 
   eval_list[["sfun_missing"]] = function(x) {
-    if (is.numeric(x)) {
+    if (inherits(x, "Date")) {
+      return(is.na(x))
+    } else if (is.numeric(x)) {
       return(is.na(x) | is.infinite(x))
     } else if (is.character(x)) {
       return(is.na(x) | stringi::stri_trim_both(x) == "")
@@ -43,6 +60,7 @@ s2r_setup_eval_list = function(data) {
 s2r_eval_reserved_words = function() {
   c("NA_real_", "NA_integer_", "NA_character_", "NA", ".data", "sfun_missing")
 }
+
 #' Convert R logical results to Stata-style 0/1 indicators
 #'
 #' Stata logical and comparison expressions used in generate/replace create
@@ -64,4 +82,3 @@ s2r_stata_logical = function(x) {
 
   fast_coalesce(as.logical(x), FALSE)
 }
-
