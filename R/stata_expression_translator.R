@@ -1,3 +1,97 @@
+s2r_strip_outer_parens = function(x) {
+  restore.point("s2r_strip_outer_parens")
+
+  if (is.na(x) || x == "") return(x)
+  x = stringi::stri_trim_both(x)
+
+  changed = TRUE
+  while (changed && stringi::stri_startswith_fixed(x, "(") && stringi::stri_endswith_fixed(x, ")")) {
+    changed = FALSE
+    close_pos = s2r_find_matching_paren(x, 1L)
+    if (!is.na(close_pos) && close_pos == stringi::stri_length(x)) {
+      x = stringi::stri_trim_both(stringi::stri_sub(x, 2L, -2L))
+      changed = TRUE
+    }
+  }
+
+  x
+}
+
+s2r_has_top_level_logical_operator = function(x) {
+  restore.point("s2r_has_top_level_logical_operator")
+
+  if (is.na(x) || x == "") return(FALSE)
+
+  n = stringi::stri_length(x)
+  depth = 0L
+  in_single = FALSE
+  in_double = FALSE
+  i = 1L
+
+  while (i <= n) {
+    ch = stringi::stri_sub(x, i, i)
+    prev = if (i > 1L) stringi::stri_sub(x, i - 1L, i - 1L) else ""
+
+    if (!in_double && ch == "'" && prev != "\\") {
+      in_single = !in_single
+      i = i + 1L
+      next
+    }
+    if (!in_single && ch == "\"" && prev != "\\") {
+      in_double = !in_double
+      i = i + 1L
+      next
+    }
+
+    if (!in_single && !in_double) {
+      if (ch == "(") {
+        depth = depth + 1L
+      } else if (ch == ")") {
+        depth = depth - 1L
+      } else if (depth == 0L) {
+        two = if (i < n) stringi::stri_sub(x, i, i + 1L) else ""
+
+        if (two %in% c("==", "!=", "~=", "<=", ">=")) return(TRUE)
+        if (ch %in% c("<", ">", "&", "|")) return(TRUE)
+
+        if (ch == "~") {
+          next_char = if (i < n) stringi::stri_sub(x, i + 1L, i + 1L) else ""
+          if (next_char != "=") return(TRUE)
+        }
+        if (ch == "!") {
+          next_char = if (i < n) stringi::stri_sub(x, i + 1L, i + 1L) else ""
+          if (next_char != "=") return(TRUE)
+        }
+      }
+    }
+
+    i = i + 1L
+  }
+
+  FALSE
+}
+
+s2r_stata_expr_returns_logical = function(stata_expr) {
+  restore.point("s2r_stata_expr_returns_logical")
+
+  if (is.null(stata_expr) || length(stata_expr) == 0 || !is.character(stata_expr)) {
+    return(FALSE)
+  }
+
+  expr = s2r_strip_outer_parens(as.character(stata_expr[1]))
+  if (is.na(expr) || expr == "") return(FALSE)
+
+  if (fast_coalesce(stringi::stri_detect_regex(expr, "^(?:missing|inlist|inrange)\\s*\\("), FALSE)) {
+    return(TRUE)
+  }
+
+  if (fast_coalesce(stringi::stri_detect_regex(expr, "^cond\\s*\\("), FALSE)) {
+    return(FALSE)
+  }
+
+  s2r_has_top_level_logical_operator(expr)
+}
+
 translate_stata_expression_to_r = function(stata_expr, context = list(is_by_group = FALSE), r_value_mappings = NULL) {
   restore.point("translate_stata_expression_to_r")
 
@@ -12,11 +106,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   }
 
   stata_expr_original = stata_expr
-  is_logical_or_comparison_expr = fast_coalesce(
-    stringi::stri_detect_regex(stata_expr_original, "==|!=|~=|<=|>=|<|>|&|\\|") ||
-      stringi::stri_detect_regex(stata_expr_original, "\\b(?:missing|inlist|inrange)\\s*\\("),
-    FALSE
-  )
+  is_logical_or_comparison_expr = s2r_stata_expr_returns_logical(stata_expr_original)
 
   r_expr = stata_expr
 

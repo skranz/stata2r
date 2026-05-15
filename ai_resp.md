@@ -1,97 +1,350 @@
-The bug is in `to_stata_na()`: it currently treats `Date` like ordinary numeric and uses `as.numeric(x)`, which gives R days since `1970-01-01`. But `sfun_stata_mdy()` returns Stata daily dates, i.e. days since `1960-01-01`. Thus the comparison is made on different date origins and returns all `FALSE`.
-
-!MODIFICATION stata_na_handling.R
+!MODIFICATION stata_expression_translator.R
 scope = "file"
-file = "R/stata_na_handling.R"
+file = "R/stata_expression_translator.R"
 is_new_file = false
-description = "Fix Stata condition evaluation for R Date columns by converting Date values to Stata daily-date numeric values before comparison."
+description = "Fix logical wrapping so numeric cond() expressions are not converted to 0/1 merely because their condition contains a comparison."
 -------------------------------------------------------------------------------------------------------------------------------------------------
 
 ```r
-# FILE: R/stata_na.R
+s2r_strip_outer_parens = function(x) {
+  restore.point("s2r_strip_outer_parens")
 
-#' Convert R Date values to Stata daily-date numeric values
-#'
-#' Stata daily dates are stored as days since 1960-01-01.
-#' R Date objects are internally days since 1970-01-01, so plain
-#' as.numeric(Date) cannot be compared to values created by Stata-style
-#' functions such as mdy() or date().
-s2r_date_to_stata_numeric = function(x) {
-  as.numeric(as.Date(x) - as.Date("1960-01-01"))
-}
+  if (is.na(x) || x == "") return(x)
+  x = stringi::stri_trim_both(x)
 
-#' Helper to transform NA to Stata's encoding for conditions
-#'
-#' In Stata, numeric missing (.) is treated as positive infinity in
-#' comparisons. String missing is the empty string.
-to_stata_na = function(x) {
-  if (inherits(x, "Date")) {
-    x = s2r_date_to_stata_numeric(x)
-    x[is.na(x)] = Inf
-  } else if (is.numeric(x)) {
-    x = as.numeric(x)
-    x[is.na(x)] = Inf
-  } else if (is.character(x)) {
-    x[is.na(x)] = ""
+  changed = TRUE
+  while (changed && stringi::stri_startswith_fixed(x, "(") && stringi::stri_endswith_fixed(x, ")")) {
+    changed = FALSE
+    close_pos = s2r_find_matching_paren(x, 1L)
+    if (!is.na(close_pos) && close_pos == stringi::stri_length(x)) {
+      x = stringi::stri_trim_both(stringi::stri_sub(x, 2L, -2L))
+      changed = TRUE
+    }
   }
+
   x
 }
 
-#' Initialize an evaluation list with Stata NA rules
-#' @param data The dataframe to base the evaluation list on
-#' @return A list ready for `eval()` containing data and Stata NA mappings
-s2r_setup_eval_list = function(data) {
-  eval_list = lapply(data, to_stata_na)
+s2r_has_top_level_logical_operator = function(x) {
+  restore.point("s2r_has_top_level_logical_operator")
 
-  eval_list[["NA_real_"]] = Inf
-  eval_list[["NA_integer_"]] = Inf
-  eval_list[["NA_character_"]] = ""
-  eval_list[["NA"]] = Inf
+  if (is.na(x) || x == "") return(FALSE)
 
-  # Allow expressions rewritten to .data[[...]] to work both in plain eval()
-  # and in dplyr data-masked contexts.
-  eval_list[[".data"]] = data
+  n = stringi::stri_length(x)
+  depth = 0L
+  in_single = FALSE
+  in_double = FALSE
+  i = 1L
 
-  eval_list[["sfun_missing"]] = function(x) {
-    if (inherits(x, "Date")) {
-      return(is.na(x))
-    } else if (is.numeric(x)) {
-      return(is.na(x) | is.infinite(x))
-    } else if (is.character(x)) {
-      return(is.na(x) | stringi::stri_trim_both(x) == "")
+  while (i <= n) {
+    ch = stringi::stri_sub(x, i, i)
+    prev = if (i > 1L) stringi::stri_sub(x, i - 1L, i - 1L) else ""
+
+    if (!in_double && ch == "'" && prev != "\\") {
+      in_single = !in_single
+      i = i + 1L
+      next
     }
-    return(is.na(x))
+    if (!in_single && ch == "\"" && prev != "\\") {
+      in_double = !in_double
+      i = i + 1L
+      next
+    }
+
+    if (!in_single && !in_double) {
+      if (ch == "(") {
+        depth = depth + 1L
+      } else if (ch == ")") {
+        depth = depth - 1L
+      } else if (depth == 0L) {
+        two = if (i < n) stringi::stri_sub(x, i, i + 1L) else ""
+
+        if (two %in% c("==", "!=", "~=", "<=", ">=")) return(TRUE)
+        if (ch %in% c("<", ">", "&", "|")) return(TRUE)
+
+        if (ch == "~") {
+          next_char = if (i < n) stringi::stri_sub(x, i + 1L, i + 1L) else ""
+          if (next_char != "=") return(TRUE)
+        }
+        if (ch == "!") {
+          next_char = if (i < n) stringi::stri_sub(x, i + 1L, i + 1L) else ""
+          if (next_char != "=") return(TRUE)
+        }
+      }
+    }
+
+    i = i + 1L
   }
 
-  return(eval_list)
+  FALSE
 }
 
-#' List of reserved words injected by s2r_setup_eval_list
-s2r_eval_reserved_words = function() {
-  c("NA_real_", "NA_integer_", "NA_character_", "NA", ".data", "sfun_missing")
+s2r_stata_expr_returns_logical = function(stata_expr) {
+  restore.point("s2r_stata_expr_returns_logical")
+
+  if (is.null(stata_expr) || length(stata_expr) == 0 || !is.character(stata_expr)) {
+    return(FALSE)
+  }
+
+  expr = s2r_strip_outer_parens(as.character(stata_expr[1]))
+  if (is.na(expr) || expr == "") return(FALSE)
+
+  if (fast_coalesce(stringi::stri_detect_regex(expr, "^(?:missing|inlist|inrange)\\s*\\("), FALSE)) {
+    return(TRUE)
+  }
+
+  if (fast_coalesce(stringi::stri_detect_regex(expr, "^cond\\s*\\("), FALSE)) {
+    return(FALSE)
+  }
+
+  s2r_has_top_level_logical_operator(expr)
 }
 
-#' Convert R logical results to Stata-style 0/1 indicators
-#'
-#' Stata logical and comparison expressions used in generate/replace create
-#' numeric 0/1 values. In particular, expressions like
-#'   missing_numeric == 0
-#' evaluate to 0 in Stata, while R returns NA.
-#'
-#' This helper is intentionally narrow: it should be applied to translated
-#' logical/comparison expressions, not to arbitrary numeric expressions where
-#' missing values should remain missing.
-s2r_stata_logical = function(x) {
-  if (is.logical(x)) {
-    return(fast_coalesce(x, FALSE))
+translate_stata_expression_to_r = function(stata_expr, context = list(is_by_group = FALSE), r_value_mappings = NULL) {
+  restore.point("translate_stata_expression_to_r")
+
+  if (is.null(stata_expr) || length(stata_expr) == 0 || !is.character(stata_expr)) {
+    stata_expr = NA_character_
+  } else {
+    stata_expr = as.character(stata_expr[1])
   }
 
-  if (is.numeric(x)) {
-    return(fast_coalesce(x != 0, FALSE))
+  if (is.na(stata_expr) || stata_expr == "") {
+    return("NA_real_")
   }
 
-  fast_coalesce(as.logical(x), FALSE)
+  stata_expr_original = stata_expr
+  is_logical_or_comparison_expr = s2r_stata_expr_returns_logical(stata_expr_original)
+
+  r_expr = stata_expr
+
+  # Handle Stata functions that are fragile with direct lookup inside mutate.
+  # We translate these first into local wrappers that bind their arguments in
+  # the current evaluation context before calling the runtime helper.
+  r_expr = s2r_replace_special_function_calls(
+    r_expr,
+    "inlist",
+    function(args_str) {
+      s2r_translate_inlist_call(
+        args_str,
+        context = context,
+        r_value_mappings = r_value_mappings
+      )
+    }
+  )
+
+  r_expr = s2r_replace_special_function_calls(
+    r_expr,
+    "inrange",
+    function(args_str) {
+      s2r_translate_inrange_call(
+        args_str,
+        context = context,
+        r_value_mappings = r_value_mappings
+      )
+    }
+  )
+
+  # --- Handle string literals by replacing them with unique placeholders ---
+  string_literal_map = list()
+  placeholder_counter = 0
+  literal_matches_list = stringi::stri_match_all_regex(r_expr, '"[^"]*"|\'[^\']*\'')
+  if (length(literal_matches_list) > 0 && !is.null(literal_matches_list[[1]]) &&
+      NROW(literal_matches_list[[1]]) > 0 && !is.na(literal_matches_list[[1]][1,1])) {
+    unique_literals = unique(literal_matches_list[[1]][,1])
+    for (literal_text in unique_literals) {
+      placeholder_counter = placeholder_counter + 1
+      placeholder = paste0("_", placeholder_counter, "STATA2R_SLIT_")
+      r_expr = stringi::stri_replace_all_fixed(r_expr, literal_text, placeholder)
+      string_literal_map[[placeholder]] = literal_text
+    }
+  }
+
+  # --- Handle r() and e() values using placeholders first ---
+  macro_placeholder_map = list()
+  macro_placeholder_counter = 0
+  if (!is.null(r_value_mappings) && length(r_value_mappings) > 0) {
+    sorted_macro_names = names(r_value_mappings)[order(stringi::stri_length(names(r_value_mappings)), decreasing = TRUE)]
+    for (stata_macro_name in sorted_macro_names) {
+      macro_placeholder_counter = macro_placeholder_counter + 1
+      macro_placeholder = paste0("_", macro_placeholder_counter, "STATA2R_MACRO_")
+      r_expr = stringi::stri_replace_all_fixed(r_expr, stata_macro_name, macro_placeholder)
+      macro_placeholder_map[[macro_placeholder]] = r_value_mappings[[stata_macro_name]]
+    }
+  }
+
+  # Step 1: Handle Stata missing value literals '.', '.a', ..., '.z'
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![0-9a-zA-Z_])\\.[a-zA-Z]?(?![0-9a-zA-Z_])", "NA_real_")
+
+  # Step 2: Translate Stata logical operators and missing value comparisons.
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*==\\s*NA_real_", "sfun_missing($1)")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*(?:!=|~=)\\s*NA_real_", "!sfun_missing($1)")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![<>=!~])\\s*=\\s*(?![=])", " == ")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "\\s*~=\\s*", " != ")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![a-zA-Z0-9_\\.])~", "!")
+
+  # Step 3: Translate Stata special variables and indexing, e.g. _n, _N, var[_n-1]
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*-\\s*(\\d+)\\]", "dplyr::lag(`$1`, n = $2)")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*\\+\\s*(\\d+)\\]", "dplyr::lead(`$1`, n = $2)")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\]", "`$1`")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_n\\b", "dplyr::row_number()")
+  r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_N\\b", "dplyr::n()")
+
+  # Step 4: Iteratively translate Stata functions, excluding inlist/inrange handled above.
+  old_r_expr = ""
+  while (fast_coalesce(r_expr != old_r_expr, FALSE)) {
+    old_r_expr = r_expr
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bcond\\(([^,]+),([^,]+),([^)]+)\\)", "sfun_stata_cond($1, $2, $3)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^,]+),([^)]+)\\)", "sfun_stata_round($1, $2)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^)]+)\\)", "sfun_stata_round($1, 1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmod\\(([^,]+),([^)]+)\\)", "($1 %% $2)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmissing\\(([^)]+)\\)", "sfun_missing($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\blog\\(([^)]+)\\)", "log($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsqrt\\(([^)]+)\\)", "sqrt($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bint\\(([^)]+)\\)", "trunc($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\breal\\(([^)]+)\\)", "suppressWarnings(as.numeric($1))")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrtrim\\(([^)]+)\\)", "stringi::stri_trim_right($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstritrim\\(([^)]+)\\)", "sfun_stritrim($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\blower\\(([^)]+)\\)", "stringi::stri_trans_tolower($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bupper\\(([^)]+)\\)", "stringi::stri_trans_toupper($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsubstr\\(([^,]+),([^,]+),([^)]+)\\)", "stringi::stri_sub($1, from = $2, length = $3)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsubinstr\\(([^,]+),([^,]+),([^,]+),([^)]+)\\)", "sfun_subinstr($1, $2, $3, $4)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrpos\\(([^,]+),([^)]+)\\)", "sfun_strpos($1, $2)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\blength\\(([^)]+)\\)", "stringi::stri_length($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstrlen\\(([^)]+)\\)", "stringi::stri_length($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bstring\\(([^)]+)\\)", "sfun_string($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bruniform\\(\\)", "stats::runif(dplyr::n())")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bdate\\(([^,]+),([^,]+),([^)]+)\\)", "sfun_stata_date($1, $2, $3)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bdate\\(([^,]+),([^)]+)\\)", "sfun_stata_date($1, $2)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmdy\\(([^,]+),([^,]+),([^)]+)\\)", "sfun_stata_mdy($1, $2, $3)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\byear\\(([^)]+)\\)", "sfun_year($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmonth\\(([^)]+)\\)", "sfun_month($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bday\\(([^)]+)\\)", "sfun_day($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bqofd\\(([^)]+)\\)", "sfun_qofd($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bdow\\(([^)]+)\\)", "sfun_dow($1)")
+  }
+
+  if (is.na(r_expr) || r_expr == "") {
+    warning(paste0("R expression became NA or empty after function translation. Original Stata expression: '", stata_expr, "'"))
+    return("NA_real_")
+  }
+
+  # Step 5: Quote bare variable names with backticks
+  r_reserved_words = c(
+    "TRUE", "FALSE", "NA_real_", "NA_character_", "NA_integer_", "NA", "NULL",
+    "if_else", "coalesce", "row_number", "n", "lag", "lead", "select", "filter",
+    "mutate", "group_by", "ungroup", "syms", "all_of", "everything", "matches",
+    "pivot_wider", "pivot_longer", "read_dta", "write_dta", "labelled", "zap_labels",
+    "zap_formats", "zap_missing", "as_factor", "parse_number",
+    "mean", "sum", "median", "sd", "min", "max", "log", "sqrt", "trunc", "rank",
+    "rowSums", "rowMeans", "setNames", "match", "tempfile", "file.path",
+    "fmean", "fsum", "fN", "ffirst", "flast", "fmin", "fmax", "fmedian", "fsd",
+    "fquantile", "fgroup_by", "fungroup", "fsubset", "frename", "bind_rows", "rep",
+    "as_tibble", "inherits", "format", "as.Date", "as.numeric", "as.character", "as.integer",
+    "sign", "floor", "abs", "pmax", "stringi", "base", "stats", "dplyr", "collapse", "haven",
+    "readr", "tidyr", "labelled", "restorepoint", "stata2r_env",
+    "sfun_missing", "sfun_stata_add", "sfun_stata_round", "sfun_string", "sfun_stritrim",
+    "sfun_strpos", "sfun_subinstr", "sfun_stata_mdy", "sfun_stata_date", "sfun_day",
+    "sfun_month", "sfun_qofd", "sfun_dow", "sfun_inlist", "sfun_inrange", "sfun_normalize_string_nas", "sfun_strip_stata_attributes",
+    "sfun_compress_col_type", "sfun_is_stata_expression_string_typed", "as.logical",
+    "sfun_stata_cond", "sfun_year", "sfun_stata_date_single", "e", "sfun_flag", "sfun_fdiff",
+    "s2r_stata_logical",
+    "NROW", "length", "unique", "sapply", "vapply", "c", "list", "intersect", "setdiff",
+    "warning", "stop", "paste0", "grepl", "as.logical", "ifelse", "exists", "rm",
+    "is.null", "lapply", "is.na", "is.character", "is.numeric", "is.logical", "is.factor",
+    "attributes", "attr", "names", "order", "unname", "duplicated", "trimws",
+    "suppressWarnings", "as.data.frame", "rownames", "colnames", "head", "tail",
+    "matrix", "data.frame", "vector", "character", "numeric", "integer", "logical",
+    "factor", "double", "`_n`", "`_N`",
+    "cur_group_id", "cur_data_all", "replace", "TRUE", "FALSE",
+    "local"
+  )
+
+  locations_list = stringi::stri_locate_all_regex(r_expr, "\\b([a-zA-Z_][a-zA-Z0-9_.]*)\\b")
+  locations = locations_list[[1]]
+
+  if (!is.null(locations) && NROW(locations) > 0 && !is.na(locations[1,1])) {
+    locations = locations[order(locations[,2], decreasing = TRUE), , drop = FALSE]
+    for (k in seq_len(NROW(locations))) {
+      start_pos = locations[k,1]
+      end_pos = locations[k,2]
+      current_word = stringi::stri_sub(r_expr, start_pos, end_pos)
+
+      if (current_word %in% names(string_literal_map)) {
+        next
+      }
+      if (current_word %in% names(macro_placeholder_map)) {
+        next
+      }
+
+      is_reserved = fast_coalesce(current_word %in% r_reserved_words, FALSE)
+      is_numeric_literal = fast_coalesce(suppressWarnings(!is.na(as.numeric(current_word))), FALSE)
+
+      is_already_backticked = FALSE
+      if (fast_coalesce(start_pos > 1 && end_pos < stringi::stri_length(r_expr), FALSE)) {
+        char_before = fast_coalesce(stringi::stri_sub(r_expr, start_pos - 1, start_pos - 1), "")
+        char_after = fast_coalesce(stringi::stri_sub(r_expr, end_pos + 1, end_pos + 1), "")
+        is_already_backticked = (char_before == "`" && char_after == "`")
+      }
+
+      if (isTRUE(!is_reserved) && isTRUE(!is_numeric_literal) && isTRUE(!is_already_backticked)) {
+        r_expr = paste0(
+          stringi::stri_sub(r_expr, 1, start_pos - 1),
+          "`", current_word, "`",
+          stringi::stri_sub(r_expr, end_pos + 1, stringi::stri_length(r_expr))
+        )
+      }
+    }
+  }
+
+  # Step 6: Translate Stata string '+' to sfun_stata_add.
+  if (isTRUE(sfun_is_stata_expression_string_typed(stata_expr))) {
+    function_call_pattern = "\\b(?:[a-zA-Z_][a-zA-Z0-9_.]*::)*[a-zA-Z_][a-zA-Z0-9_.]*\\s*\\(.*?\\)\\s*"
+    operand_pattern = paste0(
+      "(?:",
+      "\"[^\"]*\"",
+      "|'[^']*'",
+      "|\\d+(?:\\.\\d+)?(?:e[+-]?\\d+)?",
+      "|\\b(?:NA_real_|NULL)\\b",
+      "|\\b(?:TRUE|FALSE)\\b",
+      "|`[^`]+`",
+      "|", function_call_pattern,
+      "|_[0-9]+STATA2R_SLIT_",
+      "|_[0-9]+STATA2R_MACRO_",
+      ")"
+    )
+
+    old_r_expr_add = ""
+    while (fast_coalesce(r_expr != old_r_expr_add, FALSE)) {
+      old_r_expr_add = r_expr
+      add_regex_middle_part = "\\s*(?<![<>=!~])\\+\\s*(?!\\s*\\+|\\s*=\\s*)"
+      add_regex_full = paste0("(", operand_pattern, ")", add_regex_middle_part, "(", operand_pattern, ")")
+      r_expr = stringi::stri_replace_all_regex(r_expr, add_regex_full, "sfun_stata_add($1, $2)")
+    }
+  }
+
+  # --- Restore mapped macro expressions from placeholders ---
+  if (length(macro_placeholder_map) > 0) {
+    sorted_macro_placeholders = names(macro_placeholder_map)[order(stringi::stri_length(names(macro_placeholder_map)), names(macro_placeholder_map), decreasing = TRUE)]
+    for (macro_placeholder in sorted_macro_placeholders) {
+      r_expr = stringi::stri_replace_all_fixed(r_expr, macro_placeholder, macro_placeholder_map[[macro_placeholder]])
+    }
+  }
+
+  # --- Restore string literals from placeholders ---
+  if (length(string_literal_map) > 0) {
+    sorted_placeholders = names(string_literal_map)[order(stringi::stri_length(names(string_literal_map)), names(string_literal_map), decreasing = TRUE)]
+    for (placeholder in sorted_placeholders) {
+      r_expr = stringi::stri_replace_all_fixed(r_expr, placeholder, string_literal_map[[placeholder]])
+    }
+  }
+
+  if (isTRUE(is_logical_or_comparison_expr)) {
+    r_expr = paste0("s2r_stata_logical(", r_expr, ")")
+  }
+
+  return(r_expr)
 }
 ```
 
-!END_MODIFICATION stata_na_handling.R
+!END_MODIFICATION stata_expression_translator.R
