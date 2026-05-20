@@ -64,6 +64,35 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     is_row = TRUE
     calc_expr = paste0(".ROWOP_", parsed$func_name, "_PLACEHOLDER.")
   }
+  else if (parsed$func_name == "seq") {
+    needs_temp_sort = !cmd_obj$is_by_prefix
+    from_val = 1
+    to_val = NA_real_
+    block_val = 1
+    if (!is.na(parsed$options)) {
+      from_match = stringi::stri_match_first_regex(parsed$options, "\\bfrom\\s*\\((\\d+)\\)")
+      if (!is.na(from_match[1,1])) from_val = as.numeric(from_match[1,2])
+      to_match = stringi::stri_match_first_regex(parsed$options, "\\bto\\s*\\((\\d+)\\)")
+      if (!is.na(to_match[1,1])) to_val = as.numeric(to_match[1,2])
+      block_match = stringi::stri_match_first_regex(parsed$options, "\\bblock\\s*\\((\\d+)\\)")
+      if (!is.na(block_match[1,1])) block_val = as.numeric(block_match[1,2])
+    }
+    if (block_val == 1) {
+      if (from_val == 1) {
+        calc_expr = "dplyr::row_number()"
+      } else {
+        calc_expr = paste0("dplyr::row_number() + ", from_val - 1)
+      }
+    } else {
+      calc_expr = paste0("floor((dplyr::row_number() - 1) / ", block_val, ") + ", from_val)
+    }
+    if (!is.na(to_val)) {
+      calc_expr = paste0("floor((dplyr::row_number() - 1) / ", block_val, ") %% (", to_val - from_val + 1, ") + ", from_val)
+    }
+    if (!is.na(final_cond)) {
+      calc_expr = paste0("dplyr::if_else(fast_coalesce(", final_cond, ", FALSE), as.numeric(", calc_expr, "), NA_real_)")
+    }
+  }
   else return(paste0("# Egen func '", parsed$func_name, "' not implemented."))
 
   group_vars = character(0)

@@ -80,4 +80,3 @@ R/t_use.R
 R/t_xi.R
 R/t_xtreg.R
 R/varlist.R
-aicoder_work/test_report.txt

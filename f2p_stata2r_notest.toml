@@ -52,13 +52,10 @@ Each modification block has three parts:
 
 ### Modification Scope
 
-Each modification must have the following scope:
+Each modification must have one of the following scopes:
 
 * `file` (re-)writes a complete file
-
-My software can account for other scopes, but
-thy are not relevant for your task on this package.
-Here always create code for complee files.
+* `function` (re-)writes a function
 
 ---
 
@@ -102,6 +99,76 @@ description = "Rewrite the README to add installation instructions."
 Run `remotes::install_github("user/repo")` to install.
 ```
 !END_MODIFICATION README.md
+
+
+
+### **Scope 2: `function`**
+
+Use this to replace an existing function or to insert a new function. The new code payload should contain the complete function, including any preceding comments.
+
+#### **Fields for replacing an existing function:**
+*   `scope = "function"`
+*   `file` (string): The path to the file. Very important: state the path of the file as shown in the files header above. If there is a complete absolute path, also show the complete absolute path here.
+*   `function_name` (string): The name of the function to be replaced.
+*   `description` (string): A brief explanation of the change in quotes.
+
+#### **Fields for inserting a new function:**
+*   `scope = "function"`
+*   `file` (string): The path to the file. Very important: state the path of the file as shown in the files header above. If there is a complete absolute path, also show the complete absolute path here.
+*   `description` (string): A brief explanation of the change, enclose in quotes.
+*   **One of** the following fields to specify the insertion point. They are mutually exclusive.
+    *   `insert_top = true`: Insert at the top of the file.
+    *   `insert_bottom = true`: Insert at the bottom of the file.
+    *   `insert_before_fun = "function_name"`: Insert before the specified function.
+    *   `insert_after_fun = "function_name"`: Insert after the specified function.
+
+
+#### **Example 2.1: Replacing an existing function**
+!MODIFICATION calculate_sum utils.R
+scope = "function"
+file = "R/utils.R"
+function_name = "calculate_sum"
+description = "Update `calculate_sum` to handle NA values correctly.""
+---
+```r
+#' Calculate the sum of a vector, ignoring NAs
+calculate_sum = function(vec) {
+  sum(vec, na.rm = TRUE)
+}
+```
+!END_MODIFICATION calculate_sum utils.R
+
+#### **Example 2.2: Inserting a new function at the bottom of a file (here was an absolute file path given)**
+!MODIFICATION is_positive in R/utils.R
+scope = "function"
+file = "/home/myuser/mypkg/R/utils.R"
+insert_bottom = true
+description = "Add a new helper function to check for positivity."
+---
+```r
+
+#' Check if a number is positive
+is_positive = function(n) {
+  n > 0
+}
+```
+!END_MODIFICATION is_positive in R/utils.R
+
+#### **Example 2.3: Inserting a new function after a specific function**
+!MODIFICATION is_negative in R/utils.R
+scope = "function"
+file = "R/utils.R"
+insert_after_fun = "is_positive"
+description = "Add a new helper function `is_negative` after `is_positive`."
+---
+```r
+
+#' Check if a number is negative
+is_negative = function(n) {
+  n < 0
+}
+```
+!END_MODIFICATION is_negative in R/utils.R
 
 
 ##############################

@@ -6,6 +6,7 @@ stata_cmd_abbreviations = list(
   "a" = "append",
   "br" = "browse",
   "by" = "bysort",
+  "bys" = "bysort",
   "cap" = "capture",
   "cd" = "cd",
   "cl" = "clear",
@@ -195,6 +196,7 @@ stata_r_result_cmds = c(
 
 
 # Vectorized helper to parse multiple Stata command lines
+# Vectorized helper to parse multiple Stata command lines
 parse_stata_command_lines = function(lines_text) {
   restore.point("parse_stata_command_lines")
   n = length(lines_text)
@@ -240,9 +242,10 @@ parse_stata_command_lines = function(lines_text) {
   }
 
   # 3. by / bysort prefix
-  idx_by_starts = stringi::stri_startswith_fixed(effective_line, "by ") | stringi::stri_startswith_fixed(effective_line, "bysort ")
+  by_prefix_regex = "^(by|bys|byso|bysor|bysort)\\s+([^:]+?)\\s*:\\s*(.*)$"
+  idx_by_starts = stringi::stri_detect_regex(effective_line, "^(by|bys|byso|bysor|bysort)\\s")
   if (any(idx_by_starts)) {
-    prefix_match = stringi::stri_match_first_regex(effective_line[idx_by_starts], "^(by|bysort)\\s+([^:]+?)\\s*:\\s*(.*)$")
+    prefix_match = stringi::stri_match_first_regex(effective_line[idx_by_starts], by_prefix_regex)
     valid_by = !is.na(prefix_match[,1])
     if (any(valid_by)) {
       idx_valid_by = which(idx_by_starts)[valid_by]
@@ -251,7 +254,7 @@ parse_stata_command_lines = function(lines_text) {
       effective_line[idx_valid_by] = stringi::stri_trim_both(prefix_match[valid_by, 4])
 
       is_by_prefix_val[idx_valid_by] = TRUE
-      is_bysort_prefix_val[idx_valid_by] = (raw_prefix == "bysort")
+      is_bysort_prefix_val[idx_valid_by] = (raw_prefix != "by")
 
       for (i in seq_along(idx_valid_by)) {
         raw_str = raw_by_string_from_prefix[i]
@@ -335,6 +338,8 @@ parse_stata_command_lines = function(lines_text) {
 
 # Helper to parse basic Stata command line: cmd + rest
 # Handles capture, quietly, by/bysort, and xi: prefixes.
+# Helper to parse basic Stata command line: cmd + rest
+# Handles capture, quietly, by/bysort, and xi: prefixes.
 parse_stata_command_line = function(line_text) {
   restore.point("parse_stata_command_line")
   trimmed_line = stringi::stri_trim_both(line_text)
@@ -372,15 +377,15 @@ parse_stata_command_line = function(line_text) {
   }
 
   # 3. by / bysort prefix
-  if (fast_coalesce(stringi::stri_startswith_fixed(effective_line, "by "), FALSE) ||
-      fast_coalesce(stringi::stri_startswith_fixed(effective_line, "bysort "), FALSE)) {
-    prefix_match = stringi::stri_match_first_regex(effective_line, "^(by|bysort)\\s+([^:]+?)\\s*:\\s*(.*)$")
+  by_prefix_regex = "^(by|bys|byso|bysor|bysort)\\s+([^:]+?)\\s*:\\s*(.*)$"
+  if (fast_coalesce(stringi::stri_detect_regex(effective_line, "^(by|bys|byso|bysor|bysort)\\s"), FALSE)) {
+    prefix_match = stringi::stri_match_first_regex(effective_line, by_prefix_regex)
     if (!is.na(prefix_match[1,1])) {
       raw_prefix = stringi::stri_trim_both(prefix_match[1,2])
       raw_by_string_from_prefix = stringi::stri_trim_both(prefix_match[1,3])
       effective_line = stringi::stri_trim_both(prefix_match[1,4])
       is_by_prefix_val = TRUE
-      is_bysort_prefix_val = identical(raw_prefix, "bysort")
+      is_bysort_prefix_val = (raw_prefix != "by")
 
       by_tokens = character(0)
       if (!is.na(raw_by_string_from_prefix) && raw_by_string_from_prefix != "") {
