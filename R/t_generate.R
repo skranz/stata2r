@@ -1,22 +1,41 @@
 # FILE: R/t_generate.R
 
 # 1. Parsing Phase: Extract Stata syntax components
+# 1. Parsing Phase: Extract Stata syntax components
+# 1. Parsing Phase: Extract Stata syntax components
 s2r_p_generate = function(rest_of_cmd) {
   restore.point("s2r_p_generate")
   explicit_type_match = stringi::stri_match_first_regex(rest_of_cmd, "^\\s*(byte|int|long|float|double|str\\d+|strL)\\s+")
   declared_type_str = if (!is.na(explicit_type_match[1,1])) explicit_type_match[1,2] else NA_character_
 
   rest_no_type = stringi::stri_replace_first_regex(rest_of_cmd, "^\\s*(?:byte|int|long|float|double|str\\d+|strL)\\s+", "")
-  match = stringi::stri_match_first_regex(rest_no_type, "^\\s*([^=\\s]+)\\s*=\\s*(.*?)(?:\\s+if\\s+(.*))?$")
+
+  parts = stringi::stri_split_fixed(rest_no_type, "=", n=2)[[1]]
+  if (length(parts) < 2) {
+    return(list(
+      declared_type = declared_type_str,
+      new_var = NA_character_,
+      stata_expr = NA_character_,
+      if_cond = NA_character_,
+      in_str = NA_character_
+    ))
+  }
+
+  new_var = stringi::stri_trim_both(parts[1])
+  right_side = stringi::stri_trim_both(parts[2])
+
+  parsed = s2r_parse_if_in(right_side)
 
   list(
     declared_type = declared_type_str,
-    new_var = if (!is.na(match[1,1])) stringi::stri_trim_both(match[1,2]) else NA_character_,
-    stata_expr = if (!is.na(match[1,1])) stringi::stri_trim_both(match[1,3]) else NA_character_,
-    if_cond = if (!is.na(match[1,1])) stringi::stri_trim_both(match[1,4]) else NA_character_
+    new_var = new_var,
+    stata_expr = parsed$base_str,
+    if_cond = parsed$if_str,
+    in_str = parsed$in_str
   )
 }
 
+# 2. Code Generation Phase: Emit R code
 # 2. Code Generation Phase: Emit R code
 t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   restore.point("t_generate")
@@ -31,6 +50,8 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   if (!is.na(parsed$if_cond) && parsed$if_cond != "") {
     r_if_cond = translate_stata_expression_with_r_values(parsed$if_cond, line_num, cmd_df, list(is_by_group = FALSE))
   }
+
+  r_in_range = s2r_in_str_to_r_range_str(parsed$in_str)
 
   group_vars_list_bare = character(0)
   if (current_context$is_by_group) {
@@ -47,6 +68,7 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   args = c("data = data", paste0("new_var = ", quote_for_r_literal(parsed$new_var)), paste0("r_expr_str = ", quote_for_r_literal(r_expr)))
   if (!is.na(r_if_cond)) args = c(args, paste0("r_if_cond = ", quote_for_r_literal(r_if_cond)))
+  if (!is.na(r_in_range)) args = c(args, paste0("r_in_range = ", quote_for_r_literal(r_in_range)))
 
   if (length(group_vars_list_bare) > 0) args = c(args, paste0("group_vars = c('", paste(group_vars_list_bare, collapse="','"), "')"))
   args = c(args, paste0("is_string = ", is_string), paste0("force_integer = ", force_integer))
@@ -57,35 +79,53 @@ t_generate = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 # 3. Runtime Execution Phase: Evaluate against actual data
 # 3. Runtime Execution Phase: Evaluate against actual data
 # 3. Runtime Execution Phase: Evaluate against actual data
-scmd_generate = function(data, new_var, r_expr_str, r_if_cond = NA_character_, group_vars = character(0), is_string = FALSE, force_integer = FALSE) {
+# 3. Runtime Execution Phase: Evaluate against actual data
+scmd_generate = function(data, new_var, r_expr_str, r_if_cond = NA_character_, r_in_range = NA_character_, group_vars = character(0), is_string = FALSE, force_integer = FALSE) {
   restore.point("scmd_generate")
 
   r_expr_str = resolve_abbrevs_in_expr(r_expr_str, names(data))
   r_if_cond = resolve_abbrevs_in_expr(r_if_cond, names(data))
 
-  expr_val = r_expr_str
-
-  if (is_string) {
-    if (expr_val == "NA_real_") expr_val = '""' else expr_val = paste0("as.character(", expr_val, ")")
-  } else if (force_integer) {
-    expr_val = paste0("as.integer(", expr_val, ")")
-  } else {
-    # Dynamic fallback: if it evaluates to character, keep it.
-    # Otherwise coerce to numeric (turns R logicals TRUE/FALSE into Stata's 1/0)
-    expr_val = paste0("{ .val <- ", expr_val, "; if(is.character(.val)) .val else as.numeric(.val) }")
-  }
-
+  mask_expr = ".stata_temp_mask"
   if (!is.na(r_if_cond) && r_if_cond != "") {
-    expr_val = paste0("{ .val <- ", expr_val, "; dplyr::if_else((fast_coalesce(as.numeric(", r_if_cond, "), 0) != 0), .val, if(is.character(.val)) \"\" else NA_real_) }")
+    mask_expr = paste0("(.stata_temp_mask & fast_coalesce(as.numeric(", r_if_cond, "), 0) != 0)")
   }
+
+  if (r_expr_str == "NA_real_") {
+    # special case if r_expr_str is exactly NA_real_ and is_string is TRUE
+    if (is_string) {
+       expr_body = paste0("dplyr::if_else(", mask_expr, ", '', '')")
+    } else {
+       expr_body = paste0("dplyr::if_else(", mask_expr, ", NA_real_, NA_real_)")
+    }
+  } else {
+    if (is_string) {
+        expr_body = paste0("{ .val <- as.character(", r_expr_str, "); dplyr::if_else(", mask_expr, ", .val, '') }")
+    } else if (force_integer) {
+        expr_body = paste0("{ .val <- as.integer(", r_expr_str, "); dplyr::if_else(", mask_expr, ", .val, NA_integer_) }")
+    } else {
+        expr_body = paste0("{ .val <- ", r_expr_str, "; if(is.character(.val)) { dplyr::if_else(", mask_expr, ", .val, '') } else { .val <- as.numeric(.val); dplyr::if_else(", mask_expr, ", .val, NA_real_) } }")
+    }
+  }
+
+  # Compute in-range mask globally
+  in_mask = rep(TRUE, nrow(data))
+  if (!is.na(r_in_range) && r_in_range != "") {
+    idx = s2r_eval_range(data, r_in_range)
+    in_mask_vec = rep(FALSE, nrow(data))
+    in_mask_vec[idx] = TRUE
+    in_mask = in_mask_vec
+  }
+  data$.stata_temp_mask = in_mask
 
   pipe_el = c("data")
   group_vars = expand_varlist(paste(group_vars, collapse=" "), names(data))
   if (length(group_vars) > 0) pipe_el = c(pipe_el, paste0("dplyr::group_by(!!!dplyr::syms(c('", paste(group_vars, collapse="','"), "')))"))
-  pipe_el = c(pipe_el, paste0("dplyr::mutate(`", new_var, "` = ", expr_val, ")"))
+  pipe_el = c(pipe_el, paste0("dplyr::mutate(`", new_var, "` = ", expr_body, ")"))
   if (length(group_vars) > 0) pipe_el = c(pipe_el, "dplyr::ungroup()")
 
-  # Evaluate code inside parent.frame() to capture previous steps' variables
-  eval(parse(text = paste(pipe_el, collapse = " %>% ")), envir = list(data = data), enclos = parent.frame())
+  data = eval(parse(text = paste(pipe_el, collapse = " %>% ")), envir = list(data = data), enclos = parent.frame())
+  data$.stata_temp_mask = NULL
+  return(data)
 }
 

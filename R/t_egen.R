@@ -25,6 +25,7 @@ s2r_p_egen = function(rest_of_cmd) {
 }
 
 # 2. Code Generation Phase
+# 2. Code Generation Phase
 t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   restore.point("t_egen")
   parsed = s2r_p_egen(rest_of_cmd)
@@ -34,12 +35,13 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   if (!is.na(parsed$if_str)) r_if_cond = translate_stata_expression_with_r_values(parsed$if_str, line_num, cmd_df, context)
   r_in_range = s2r_in_str_to_r_range_str(parsed$in_str)
 
-  final_cond = NA_character_
-  if (!is.na(r_if_cond)) final_cond = r_if_cond
-  if (!is.na(r_in_range)) final_cond = if(is.na(final_cond)) r_in_range else paste0("(", final_cond, ") & (", r_in_range, ")")
+  # For egen, we cannot simply combine r_in_range directly with r_if_cond as text because r_in_range is an index vector (e.g. "1:5")
+  # We will pass r_in_range as a separate argument to scmd_egen.
 
   r_args = translate_stata_expression_with_r_values(parsed$args_str, line_num, cmd_df, context)
-  r_args_cond = if (!is.na(final_cond)) paste0("dplyr::if_else(fast_coalesce(", final_cond, ", FALSE), ", r_args, ", NA)") else r_args
+
+  # Inside scmd_egen we will have a .stata_temp_mask that incorporates if and in conditions.
+  r_args_cond = paste0("dplyr::if_else(.stata_temp_mask, ", r_args, ", NA)")
 
   is_ftm = fast_coalesce(stringi::stri_detect_fixed(parsed$options, "fieldstrustmissings"), FALSE)
   is_row = FALSE
@@ -89,9 +91,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     if (!is.na(to_val)) {
       calc_expr = paste0("floor((dplyr::row_number() - 1) / ", block_val, ") %% (", to_val - from_val + 1, ") + ", from_val)
     }
-    if (!is.na(final_cond)) {
-      calc_expr = paste0("dplyr::if_else(fast_coalesce(", final_cond, ", FALSE), as.numeric(", calc_expr, "), NA_real_)")
-    }
+    calc_expr = paste0("dplyr::if_else(.stata_temp_mask, as.numeric(", calc_expr, "), NA_real_)")
   }
   else return(paste0("# Egen func '", parsed$func_name, "' not implemented."))
 
@@ -107,6 +107,9 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
            paste0("func_name = ", quote_for_r_literal(parsed$func_name)),
            paste0("calc_expr = ", quote_for_r_literal(calc_expr)))
 
+  if (!is.na(r_if_cond)) args = c(args, paste0("r_if_cond = ", quote_for_r_literal(r_if_cond)))
+  if (!is.na(r_in_range)) args = c(args, paste0("r_in_range = ", quote_for_r_literal(r_in_range)))
+
   if (length(group_vars) > 0) args = c(args, paste0("group_vars = c('", paste(group_vars, collapse="','"), "')"))
   if (parsed$func_name %in% c("group", "tag", "rowtotal", "rowmean", "concat")) args = c(args, paste0("args_str = ", quote_for_r_literal(parsed$args_str)))
   args = c(args, paste0("needs_temp_sort = ", needs_temp_sort), paste0("is_row = ", is_row))
@@ -114,7 +117,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   return(paste0("data = scmd_egen(", paste(args, collapse = ", "), ")"))
 }
 
-scmd_egen = function(data, new_var, func_name, calc_expr, group_vars = character(0), args_str = NA_character_, needs_temp_sort = FALSE, is_row = FALSE) {
+scmd_egen = function(data, new_var, func_name, calc_expr, r_if_cond = NA_character_, r_in_range = NA_character_, group_vars = character(0), args_str = NA_character_, needs_temp_sort = FALSE, is_row = FALSE) {
   restore.point("scmd_egen")
 
   group_vars_actual = expand_varlist(paste(group_vars, collapse=" "), names(data))
@@ -123,16 +126,33 @@ scmd_egen = function(data, new_var, func_name, calc_expr, group_vars = character
     group_vars_actual = unique(c(group_vars_actual, arg_vars))
   }
 
+  r_if_cond = resolve_abbrevs_in_expr(r_if_cond, names(data))
+
+  # Compute mask globally
+  in_mask = rep(TRUE, nrow(data))
+  if (!is.na(r_in_range) && r_in_range != "") {
+    idx = s2r_eval_range(data, r_in_range)
+    in_mask_vec = rep(FALSE, nrow(data))
+    in_mask_vec[idx] = TRUE
+    in_mask = in_mask_vec
+  }
+
+  if (!is.na(r_if_cond) && r_if_cond != "") {
+    data$.stata_temp_mask = in_mask & (fast_coalesce(as.numeric(s2r_eval_cond(data, r_if_cond, envir = parent.frame())), 0) != 0)
+  } else {
+    data$.stata_temp_mask = in_mask
+  }
+
   if (is_row) {
     row_vars = expand_varlist(args_str, names(data))
     if (func_name == "rowtotal") {
-      calc_expr = paste0("base::rowSums(replace(dplyr::select(data, dplyr::all_of(c('", paste(row_vars, collapse="','"), "'))), is.na(dplyr::select(data, dplyr::all_of(c('", paste(row_vars, collapse="','"), "')))), 0), na.rm = FALSE)")
+      calc_expr = paste0("dplyr::if_else(.stata_temp_mask, base::rowSums(replace(dplyr::select(data, dplyr::all_of(c('", paste(row_vars, collapse="','"), "'))), is.na(dplyr::select(data, dplyr::all_of(c('", paste(row_vars, collapse="','"), "')))), 0), na.rm = FALSE), NA_real_)")
     } else if (func_name == "rowmean") {
-      calc_expr = paste0("base::rowMeans(dplyr::select(data, dplyr::all_of(c('", paste(row_vars, collapse="','"), "'))), na.rm = TRUE)")
+      calc_expr = paste0("dplyr::if_else(.stata_temp_mask, base::rowMeans(dplyr::select(data, dplyr::all_of(c('", paste(row_vars, collapse="','"), "'))), na.rm = TRUE), NA_real_)")
     } else if (func_name == "concat") {
       na_checks = paste0("is.na(data[['", row_vars, "']])", collapse=" & ")
       stri_args = paste0("dplyr::if_else(is.na(as.character(data[['", row_vars, "']])), \"\", as.character(data[['", row_vars, "']]))", collapse=", ")
-      calc_expr = paste0("dplyr::if_else(", na_checks, ", NA_character_, stringi::stri_paste(", stri_args, ", sep = ''))")
+      calc_expr = paste0("dplyr::if_else(!.stata_temp_mask | (", na_checks, "), NA_character_, stringi::stri_paste(", stri_args, ", sep = ''))")
     }
   } else {
     calc_expr = resolve_abbrevs_in_expr(calc_expr, names(data))
@@ -170,5 +190,11 @@ scmd_egen = function(data, new_var, func_name, calc_expr, group_vars = character
     data = eval(parse(text = paste(pipe_el, collapse = " %>% ")), envir = list(data = data), enclos = parent.frame())
   }
 
+  # For rank, group, tag, where if_cond/in_range usually creates NA for unselected rows
+  if (func_name %in% c("rank", "group", "tag")) {
+     data[[new_var]] = dplyr::if_else(data$.stata_temp_mask, data[[new_var]], NA_real_)
+  }
+
+  data$.stata_temp_mask = NULL
   return(data)
 }

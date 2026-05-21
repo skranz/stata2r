@@ -100,6 +100,7 @@ translate_recode_rule_template = function(rule_str, final_r_var_type_is_string) 
 }
 
 # 2. Code Generation Phase: Emit R code
+# 2. Code Generation Phase: Emit R code
 t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   restore.point("t_recode")
   parsed = s2r_p_recode(rest_of_cmd)
@@ -156,6 +157,8 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   r_subset_cond = NA_character_
   if (!is.na(parsed$if_str)) r_subset_cond = translate_stata_expression_with_r_values(parsed$if_str, line_num, cmd_df, list(is_by_group = FALSE))
 
+  r_in_range = s2r_in_str_to_r_range_str(parsed$in_str)
+
   r_rules_templates = sapply(parsed$rules, translate_recode_rule_template, final_r_var_type_is_string = final_r_var_type_is_string)
   quoted_rules = sapply(r_rules_templates, quote_for_r_literal)
 
@@ -163,6 +166,7 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
            paste0("rules_templates = c(", paste(quoted_rules, collapse=", "), ")"))
   if (!is.na(parsed$gen_vars)) args = c(args, paste0("gen_vars_str = ", quote_for_r_literal(parsed$gen_vars)))
   if (!is.na(r_subset_cond)) args = c(args, paste0("r_if_cond = ", quote_for_r_literal(r_subset_cond)))
+  if (!is.na(r_in_range)) args = c(args, paste0("r_in_range = ", quote_for_r_literal(r_in_range)))
   args = c(args, paste0("is_string = ", final_r_var_type_is_string))
 
   if (final_r_var_type_is_labelled_numeric && length(final_labels_map) > 0) {
@@ -172,7 +176,7 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste0("data = scmd_recode(", paste(args, collapse = ", "), ")"))
 }
-scmd_recode = function(data, varlist_str, rules_templates, gen_vars_str = NA_character_, r_if_cond = NA_character_, is_string = FALSE, labels_map = NULL) {
+scmd_recode = function(data, varlist_str, rules_templates, gen_vars_str = NA_character_, r_if_cond = NA_character_, r_in_range = NA_character_, is_string = FALSE, labels_map = NULL) {
   restore.point("scmd_recode")
 
   vars_actual = expand_varlist(varlist_str, names(data))
@@ -185,6 +189,21 @@ scmd_recode = function(data, varlist_str, rules_templates, gen_vars_str = NA_cha
   }
 
   r_if_cond = resolve_abbrevs_in_expr(r_if_cond, names(data))
+
+  mask_expr = ".stata_temp_mask"
+  if (!is.na(r_if_cond) && r_if_cond != "") {
+    mask_expr = paste0("(.stata_temp_mask & fast_coalesce(as.numeric(", r_if_cond, "), 0) != 0)")
+  }
+
+  # Compute in-range mask globally
+  in_mask = rep(TRUE, nrow(data))
+  if (!is.na(r_in_range) && r_in_range != "") {
+    idx = s2r_eval_range(data, r_in_range)
+    in_mask_vec = rep(FALSE, nrow(data))
+    in_mask_vec[idx] = TRUE
+    in_mask = in_mask_vec
+  }
+  data$.stata_temp_mask = in_mask
 
   for (i in seq_along(vars_actual)) {
     old_var = vars_actual[i]
@@ -206,8 +225,8 @@ scmd_recode = function(data, varlist_str, rules_templates, gen_vars_str = NA_cha
 
     case_when_expr = paste0("dplyr::case_when(\n    ", paste(r_rules, collapse = ",\n    "), "\n  )")
 
-    if (!is.na(r_if_cond) && r_if_cond != "") {
-      final_val_expr = paste0("dplyr::if_else((fast_coalesce(as.numeric(", r_if_cond, "), 0) != 0), ", case_when_expr, ", `", old_var, "`)")
+    if (mask_expr != ".stata_temp_mask" || (!is.na(r_in_range) && r_in_range != "")) {
+      final_val_expr = paste0("dplyr::if_else(", mask_expr, ", ", case_when_expr, ", `", old_var, "`)")
     } else {
       final_val_expr = case_when_expr
     }
@@ -233,5 +252,6 @@ scmd_recode = function(data, varlist_str, rules_templates, gen_vars_str = NA_cha
     }
   }
 
+  data$.stata_temp_mask = NULL
   return(data)
 }
