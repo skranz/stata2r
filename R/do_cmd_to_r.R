@@ -1,9 +1,5 @@
 # r_obj will be a single row tibble
 # at least with the field r_code
-# r_obj will be a single row tibble
-# at least with the field r_code
-# r_obj will be a single row tibble
-# at least with the field r_code
 do_cmd_to_r = function(cmd_obj, line, cmd_df) {
   restore.point("do_cmd_to_r")
 
@@ -76,6 +72,7 @@ do_cmd_to_r = function(cmd_obj, line, cmd_df) {
       "xi" = t_xi(rest_of_cmd_clean, cmd_obj, cmd_df, line, translation_context),
       "scalar" = t_scalar(rest_of_cmd_clean, cmd_obj, cmd_df, line),
       "sc" = t_scalar(rest_of_cmd_clean, cmd_obj, cmd_df, line),
+      "for" = t_for(rest_of_cmd_clean, cmd_obj, cmd_df, line),
       paste0("# Stata command '", cmd_obj$stata_cmd_original, " ", rest_of_cmd_clean, "' not yet fully translated.")
     )
 

@@ -33,6 +33,7 @@ stata_cmd_abbreviations = list(
   "est" = "estimates",
   "ex" = "expand",
   "f" = "fillin",
+  "for" = "for",
   "g" = "generate",
   "gr" = "graph",
   "gs" = "gsort",
@@ -156,7 +157,7 @@ get_stata_full_cmd_name_vec = function(cmd_tokens) {
 # List of Stata commands considered to modify the dataset
 stata_data_manip_cmds = c(
   "append", "collapse", "compress", "contract", "decode", "destring", "drop",
-  "duplicates", "egen", "encode", "expand", "fillin",
+  "duplicates", "egen", "encode", "expand", "fillin", "for",
   "generate", "gen", "gsort", "input", "insheet", "keep", "label",
   "merge", "modify", "move", "mvdecode", "mvrecode", "order", "pctile",
   "predict",
@@ -493,6 +494,33 @@ quote_for_r_literal = function(s) {
   if (s == "") return("\"\"")
 
   return(encodeString(s, quote = "\""))
+}
+
+# Helper function to expand Stata numlists for `for` loops
+expand_stata_numlist = function(numlist_str) {
+  restore.point("expand_stata_numlist")
+  if (is.na(numlist_str) || numlist_str == "") return(character(0))
+  tokens = stringi::stri_split_regex(stringi::stri_trim_both(numlist_str), "\\s+")[[1]]
+  res = character(0)
+  for (tok in tokens) {
+    if (grepl("/", tok)) {
+      parts = strsplit(tok, "/")[[1]]
+      if (length(parts) == 2) {
+        start = suppressWarnings(as.numeric(parts[1]))
+        end = suppressWarnings(as.numeric(parts[2]))
+        if (!is.na(start) && !is.na(end)) {
+          res = c(res, as.character(seq(start, end)))
+        } else {
+          res = c(res, tok)
+        }
+      } else {
+        res = c(res, tok)
+      }
+    } else {
+      res = c(res, tok)
+    }
+  }
+  res
 }
 
 # Helper function to resolve Stata filenames (literal or macro) to R path expressions
