@@ -3,6 +3,8 @@
 s2r_store_e_results = function(res) {
   restore.point("s2r_store_e_results")
 
+  cat("\ns2r_store_e_results will be deprecated.")
+
   assign("stata_e_sample", NULL, envir = stata2r_env)
   assign("stata_e_N", NA_real_, envir = stata2r_env)
   assign("stata_e_r2", NA_real_, envir = stata2r_env)
@@ -30,6 +32,8 @@ s2r_store_e_results = function(res) {
 
 s2r_store_r_results = function(res) {
   restore.point("s2r_store_r_results")
+
+  cat("\nWill be deprecated.")
 
   assign("stata_r_N", NA_real_, envir = stata2r_env)
   assign("stata_r_mean", NA_real_, envir = stata2r_env)

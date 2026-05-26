@@ -23,13 +23,8 @@ do_parse = function(do_code) {
       is_xi_prefix = logical(0),
       do_translate = logical(0),
       is_mod = logical(0),
-      need_e_sample = logical(0),
       need_xi = logical(0),
-      need_e_results = logical(0),
-      need_r_results = logical(0),
       stata_translation_error = character(0),
-      e_results_needed = I(vector("list", 0)),
-      r_results_needed = I(vector("list", 0)),
       will_have_original_order_idx = logical(0),
       will_ignore_row_order_for_comparison = logical(0),
       stringsAsFactors = FALSE
@@ -56,15 +51,10 @@ do_parse = function(do_code) {
     stringsAsFactors = FALSE
   )
 
-  cmd_df$e_results_needed = I(replicate(nrow(cmd_df), character(0), simplify = FALSE))
-  cmd_df$r_results_needed = I(replicate(nrow(cmd_df), character(0), simplify = FALSE))
   cmd_df$will_have_original_order_idx = rep(FALSE, NROW(cmd_df))
   cmd_df$do_translate = rep(FALSE, NROW(cmd_df))
   cmd_df$is_mod = rep(FALSE, NROW(cmd_df))
-  cmd_df$need_e_sample = rep(FALSE, NROW(cmd_df))
   cmd_df$need_xi = rep(FALSE, NROW(cmd_df))
-  cmd_df$need_e_results = rep(FALSE, NROW(cmd_df))
-  cmd_df$need_r_results = rep(FALSE, NROW(cmd_df))
 
   return(cmd_df)
 }
