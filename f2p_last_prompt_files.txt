@@ -54,6 +54,7 @@ R/t_encode.R
 R/t_estimation_cmd.R
 R/t_expand.R
 R/t_format.R
+R/t_for.R
 R/t_generate.R
 R/t_ivregress.R
 R/t_keep.R
@@ -80,3 +81,4 @@ R/t_use.R
 R/t_xi.R
 R/t_xtreg.R
 R/varlist.R
+README.md

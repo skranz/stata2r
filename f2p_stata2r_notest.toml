@@ -21,6 +21,11 @@ template = '''
 
 {{DESCRIPTION}}
 
+
+# README.md
+
+{{readme}}
+
 ################################################
 # R code files in the project
 ################################################
@@ -327,6 +332,11 @@ aicoder_work/test_report.txt
 include_files  = '''
 aicoder_work/tests/do4/do4.log
 '''
+
+
+
+[[readme]]
+include_files = "README.md"
 
 
 
