@@ -1,32 +1,101 @@
-# FILE: stata2r/R/t_recode.R
+# FILE: R/t_recode.R
 
 # 1. Parsing Phase: Extract Stata syntax components
 s2r_p_recode = function(rest_of_cmd) {
   restore.point("s2r_p_recode")
-  parts = stringi::stri_split_fixed(stringi::stri_trim_both(rest_of_cmd), "(", n=2)[[1]]
-  if (length(parts) != 2) return(list(varlist=NA_character_))
 
-  varlist = stringi::stri_trim_both(parts[1])
-  rules_rest = paste0("(", parts[2])
+  parsed = s2r_parse_if_in(rest_of_cmd)
+  base_str = stringi::stri_trim_both(parsed$base_str)
 
-  parsed = s2r_parse_if_in(rules_rest)
-
-  options_match = stringi::stri_match_first_regex(parsed$base_str, ",\\s*(.*)$")
   options_str = NA_character_
-  rules_str = parsed$base_str
-  if (!is.na(options_match[1,1])) {
-    options_str = stringi::stri_trim_both(options_match[1,2])
-    rules_str = stringi::stri_trim_both(stringi::stri_replace_last_regex(parsed$base_str, ",\\s*(.*)$", ""))
+  rules_str = base_str
+
+  comma_split = stringi::stri_split_fixed(base_str, ",")[[1]]
+  if (length(comma_split) > 1) {
+      last_part = stringi::stri_trim_both(comma_split[length(comma_split)])
+      if (grepl("^(gen|generate|prefix|test|replace)\\b", last_part)) {
+          options_str = last_part
+          rules_str = paste(comma_split[-length(comma_split)], collapse = ",")
+      } else if (length(comma_split) == 2) {
+          options_str = last_part
+          rules_str = comma_split[1]
+      }
   }
 
   gen_vars = NA_character_
   if (!is.na(options_str)) {
-    gen_opt = stringi::stri_match_first_regex(options_str, "\\bgen\\s*\\(([^)]+)\\)")
+    gen_opt = stringi::stri_match_first_regex(options_str, "\\b(?:gen|generate)\\s*\\(([^)]+)\\)")
     if (!is.na(gen_opt[1,1])) gen_vars = stringi::stri_trim_both(gen_opt[1,2])
   }
 
-  rule_matches = stringi::stri_match_all_regex(rules_str, "\\(([^)]*)\\)")[[1]]
-  recode_rules_raw = if(NROW(rule_matches) > 0) rule_matches[,2] else character(0)
+  varlist = NA_character_
+  recode_rules_raw = character(0)
+
+  first_paren = stringi::stri_locate_first_fixed(rules_str, "(")[1,1]
+  first_eq = stringi::stri_locate_first_fixed(rules_str, "=")[1,1]
+
+  if (!is.na(first_paren) && (is.na(first_eq) || first_paren < first_eq)) {
+      varlist = stringi::stri_trim_both(stringi::stri_sub(rules_str, 1, first_paren - 1))
+      rules_part = stringi::stri_sub(rules_str, first_paren)
+      rule_matches = stringi::stri_match_all_regex(rules_part, "\\(([^)]+)\\)")[[1]]
+      if (NROW(rule_matches) > 0) {
+          recode_rules_raw = rule_matches[,2]
+      }
+  } else if (!is.na(first_eq)) {
+      parts = stringi::stri_split_fixed(rules_str, "=")[[1]]
+      tokens1 = stringi::stri_split_regex(stringi::stri_trim_both(parts[1]), "\\s+")[[1]]
+
+      is_value_token = function(tok) {
+          grepl("^[0-9\\.\\-]|^(min|max|missing|nonmissing|else)$|/|thru", tok, ignore.case = TRUE)
+      }
+
+      lhs1_tokens = character(0)
+      idx = length(tokens1)
+      while (idx > 1 && is_value_token(tokens1[idx])) {
+          lhs1_tokens = c(tokens1[idx], lhs1_tokens)
+          idx = idx - 1
+      }
+
+      if (idx == 0) {
+          varlist = ""
+      } else {
+          varlist = paste(tokens1[1:idx], collapse = " ")
+      }
+
+      LHS_list = list(paste(lhs1_tokens, collapse = " "))
+      RHS_list = list()
+
+      for (i in 2:length(parts)) {
+          part_str = stringi::stri_trim_both(parts[i])
+
+          if (i == length(parts)) {
+              RHS_list[[i-1]] = part_str
+          } else {
+              val_match = stringi::stri_match_first_regex(part_str, "^([^\\s\"']+|\\([^)]+\\))\\s*")
+              if (!is.na(val_match[1,1])) {
+                  rhs_val = val_match[1,2]
+                  remainder = stringi::stri_trim_both(stringi::stri_sub(part_str, stringi::stri_length(val_match[1,1]) + 1))
+
+                  lbl_match = stringi::stri_match_first_regex(remainder, "^(\"[^\"]*\"|'[^']*')\\s*")
+                  if (!is.na(lbl_match[1,1])) {
+                      rhs_lbl = lbl_match[1,2]
+                      RHS_list[[i-1]] = paste(rhs_val, rhs_lbl)
+                      LHS_list[[i]] = stringi::stri_trim_both(stringi::stri_sub(remainder, stringi::stri_length(lbl_match[1,1]) + 1))
+                  } else {
+                      RHS_list[[i-1]] = rhs_val
+                      LHS_list[[i]] = remainder
+                  }
+              } else {
+                 RHS_list[[i-1]] = part_str
+                 LHS_list[[i]] = ""
+              }
+          }
+      }
+
+      for (j in seq_along(RHS_list)) {
+          recode_rules_raw = c(recode_rules_raw, paste(LHS_list[[j]], "=", RHS_list[[j]]))
+      }
+  }
 
   list(varlist = varlist, rules = recode_rules_raw, if_str = parsed$if_str, in_str = parsed$in_str, gen_vars = gen_vars)
 }
@@ -45,30 +114,36 @@ translate_recode_rule_template = function(rule_str, final_r_var_type_is_string) 
   r_condition = ""
   if (old_part_raw == "else") {
     r_condition = "TRUE"
-  } else if (old_part_raw == "missing" || fast_coalesce(stringi::stri_detect_regex(old_part_raw, "^\\.\\w?$"), FALSE)) {
-    r_condition = "sfun_missing(.VAR.)"
-  } else if (old_part_raw == "nonmissing") {
-    r_condition = "!sfun_missing(.VAR.)"
-  } else if (grepl("\\s+thru\\s+", old_part_raw) || grepl("/", old_part_raw)) {
-    sep_token = if (grepl("\\s+thru\\s+", old_part_raw)) "\\s+thru\\s+" else "/"
-    range_parts = stringi::stri_split_regex(old_part_raw, sep_token, n=2)[[1]]
-
-    v1 = stringi::stri_trim_both(range_parts[1])
-    v2 = stringi::stri_trim_both(range_parts[2])
-
-    # Translate `min` and `max` natively to -Inf and Inf
-    val1 = if (tolower(v1) == "min") "-Inf" else translate_stata_expression_to_r(v1)
-    val2 = if (tolower(v2) == "max") "Inf" else translate_stata_expression_to_r(v2)
-
-    r_condition = paste0(".VAR. >= ", val1, " & .VAR. <= ", val2)
   } else {
+    old_part_raw = stringi::stri_replace_all_regex(old_part_raw, "(?i)\\s+thru\\s+", "/")
     old_values = stringi::stri_split_regex(old_part_raw, "\\s+")[[1]]
     old_values = old_values[!is.na(old_values) & old_values != ""]
-    r_values = sapply(old_values, function(val) {
-      if (is.na(val) || val == "." || fast_coalesce(stringi::stri_detect_regex(val, "^\\.[a-zA-Z]$"), FALSE)) return("NA_real_")
-      translate_stata_expression_to_r(val)
-    })
-    r_condition = paste0(".VAR. %in% c(", paste(r_values, collapse = ", "), ")")
+
+    cond_parts = character(0)
+    exact_vals = character(0)
+
+    for (val in old_values) {
+      if (val == "missing" || fast_coalesce(stringi::stri_detect_regex(val, "^\\.\\w?$"), FALSE)) {
+        cond_parts = c(cond_parts, "sfun_missing(.VAR.)")
+      } else if (val == "nonmissing") {
+        cond_parts = c(cond_parts, "!sfun_missing(.VAR.)")
+      } else if (grepl("/", val)) {
+        range_parts = stringi::stri_split_fixed(val, "/", n=2)[[1]]
+        v1 = stringi::stri_trim_both(range_parts[1])
+        v2 = stringi::stri_trim_both(range_parts[2])
+        val1 = if (tolower(v1) == "min") "-Inf" else translate_stata_expression_to_r(v1)
+        val2 = if (tolower(v2) == "max") "Inf" else translate_stata_expression_to_r(v2)
+        cond_parts = c(cond_parts, paste0("(.VAR. >= ", val1, " & .VAR. <= ", val2, ")"))
+      } else {
+        exact_vals = c(exact_vals, translate_stata_expression_to_r(val))
+      }
+    }
+
+    if (length(exact_vals) > 0) {
+      cond_parts = c(cond_parts, paste0(".VAR. %in% c(", paste(exact_vals, collapse = ", "), ")"))
+    }
+
+    r_condition = paste(cond_parts, collapse = " | ")
   }
 
   # Value Side
@@ -100,7 +175,6 @@ translate_recode_rule_template = function(rule_str, final_r_var_type_is_string) 
 }
 
 # 2. Code Generation Phase: Emit R code
-# 2. Code Generation Phase: Emit R code
 t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   restore.point("t_recode")
   parsed = s2r_p_recode(rest_of_cmd)
@@ -128,7 +202,7 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
       r_numeric_val = NA_real_
       if (numeric_val_part != "." && !stringi::stri_detect_regex(numeric_val_part, "^\\.[a-zA-Z]$")) {
-        r_numeric_val = as.numeric(numeric_val_part)
+        r_numeric_val = suppressWarnings(as.numeric(numeric_val_part))
       }
       if (!is.na(r_numeric_val) && !is.na(string_label_part)) {
         collected_labels[[length(collected_labels) + 1]] = list(label = string_label_part, value = r_numeric_val)
@@ -176,6 +250,8 @@ t_recode = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
 
   return(paste0("data = scmd_recode(", paste(args, collapse = ", "), ")"))
 }
+
+# 3. Runtime Execution Phase
 scmd_recode = function(data, varlist_str, rules_templates, gen_vars_str = NA_character_, r_if_cond = NA_character_, r_in_range = NA_character_, is_string = FALSE, labels_map = NULL) {
   restore.point("scmd_recode")
 
