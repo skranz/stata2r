@@ -1,6 +1,7 @@
 # FILE: R/t_reshape.R
 
 # 1. Parsing Phase
+# 1. Parsing Phase
 s2r_p_reshape = function(rest_of_cmd) {
   restore.point("s2r_p_reshape")
   match = stringi::stri_match_first_regex(stringi::stri_trim_both(rest_of_cmd), "^\\s*(wide|long)\\s+(.*?)(?:,\\s*(.*))?$")
@@ -21,10 +22,10 @@ s2r_p_reshape = function(rest_of_cmd) {
     j_match = stringi::stri_match_first_regex(options_str, "\\bj\\s*\\(([^)]+)\\)")
     if (!is.na(j_match[1,1])) {
       j_part = stringi::stri_trim_both(j_match[1,2])
-      j_str_match = stringi::stri_match_first_regex(j_part, "^\\s*([a-zA-Z_][a-zA-Z0-9_]*)(?:\\s+string)?$")
-      if (!is.na(j_str_match[1,1])) {
-        j_var = j_str_match[1,2]
-        j_is_string = grepl("\\s+string$", j_part)
+      j_var_match = stringi::stri_match_first_regex(j_part, "^\\s*([a-zA-Z_][a-zA-Z0-9_]*)")
+      if (!is.na(j_var_match[1,1])) {
+        j_var = j_var_match[1,2]
+        j_is_string = grepl("\\bstring\\b", j_part)
       }
     }
   }
@@ -33,6 +34,7 @@ s2r_p_reshape = function(rest_of_cmd) {
 }
 
 # 2. Code Generation Phase
+# 2. Code Generation Phase
 t_reshape = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
   restore.point("t_reshape")
   parsed = s2r_p_reshape(rest_of_cmd)
@@ -40,6 +42,7 @@ t_reshape = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 
   args = c("data = data", paste0("type = ", quote_for_r_literal(parsed$type)),
            paste0("stubs_str = ", quote_for_r_literal(paste(parsed$stubs, collapse=" "))),
+           paste0("i_vars = ", quote_for_r_literal(parsed$i_vars)),
            paste0("j_var = ", quote_for_r_literal(parsed$j_var)),
            paste0("j_is_string = ", parsed$j_is_string))
 
@@ -49,17 +52,28 @@ t_reshape = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 }
 
 # 3. Runtime Execution Phase
-scmd_reshape = function(data, type, stubs_str, j_var, j_is_string) {
+# 3. Runtime Execution Phase
+# 3. Runtime Execution Phase
+scmd_reshape = function(data, type, stubs_str, i_vars = NA_character_, j_var = NA_character_, j_is_string = FALSE) {
   restore.point("scmd_reshape")
   stubs = stringi::stri_split_regex(stubs_str, "\\s+")[[1]]
 
   if (type == "wide") {
+    # tidyr::pivot_wider automatically uses all columns not in names_from/values_from as ID columns.
+    # This naturally includes Stata's i() variables and preserves other constant variables just like Stata does.
     data = tidyr::pivot_wider(data, names_from = dplyr::all_of(j_var), values_from = dplyr::all_of(stubs), names_sep = "")
   } else if (type == "long") {
-    cols_regex = paste0("^(", paste(stubs, collapse = "|"), ")[0-9]+$")
-    names_pattern = paste0("^(", paste(stubs, collapse = "|"), ")([0-9]+)$")
+    if (j_is_string) {
+      cols_regex = paste0("^(", paste(stubs, collapse = "|"), ").+$")
+      names_pattern = paste0("^(", paste(stubs, collapse = "|"), ")(.+)$")
+    } else {
+      cols_regex = paste0("^(", paste(stubs, collapse = "|"), ")[0-9]+$")
+      names_pattern = paste0("^(", paste(stubs, collapse = "|"), ")([0-9]+)$")
+    }
     names_to = c(".value", j_var)
 
+    # tidyr::pivot_longer automatically keeps all non-matched columns (which includes Stata's i() variables)
+    # as the identifier columns and duplicates them appropriately.
     data = tidyr::pivot_longer(data, cols = dplyr::matches(cols_regex), names_to = names_to, names_pattern = names_pattern)
 
     if (!j_is_string) data[[j_var]] = as.numeric(data[[j_var]])
