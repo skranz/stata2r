@@ -198,6 +198,7 @@ stata_r_result_cmds = c(
 
 # Vectorized helper to parse multiple Stata command lines
 # Vectorized helper to parse multiple Stata command lines
+# Vectorized helper to parse multiple Stata command lines
 parse_stata_command_lines = function(lines_text) {
   restore.point("parse_stata_command_lines")
   n = length(lines_text)
@@ -263,7 +264,15 @@ parse_stata_command_lines = function(lines_text) {
         srt_vars = character(0)
 
         if (!is.na(raw_str) && raw_str != "") {
-          match_result = stringi::stri_match_all_regex(raw_str, "\\s*(\\([^)]+\\)|[^\\s()]+)\\s*")
+          by_parts = stringi::stri_split_fixed(raw_str, ",", n = 2)[[1]]
+          varlist_str = stringi::stri_trim_both(by_parts[1])
+          options_str = if (length(by_parts) > 1) stringi::stri_trim_both(by_parts[2]) else ""
+
+          if (fast_coalesce(stringi::stri_detect_regex(options_str, "\\bsort\\b"), FALSE)) {
+            is_bysort_prefix_val[idx_valid_by[i]] = TRUE
+          }
+
+          match_result = stringi::stri_match_all_regex(varlist_str, "\\s*(\\([^)]+\\)|[^\\s()]+)\\s*")
           if (!is.null(match_result[[1]]) && NROW(match_result[[1]]) > 0) {
             by_tokens = match_result[[1]][,2]
             for (token in by_tokens) {
@@ -341,6 +350,8 @@ parse_stata_command_lines = function(lines_text) {
 # Handles capture, quietly, by/bysort, and xi: prefixes.
 # Helper to parse basic Stata command line: cmd + rest
 # Handles capture, quietly, by/bysort, and xi: prefixes.
+# Helper to parse basic Stata command line: cmd + rest
+# Handles capture, quietly, by/bysort, and xi: prefixes.
 parse_stata_command_line = function(line_text) {
   restore.point("parse_stata_command_line")
   trimmed_line = stringi::stri_trim_both(line_text)
@@ -390,7 +401,15 @@ parse_stata_command_line = function(line_text) {
 
       by_tokens = character(0)
       if (!is.na(raw_by_string_from_prefix) && raw_by_string_from_prefix != "") {
-        match_result = stringi::stri_match_all_regex(raw_by_string_from_prefix, "\\s*(\\([^)]+\\)|[^\\s()]+)\\s*")
+        by_parts = stringi::stri_split_fixed(raw_by_string_from_prefix, ",", n = 2)[[1]]
+        varlist_str = stringi::stri_trim_both(by_parts[1])
+        options_str = if (length(by_parts) > 1) stringi::stri_trim_both(by_parts[2]) else ""
+
+        if (fast_coalesce(stringi::stri_detect_regex(options_str, "\\bsort\\b"), FALSE)) {
+          is_bysort_prefix_val = TRUE
+        }
+
+        match_result = stringi::stri_match_all_regex(varlist_str, "\\s*(\\([^)]+\\)|[^\\s()]+)\\s*")
         if (!is.null(match_result[[1]]) && NROW(match_result[[1]]) > 0) {
           by_tokens = match_result[[1]][,2]
         }
