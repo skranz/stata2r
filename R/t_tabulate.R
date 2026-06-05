@@ -213,8 +213,14 @@ scmd_tabulate = function(data, varname, needed_r = character(0), gen_stub = NA_c
         match_i[is.na(match_i)] = FALSE
 
         out = rep(NA_integer_, n)
-        out[mask] = 0L
-        out[mask & match_i] = 1L
+
+        valid_mask = mask
+        if (!include_missing) {
+          valid_mask = mask & !is_missing_value(x)
+        }
+
+        out[valid_mask] = 0L
+        out[valid_mask & match_i] = 1L
 
         data[[new_var]] = out
         attr(data[[new_var]], "label") = paste0(var_actual, "==", as.character(level_i))
