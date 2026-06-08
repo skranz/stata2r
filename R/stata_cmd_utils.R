@@ -170,7 +170,7 @@ stata_data_manip_cmds = c(
   "tempfile", "tempvar", "tempname",
   "total",
   "use", "xtile", "xi",
-  "replace", "clear", "scalar", "sc"
+  "replace", "clear", "scalar", "sc", "carryforward"
 )
 
 # Commands that primarily display info or control program flow, and never
@@ -196,8 +196,6 @@ stata_r_result_cmds = c(
 )
 
 
-# Vectorized helper to parse multiple Stata command lines
-# Vectorized helper to parse multiple Stata command lines
 # Vectorized helper to parse multiple Stata command lines
 parse_stata_command_lines = function(lines_text) {
   restore.point("parse_stata_command_lines")
@@ -346,10 +344,6 @@ parse_stata_command_lines = function(lines_text) {
 }
 
 
-# Helper to parse basic Stata command line: cmd + rest
-# Handles capture, quietly, by/bysort, and xi: prefixes.
-# Helper to parse basic Stata command line: cmd + rest
-# Handles capture, quietly, by/bysort, and xi: prefixes.
 # Helper to parse basic Stata command line: cmd + rest
 # Handles capture, quietly, by/bysort, and xi: prefixes.
 parse_stata_command_line = function(line_text) {
