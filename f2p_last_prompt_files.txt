@@ -15,6 +15,7 @@ R/sfun_compress_col_type.R
 R/sfun_date_utils.R
 R/sfun_day.R
 R/sfun_dow.R
+R/sfun_index.R
 R/sfun_inlist.R
 R/sfun_inrange.R
 R/sfun_is_stata_expression_string_typed.R
@@ -23,6 +24,7 @@ R/sfun_month.R
 R/sfun_normalize_string_nas.R
 R/sfun_others.R
 R/sfun_qofd.R
+R/sfun_shift.R
 R/sfun_stata_add.R
 R/sfun_stata_cond.R
 R/sfun_stata_date.R
@@ -43,6 +45,7 @@ R/stata_na_handling.R
 R/stata_xi.R
 R/t_append.R
 R/t_areg.R
+R/t_carryforward.R
 R/t_collapse.R
 R/t_compress.R
 R/t_decode.R

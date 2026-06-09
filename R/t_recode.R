@@ -281,6 +281,8 @@ scmd_recode = function(data, varlist_str, rules_templates, gen_vars_str = NA_cha
   }
   data$.stata_temp_mask = in_mask
 
+  eval_env = s2r_stata_env(parent.frame())
+
   for (i in seq_along(vars_actual)) {
     old_var = vars_actual[i]
     new_var = new_vars[i]
@@ -313,7 +315,8 @@ scmd_recode = function(data, varlist_str, rules_templates, gen_vars_str = NA_cha
       final_val_expr = paste0("as.numeric(", final_val_expr, ")")
     }
 
-    data = eval(parse(text = paste0("dplyr::mutate(data, `", new_var, "` = ", final_val_expr, ")")), envir = list(data = data), enclos = parent.frame())
+    eval_env$data = data
+    data = eval(parse(text = paste0("dplyr::mutate(data, `", new_var, "` = ", final_val_expr, ")")), envir = eval_env)
 
     # Restore or Assign Labels
     if (!is.null(labels_map)) {

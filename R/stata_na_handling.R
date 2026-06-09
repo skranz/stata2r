@@ -16,10 +16,16 @@ s2r_date_to_stata_numeric = function(x) {
 #' comparisons. String missing is the empty string.
 to_stata_na = function(x) {
   if (inherits(x, "Date")) {
-    x = s2r_date_to_stata_numeric(x)
-    x[is.na(x)] = Inf
+    x = as.numeric(x) + 3653 # 1970 - 1960 offset
   } else if (is.numeric(x)) {
     x = as.numeric(x)
+  }
+
+  if (!anyNA(x)) {
+    return(x)
+  }
+
+  if (is.numeric(x)) {
     x[is.na(x)] = Inf
   } else if (is.character(x)) {
     x[is.na(x)] = ""
@@ -81,4 +87,56 @@ s2r_stata_logical = function(x) {
   }
 
   fast_coalesce(as.logical(x), FALSE)
+}
+
+#' Coerce values for Stata-compatible relational operators
+s2r_stata_val = function(x) {
+  if (inherits(x, "Date")) {
+    x = as.numeric(x) + 3653
+  } else if (is.logical(x)) {
+    x = as.numeric(x)
+  } else if (is.numeric(x)) {
+    x = as.numeric(x)
+  }
+
+  if (!anyNA(x)) {
+    return(x)
+  }
+
+  if (is.numeric(x)) {
+    x[is.na(x)] = Inf
+  } else if (is.character(x)) {
+    x = as.character(x)
+    x[is.na(x)] = ""
+  }
+  x
+}
+
+s2r_stata_is_true = function(x) {
+  if (!anyNA(x)) {
+    if (is.numeric(x)) return(x != 0)
+    return(as.logical(x))
+  }
+
+  if (is.numeric(x)) {
+    return(x != 0 | is.na(x))
+  }
+  res = as.logical(x)
+  res[is.na(res)] = FALSE
+  res
+}
+
+#' Environment with overridden operators to simulate Stata's missing value logic
+s2r_stata_env = function(parent = parent.frame()) {
+  env = new.env(parent = parent)
+  env$`<`  = function(e1, e2) base::"<"(s2r_stata_val(e1), s2r_stata_val(e2))
+  env$`>`  = function(e1, e2) base::">"(s2r_stata_val(e1), s2r_stata_val(e2))
+  env$`<=` = function(e1, e2) base::"<="(s2r_stata_val(e1), s2r_stata_val(e2))
+  env$`>=` = function(e1, e2) base::">="(s2r_stata_val(e1), s2r_stata_val(e2))
+  env$`==` = function(e1, e2) base::"=="(s2r_stata_val(e1), s2r_stata_val(e2))
+  env$`!=` = function(e1, e2) base::"!="(s2r_stata_val(e1), s2r_stata_val(e2))
+  env$`&`  = function(e1, e2) base::"&"(s2r_stata_is_true(e1), s2r_stata_is_true(e2))
+  env$`|`  = function(e1, e2) base::"|"(s2r_stata_is_true(e1), s2r_stata_is_true(e2))
+  env$`!`  = function(e)      base::"!"(s2r_stata_is_true(e))
+  env
 }

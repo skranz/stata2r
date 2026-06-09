@@ -175,10 +175,14 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   r_expr = stringi::stri_replace_all_regex(r_expr, "\\s*~=\\s*", " != ")
   r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![a-zA-Z0-9_\\.])~", "!")
 
-  # Step 3: Translate Stata special variables and indexing, e.g. _n, _N, var[_n-1]
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*-\\s*(\\d+)\\]", "dplyr::lag(`$1`, n = $2)")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\s*\\+\\s*(\\d+)\\]", "dplyr::lead(`$1`, n = $2)")
-  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\w+)\\[_n\\]", "`$1`")
+  # Step 3: Translate Stata special variables and indexing (Fast Path vs Safe Fallback)
+  # 1. Self-reference: var[_n]
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*\\[\\s*_n\\s*\\]", "`$1`")
+  # 2. Fast Path (Lags/Leads): var[_n - math] -> sfun_shift
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*\\[\\s*_n\\s*([+-][^\\],]+)\\]", "sfun_shift(`$1`, $2)")
+  # 3. Safe Fallback: var[anything_else] -> sfun_index
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*\\[([^\\],]+)\\]", "sfun_index(`$1`, $2)")
+  # 4. Standalone indicators
   r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_n\\b", "dplyr::row_number()")
   r_expr = stringi::stri_replace_all_regex(r_expr, "\\b_N\\b", "dplyr::n()")
 
@@ -240,7 +244,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     "sfun_month", "sfun_qofd", "sfun_dow", "sfun_inlist", "sfun_inrange", "sfun_normalize_string_nas", "sfun_strip_stata_attributes",
     "sfun_compress_col_type", "sfun_is_stata_expression_string_typed", "as.logical",
     "sfun_stata_cond", "sfun_year", "sfun_stata_date_single", "e", "sfun_flag", "sfun_fdiff",
-    "s2r_stata_logical",
+    "s2r_stata_logical", "sfun_index", "sfun_shift",
     "NROW", "length", "unique", "sapply", "vapply", "c", "list", "intersect", "setdiff",
     "warning", "stop", "paste0", "grepl", "as.logical", "ifelse", "exists", "rm",
     "is.null", "lapply", "is.na", "is.character", "is.numeric", "is.logical", "is.factor",

@@ -26,6 +26,7 @@ s2r_p_egen = function(rest_of_cmd) {
 
 # 2. Code Generation Phase
 # 2. Code Generation Phase
+# 2. Code Generation Phase
 t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   restore.point("t_egen")
   parsed = s2r_p_egen(rest_of_cmd)
@@ -59,10 +60,19 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
     calc_expr = paste0("as.numeric(base::rank(", val, ", ties.method = 'average', na.last = 'keep'))")
   }
   else if (parsed$func_name %in% c("median", "p50")) calc_expr = paste0("stats::median(", r_args_cond, ", na.rm = TRUE)")
+  else if (parsed$func_name == "pctile") {
+    p_val = 50
+    if (!is.na(parsed$options)) {
+      p_match = stringi::stri_match_first_regex(parsed$options, "\\bp\\s*\\(([^)]+)\\)")
+      if (!is.na(p_match[1,1])) p_val = as.numeric(p_match[1,2])
+    }
+    prob = p_val / 100
+    calc_expr = paste0("collapse::fquantile(", r_args_cond, ", probs = ", prob, ", na.rm = TRUE)")
+  }
   else if (parsed$func_name %in% c("sd", "std")) calc_expr = paste0("stats::sd(", r_args_cond, ", na.rm = TRUE)")
   else if (parsed$func_name == "group") { needs_temp_sort = !cmd_obj$is_by_prefix; calc_expr = "dplyr::cur_group_id()" }
   else if (parsed$func_name == "tag") { needs_temp_sort = !cmd_obj$is_by_prefix; calc_expr = "as.numeric(dplyr::row_number() == 1)" }
-  else if (parsed$func_name %in% c("rowtotal", "rowmean", "concat")) {
+  else if (parsed$func_name %in% c("rowtotal", "rsum", "rowmean", "rmax", "rowmax", "concat")) {
     is_row = TRUE
     calc_expr = paste0(".ROWOP_", parsed$func_name, "_PLACEHOLDER.")
   }
@@ -111,7 +121,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   if (!is.na(r_in_range)) args = c(args, paste0("r_in_range = ", quote_for_r_literal(r_in_range)))
 
   if (length(group_vars) > 0) args = c(args, paste0("group_vars = c('", paste(group_vars, collapse="','"), "')"))
-  if (parsed$func_name %in% c("group", "tag", "rowtotal", "rowmean", "concat")) args = c(args, paste0("args_str = ", quote_for_r_literal(parsed$args_str)))
+  if (parsed$func_name %in% c("group", "tag", "rowtotal", "rsum", "rowmean", "rmax", "rowmax", "concat")) args = c(args, paste0("args_str = ", quote_for_r_literal(parsed$args_str)))
   args = c(args, paste0("needs_temp_sort = ", needs_temp_sort), paste0("is_row = ", is_row))
 
   return(paste0("data = scmd_egen(", paste(args, collapse = ", "), ")"))
@@ -145,10 +155,12 @@ scmd_egen = function(data, new_var, func_name, calc_expr, r_if_cond = NA_charact
 
   if (is_row) {
     row_vars = expand_varlist(args_str, names(data))
-    if (func_name == "rowtotal") {
+    if (func_name %in% c("rowtotal", "rsum")) {
       calc_expr = paste0("dplyr::if_else(.stata_temp_mask, base::rowSums(replace(dplyr::select(data, dplyr::all_of(c('", paste(row_vars, collapse="','"), "'))), is.na(dplyr::select(data, dplyr::all_of(c('", paste(row_vars, collapse="','"), "')))), 0), na.rm = FALSE), NA_real_)")
     } else if (func_name == "rowmean") {
       calc_expr = paste0("dplyr::if_else(.stata_temp_mask, base::rowMeans(dplyr::select(data, dplyr::all_of(c('", paste(row_vars, collapse="','"), "'))), na.rm = TRUE), NA_real_)")
+    } else if (func_name %in% c("rmax", "rowmax")) {
+      calc_expr = paste0("dplyr::if_else(.stata_temp_mask, suppressWarnings(do.call(pmax, c(unname(as.list(dplyr::select(data, dplyr::all_of(c('", paste(row_vars, collapse="','"), "'))))), list(na.rm = TRUE)))), NA_real_)")
     } else if (func_name == "concat") {
       na_checks = paste0("is.na(data[['", row_vars, "']])", collapse=" & ")
       stri_args = paste0("dplyr::if_else(is.na(as.character(data[['", row_vars, "']])), \"\", as.character(data[['", row_vars, "']]))", collapse=", ")
@@ -158,6 +170,8 @@ scmd_egen = function(data, new_var, func_name, calc_expr, r_if_cond = NA_charact
     calc_expr = resolve_abbrevs_in_expr(calc_expr, names(data))
   }
 
+  eval_env = s2r_stata_env(parent.frame())
+
   if (needs_temp_sort) {
     tmp = data
     sort_vars = group_vars_actual
@@ -166,7 +180,8 @@ scmd_egen = function(data, new_var, func_name, calc_expr, r_if_cond = NA_charact
 
     if (length(sort_vars) > 0) {
       sort_cmd = paste0("dplyr::arrange(tmp, ", paste(paste0("`", sort_vars, "`"), collapse=", "), ")")
-      tmp = eval(parse(text = sort_cmd), envir = list(tmp = tmp), enclos = parent.frame())
+      eval_env$tmp = tmp
+      tmp = eval(parse(text = sort_cmd), envir = eval_env)
     }
 
     pipe_el = c("tmp")
@@ -174,7 +189,8 @@ scmd_egen = function(data, new_var, func_name, calc_expr, r_if_cond = NA_charact
     pipe_el = c(pipe_el, paste0("dplyr::mutate(`", new_var, "` = ", calc_expr, ")"))
     if (length(group_vars_actual) > 0) pipe_el = c(pipe_el, "dplyr::ungroup()")
 
-    tmp = eval(parse(text = paste(pipe_el, collapse = " %>% ")), envir = list(tmp = tmp), enclos = parent.frame())
+    eval_env$tmp = tmp
+    tmp = eval(parse(text = paste(pipe_el, collapse = " %>% ")), envir = eval_env)
 
     if ("stata2r_original_order_idx" %in% names(data)) {
       data = dplyr::left_join(data, tmp[, c("stata2r_original_order_idx", new_var)], by = "stata2r_original_order_idx")
@@ -187,7 +203,9 @@ scmd_egen = function(data, new_var, func_name, calc_expr, r_if_cond = NA_charact
     if (length(group_vars_actual) > 0 && !is_row) pipe_el = c(pipe_el, paste0("dplyr::group_by(!!!dplyr::syms(c('", paste(group_vars_actual, collapse="','"), "')))"))
     pipe_el = c(pipe_el, paste0("dplyr::mutate(`", new_var, "` = ", calc_expr, ")"))
     if (length(group_vars_actual) > 0 && !is_row) pipe_el = c(pipe_el, "dplyr::ungroup()")
-    data = eval(parse(text = paste(pipe_el, collapse = " %>% ")), envir = list(data = data), enclos = parent.frame())
+
+    eval_env$data = data
+    data = eval(parse(text = paste(pipe_el, collapse = " %>% ")), envir = eval_env)
   }
 
   # For rank, group, tag, where if_cond/in_range usually creates NA for unselected rows

@@ -124,7 +124,10 @@ scmd_generate = function(data, new_var, r_expr_str, r_if_cond = NA_character_, r
   pipe_el = c(pipe_el, paste0("dplyr::mutate(`", new_var, "` = ", expr_body, ")"))
   if (length(group_vars) > 0) pipe_el = c(pipe_el, "dplyr::ungroup()")
 
-  data = eval(parse(text = paste(pipe_el, collapse = " %>% ")), envir = list(data = data), enclos = parent.frame())
+  eval_env = s2r_stata_env(parent.frame())
+  eval_env$data = data
+
+  data = eval(parse(text = paste(pipe_el, collapse = " %>% ")), envir = eval_env)
   data$.stata_temp_mask = NULL
   return(data)
 }

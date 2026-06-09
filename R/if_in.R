@@ -111,7 +111,7 @@ s2r_eval_cond = function(data, r_cond, envir = parent.frame(),
   }
 
   cond_val = base::eval(expr, envir = eval_list, enclos = envir)
-  return(fast_coalesce(as.logical(cond_val), FALSE))
+  return(s2r_stata_logical(cond_val))
 }
 
 #' Evaluate a Stata condition string within by-groups
