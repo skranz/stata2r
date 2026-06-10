@@ -29,7 +29,7 @@ s2r_tabulate_has_gen_option = function(rest_of_cmd) {
   if (is.na(options_str) || options_str == "") return(FALSE)
 
   fast_coalesce(
-    stringi::stri_detect_regex(options_str, "\\b(?:gen|generate)\\s*\\("),
+    stringi::stri_detect_regex(options_str, "\\b(?:g|ge|gen|gene|gener|genera|generat|generate)\\s*\\("),
     FALSE
   )
 }

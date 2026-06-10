@@ -1,6 +1,7 @@
 # FILE: R/t_duplicates.R
 
 # 1. Parsing Phase: Extract Stata syntax components
+# 1. Parsing Phase: Extract Stata syntax components
 s2r_p_duplicates = function(rest_of_cmd) {
   restore.point("s2r_p_duplicates")
   parts = stringi::stri_split_regex(stringi::stri_trim_both(rest_of_cmd), "\\s+", n=2)[[1]]
@@ -19,7 +20,7 @@ s2r_p_duplicates = function(rest_of_cmd) {
 
   gen_var = NA_character_
   if (!is.na(options_str)) {
-    gen_opt = stringi::stri_match_first_regex(options_str, "\\bgen\\s*\\(([^)]+)\\)")
+    gen_opt = stringi::stri_match_first_regex(options_str, "\\b(?:g|ge|gen|gene|gener|genera|generat|generate)\\s*\\(([^)]+)\\)")
     if (!is.na(gen_opt[1,1])) gen_var = stringi::stri_split_regex(stringi::stri_trim_both(gen_opt[1,2]), "\\s+")[[1]][1]
   }
 

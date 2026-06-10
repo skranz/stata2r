@@ -1,6 +1,7 @@
 # FILE: R/t_recode.R
 
 # 1. Parsing Phase: Extract Stata syntax components
+# 1. Parsing Phase: Extract Stata syntax components
 s2r_p_recode = function(rest_of_cmd) {
   restore.point("s2r_p_recode")
 
@@ -13,7 +14,7 @@ s2r_p_recode = function(rest_of_cmd) {
   comma_split = stringi::stri_split_fixed(base_str, ",")[[1]]
   if (length(comma_split) > 1) {
       last_part = stringi::stri_trim_both(comma_split[length(comma_split)])
-      if (grepl("^(gen|generate|prefix|test|replace)\\b", last_part)) {
+      if (grepl("^(g|ge|gen|gene|gener|genera|generat|generate|prefix|test|replace)\\b", last_part)) {
           options_str = last_part
           rules_str = paste(comma_split[-length(comma_split)], collapse = ",")
       } else if (length(comma_split) == 2) {
@@ -24,7 +25,7 @@ s2r_p_recode = function(rest_of_cmd) {
 
   gen_vars = NA_character_
   if (!is.na(options_str)) {
-    gen_opt = stringi::stri_match_first_regex(options_str, "\\b(?:gen|generate)\\s*\\(([^)]+)\\)")
+    gen_opt = stringi::stri_match_first_regex(options_str, "\\b(?:g|ge|gen|gene|gener|genera|generat|generate)\\s*\\(([^)]+)\\)")
     if (!is.na(gen_opt[1,1])) gen_vars = stringi::stri_trim_both(gen_opt[1,2])
   }
 

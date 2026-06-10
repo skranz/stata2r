@@ -1,6 +1,7 @@
 # FILE: R/t_tabulate.R
 
 # 1. Parsing Phase: Extract Stata syntax components
+# 1. Parsing Phase: Extract Stata syntax components
 s2r_p_tabulate = function(rest_of_cmd) {
   restore.point("s2r_p_tabulate")
 
@@ -25,7 +26,7 @@ s2r_p_tabulate = function(rest_of_cmd) {
   if (!is.na(options_str) && options_str != "") {
     gen_match = stringi::stri_match_first_regex(
       options_str,
-      "\\b(?:gen|generate)\\s*\\(([^)]+)\\)"
+      "\\b(?:g|ge|gen|gene|gener|genera|generat|generate)\\s*\\(([^)]+)\\)"
     )
     if (!is.na(gen_match[1, 1])) {
       gen_stub = stringi::stri_trim_both(gen_match[1, 2])

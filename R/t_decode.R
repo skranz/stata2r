@@ -1,6 +1,7 @@
 # FILE: R/t_decode.R
 
 # 1. Parsing Phase: Extract Stata syntax components
+# 1. Parsing Phase: Extract Stata syntax components
 s2r_p_decode = function(rest_of_cmd) {
   restore.point("s2r_p_decode")
   parsed = s2r_parse_if_in(rest_of_cmd)
@@ -12,7 +13,7 @@ s2r_p_decode = function(rest_of_cmd) {
   varname = stringi::stri_trim_both(stringi::stri_replace_last_regex(parsed$base_str, ",\\s*(.*)$", ""))
 
   gen_var = NA_character_
-  gen_match = stringi::stri_match_first_regex(options_str, "\\b(?:gen|generate)\\s*\\(([^)]+)\\)")
+  gen_match = stringi::stri_match_first_regex(options_str, "\\b(?:g|ge|gen|gene|gener|genera|generat|generate)\\s*\\(([^)]+)\\)")
   if (!is.na(gen_match[1,1])) {
     gen_var = stringi::stri_split_regex(stringi::stri_trim_both(gen_match[1,2]), "\\s+")[[1]][1]
   }

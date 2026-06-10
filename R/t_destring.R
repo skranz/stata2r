@@ -1,6 +1,7 @@
 # FILE: R/t_destring.R
 
 # 1. Parsing Phase: Extract Stata syntax components
+# 1. Parsing Phase: Extract Stata syntax components
 s2r_p_destring = function(rest_of_cmd) {
   restore.point("s2r_p_destring")
   parsed = s2r_parse_if_in(rest_of_cmd)
@@ -14,7 +15,7 @@ s2r_p_destring = function(rest_of_cmd) {
   is_replace = fast_coalesce(stringi::stri_detect_fixed(options_str, "replace"), FALSE)
   gen_vars = NA_character_
   if (!is_replace) {
-    gen_opt = stringi::stri_match_first_regex(options_str, "\\bgenerate\\s*\\(([^)]+)\\)")
+    gen_opt = stringi::stri_match_first_regex(options_str, "\\b(?:g|ge|gen|gene|gener|genera|generat|generate)\\s*\\(([^)]+)\\)")
     if (!is.na(gen_opt[1,1])) gen_vars = stringi::stri_trim_both(gen_opt[1,2])
   }
 

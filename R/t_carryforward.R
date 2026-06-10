@@ -1,6 +1,7 @@
 # FILE: R/t_carryforward.R
 
 # 1. Parsing Phase: Extract Stata syntax components
+# 1. Parsing Phase: Extract Stata syntax components
 s2r_p_carryforward = function(rest_of_cmd) {
   restore.point("s2r_p_carryforward")
   parsed = s2r_parse_if_in(rest_of_cmd)
@@ -19,7 +20,7 @@ s2r_p_carryforward = function(rest_of_cmd) {
   backwards = FALSE
 
   if (!is.na(options_str)) {
-    gen_opt = stringi::stri_match_first_regex(options_str, "\\b(?:gen|generate)\\s*\\(([^)]+)\\)")
+    gen_opt = stringi::stri_match_first_regex(options_str, "\\b(?:g|ge|gen|gene|gener|genera|generat|generate)\\s*\\(([^)]+)\\)")
     if (!is.na(gen_opt[1,1])) gen_vars = stringi::stri_trim_both(gen_opt[1,2])
 
     if (fast_coalesce(stringi::stri_detect_regex(options_str, "\\breplace\\b"), FALSE)) {

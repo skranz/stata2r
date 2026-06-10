@@ -1,6 +1,7 @@
 # FILE: R/t_append.R
 
 # 1. Parsing Phase: Extract Stata syntax components
+# 1. Parsing Phase: Extract Stata syntax components
 s2r_p_append = function(rest_of_cmd) {
   restore.point("s2r_p_append")
   parts = stringi::stri_match_first_regex(stringi::stri_trim_both(rest_of_cmd), "^\\s*using\\s+(\"[^\"]+\"|`[^']+'|[^,\\s]+)(?:,\\s*(.*))?$")
@@ -11,7 +12,7 @@ s2r_p_append = function(rest_of_cmd) {
   )
 
   if (!is.na(res$options)) {
-    gen_match = stringi::stri_match_first_regex(res$options, "\\b(?:gen|generate)\\s*\\(([^)]+)\\)")
+    gen_match = stringi::stri_match_first_regex(res$options, "\\b(?:g|ge|gen|gene|gener|genera|generat|generate)\\s*\\(([^)]+)\\)")
     if (!is.na(gen_match[1,1])) {
       res$gen_var = stringi::stri_trim_both(gen_match[1,2])
     }
