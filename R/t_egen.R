@@ -67,7 +67,7 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   else if (parsed$func_name %in% c("sd", "std")) calc_expr = paste0("stats::sd(", r_args_cond, ", na.rm = TRUE)")
   else if (parsed$func_name == "group") { needs_temp_sort = FALSE; calc_expr = ".GROUP_PLACEHOLDER." }
   else if (parsed$func_name == "tag") { needs_temp_sort = !cmd_obj$is_by_prefix; calc_expr = "as.numeric(dplyr::row_number() == 1)" }
-  else if (parsed$func_name %in% c("rowtotal", "rsum", "rowmean", "rmax", "rowmax", "concat")) {
+  else if (parsed$func_name %in% c("rowtotal", "rsum", "rowmean", "rmax", "rowmax", "concat", "rowmiss", "rownonmiss", "robs")) {
     is_row = TRUE
     calc_expr = paste0(".ROWOP_", parsed$func_name, "_PLACEHOLDER.")
   }
@@ -119,14 +119,13 @@ t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
   if (!is.na(r_in_range)) args = c(args, paste0("r_in_range = ", quote_for_r_literal(r_in_range)))
 
   if (length(group_vars) > 0) args = c(args, paste0("group_vars = c('", paste(group_vars, collapse="','"), "')"))
-  if (parsed$func_name %in% c("group", "tag", "rowtotal", "rsum", "rowmean", "rmax", "rowmax", "concat", "cut")) args = c(args, paste0("args_str = ", quote_for_r_literal(parsed$args_str)))
+  if (parsed$func_name %in% c("group", "tag", "rowtotal", "rsum", "rowmean", "rmax", "rowmax", "concat", "cut", "rowmiss", "rownonmiss", "robs")) args = c(args, paste0("args_str = ", quote_for_r_literal(parsed$args_str)))
   args = c(args, paste0("needs_temp_sort = ", needs_temp_sort), paste0("is_row = ", is_row))
   if (!is.na(parsed$options)) args = c(args, paste0("options_str = ", quote_for_r_literal(parsed$options)))
 
   return(paste0("data = scmd_egen(", paste(args, collapse = ", "), ")"))
 }
 
-# 3. Runtime Execution Phase
 # 3. Runtime Execution Phase
 scmd_egen = function(data, new_var, func_name, calc_expr, r_if_cond = NA_character_, r_in_range = NA_character_, group_vars = character(0), args_str = NA_character_, needs_temp_sort = FALSE, is_row = FALSE, options_str = NA_character_) {
   restore.point("scmd_egen")
@@ -234,6 +233,10 @@ scmd_egen = function(data, new_var, func_name, calc_expr, r_if_cond = NA_charact
       na_checks = paste0("is.na(data[['", row_vars, "']])", collapse=" & ")
       stri_args = paste0("dplyr::if_else(is.na(as.character(data[['", row_vars, "']])), \"\", as.character(data[['", row_vars, "']]))", collapse=", ")
       calc_expr = paste0("dplyr::if_else(!.stata_temp_mask | (", na_checks, "), NA_character_, stringi::stri_paste(", stri_args, ", sep = ''))")
+    } else if (func_name == "rowmiss") {
+      calc_expr = paste0("dplyr::if_else(.stata_temp_mask, as.numeric(Reduce(`+`, lapply(dplyr::select(data, dplyr::all_of(c('", paste(row_vars, collapse="','"), "'))), sfun_missing), init = 0)), NA_real_)")
+    } else if (func_name %in% c("rownonmiss", "robs")) {
+      calc_expr = paste0("dplyr::if_else(.stata_temp_mask, as.numeric(Reduce(`+`, lapply(dplyr::select(data, dplyr::all_of(c('", paste(row_vars, collapse="','"), "'))), function(x) !sfun_missing(x)), init = 0)), NA_real_)")
     }
   } else {
     calc_expr = resolve_abbrevs_in_expr(calc_expr, names(data))
