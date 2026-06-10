@@ -508,14 +508,37 @@ quote_for_r_literal = function(s) {
 
   return(encodeString(s, quote = "\""))
 }
-
 # Helper function to expand Stata numlists for `for` loops
+# Helper function to expand Stata numlists for `for` loops and egen cut
 expand_stata_numlist = function(numlist_str) {
   restore.point("expand_stata_numlist")
   if (is.na(numlist_str) || numlist_str == "") return(character(0))
+
+  # Clean up spaces around operators to make tokens contiguous
+  numlist_str = stringi::stri_replace_all_fixed(numlist_str, ",", " ")
+  numlist_str = stringi::stri_replace_all_regex(numlist_str, "\\s*/\\s*", "/")
+  numlist_str = stringi::stri_replace_all_regex(numlist_str, "(?i)\\s+to\\s+", "/")
+  numlist_str = stringi::stri_replace_all_regex(numlist_str, "\\s*\\(\\s*", "(")
+  numlist_str = stringi::stri_replace_all_regex(numlist_str, "\\s*\\)\\s*", ")")
+
   tokens = stringi::stri_split_regex(stringi::stri_trim_both(numlist_str), "\\s+")[[1]]
   res = character(0)
   for (tok in tokens) {
+    if (tok == "") next
+    # Check for start(step)end
+    step_match = stringi::stri_match_first_regex(tok, "^(-?\\d*\\.?\\d+)\\((-?\\d*\\.?\\d+)\\)(-?\\d*\\.?\\d+)$")
+    if (!is.na(step_match[1,1])) {
+      start = as.numeric(step_match[1,2])
+      step = as.numeric(step_match[1,3])
+      end = as.numeric(step_match[1,4])
+      if (!is.na(start) && !is.na(step) && !is.na(end) && step != 0) {
+        # seq() will naturally bound at 'end' even if interval isn't exact
+        seq_vals = seq(start, end, by = step)
+        res = c(res, as.character(seq_vals))
+        next
+      }
+    }
+
     if (grepl("/", tok)) {
       parts = strsplit(tok, "/")[[1]]
       if (length(parts) == 2) {

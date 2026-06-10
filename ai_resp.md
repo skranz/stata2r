@@ -1,125 +1,88 @@
-!MODIFICATION t_egen.R
-scope = "function"
-file = "R/t_egen.R"
-function_name = "t_egen"
-description = "Add translations for pctile, rsum, rmax"
----
-```r
-# 2. Code Generation Phase
-t_egen = function(rest_of_cmd, cmd_obj, cmd_df, line_num, context) {
-  restore.point("t_egen")
-  parsed = s2r_p_egen(rest_of_cmd)
-  if (is.na(parsed$new_var)) return(paste0("# Failed to parse egen command: ", rest_of_cmd))
+To fix the parsing error for the `at()` option and the deprecation warning for `dplyr::group_indices()`, I will replace the `scmd_egen` function in `t_egen.R`. 
 
-  r_if_cond = NA_character_
-  if (!is.na(parsed$if_str)) r_if_cond = translate_stata_expression_with_r_values(parsed$if_str, line_num, cmd_df, context)
-  r_in_range = s2r_in_str_to_r_range_str(parsed$in_str)
-
-  # For egen, we cannot simply combine r_in_range directly with r_if_cond as text because r_in_range is an index vector (e.g. "1:5")
-  # We will pass r_in_range as a separate argument to scmd_egen.
-
-  r_args = translate_stata_expression_with_r_values(parsed$args_str, line_num, cmd_df, context)
-
-  # Inside scmd_egen we will have a .stata_temp_mask that incorporates if and in conditions.
-  r_args_cond = paste0("dplyr::if_else(.stata_temp_mask, ", r_args, ", NA)")
-
-  is_ftm = fast_coalesce(stringi::stri_detect_fixed(parsed$options, "fieldstrustmissings"), FALSE)
-  is_row = FALSE
-  needs_temp_sort = FALSE
-
-  calc_expr = ""
-  if (parsed$func_name == "mean") calc_expr = paste0("mean(", r_args_cond, ", na.rm = TRUE)")
-  else if (parsed$func_name %in% c("total", "sum")) calc_expr = paste0("collapse::fsum(", r_args_cond, ", na.rm = TRUE)")
-  else if (parsed$func_name == "count") calc_expr = paste0("sum(!is.na(", r_args_cond, "))")
-  else if (parsed$func_name == "min") calc_expr = paste0("collapse::fmin(", r_args_cond, ", na.rm = TRUE)")
-  else if (parsed$func_name == "max") calc_expr = paste0("collapse::fmax(", r_args_cond, ", na.rm = TRUE)")
-  else if (parsed$func_name == "rank") {
-    needs_temp_sort = !cmd_obj$is_by_prefix
-    if (is_ftm) val = paste0("as.numeric(dplyr::if_else(is.na(", r_args_cond, "), Inf, ", r_args_cond, "))") else val = r_args_cond
-    calc_expr = paste0("as.numeric(base::rank(", val, ", ties.method = 'average', na.last = 'keep'))")
-  }
-  else if (parsed$func_name %in% c("median", "p50")) calc_expr = paste0("stats::median(", r_args_cond, ", na.rm = TRUE)")
-  else if (parsed$func_name == "pctile") {
-    p_val = 50
-    if (!is.na(parsed$options)) {
-      p_match = stringi::stri_match_first_regex(parsed$options, "\\bp\\s*\\(([^)]+)\\)")
-      if (!is.na(p_match[1,1])) p_val = as.numeric(p_match[1,2])
-    }
-    prob = p_val / 100
-    calc_expr = paste0("collapse::fquantile(", r_args_cond, ", probs = ", prob, ", na.rm = TRUE)")
-  }
-  else if (parsed$func_name %in% c("sd", "std")) calc_expr = paste0("stats::sd(", r_args_cond, ", na.rm = TRUE)")
-  else if (parsed$func_name == "group") { needs_temp_sort = !cmd_obj$is_by_prefix; calc_expr = "dplyr::cur_group_id()" }
-  else if (parsed$func_name == "tag") { needs_temp_sort = !cmd_obj$is_by_prefix; calc_expr = "as.numeric(dplyr::row_number() == 1)" }
-  else if (parsed$func_name %in% c("rowtotal", "rsum", "rowmean", "rmax", "rowmax", "concat")) {
-    is_row = TRUE
-    calc_expr = paste0(".ROWOP_", parsed$func_name, "_PLACEHOLDER.")
-  }
-  else if (parsed$func_name == "seq") {
-    needs_temp_sort = !cmd_obj$is_by_prefix
-    from_val = 1
-    to_val = NA_real_
-    block_val = 1
-    if (!is.na(parsed$options)) {
-      from_match = stringi::stri_match_first_regex(parsed$options, "\\bfrom\\s*\\((\\d+)\\)")
-      if (!is.na(from_match[1,1])) from_val = as.numeric(from_match[1,2])
-      to_match = stringi::stri_match_first_regex(parsed$options, "\\bto\\s*\\((\\d+)\\)")
-      if (!is.na(to_match[1,1])) to_val = as.numeric(to_match[1,2])
-      block_match = stringi::stri_match_first_regex(parsed$options, "\\bblock\\s*\\((\\d+)\\)")
-      if (!is.na(block_match[1,1])) block_val = as.numeric(block_match[1,2])
-    }
-    if (block_val == 1) {
-      if (from_val == 1) {
-        calc_expr = "dplyr::row_number()"
-      } else {
-        calc_expr = paste0("dplyr::row_number() + ", from_val - 1)
-      }
-    } else {
-      calc_expr = paste0("floor((dplyr::row_number() - 1) / ", block_val, ") + ", from_val)
-    }
-    if (!is.na(to_val)) {
-      calc_expr = paste0("floor((dplyr::row_number() - 1) / ", block_val, ") %% (", to_val - from_val + 1, ") + ", from_val)
-    }
-    calc_expr = paste0("dplyr::if_else(.stata_temp_mask, as.numeric(", calc_expr, "), NA_real_)")
-  }
-  else return(paste0("# Egen func '", parsed$func_name, "' not implemented."))
-
-  group_vars = character(0)
-  if (cmd_obj$is_by_prefix) group_vars = stringi::stri_split_fixed(cmd_obj$by_group_vars, ",")[[1]]
-  else if (!is.na(parsed$options)) {
-    by_opt = stringi::stri_match_first_regex(parsed$options, "\\bby\\s*\\(([^)]+)\\)")
-    if (!is.na(by_opt[1,1])) group_vars = stringi::stri_split_regex(stringi::stri_trim_both(by_opt[1,2]), "\\s+")[[1]]
-  }
-  group_vars = group_vars[group_vars != "" & !is.na(group_vars)]
-
-  args = c("data = data", paste0("new_var = ", quote_for_r_literal(parsed$new_var)),
-           paste0("func_name = ", quote_for_r_literal(parsed$func_name)),
-           paste0("calc_expr = ", quote_for_r_literal(calc_expr)))
-
-  if (!is.na(r_if_cond)) args = c(args, paste0("r_if_cond = ", quote_for_r_literal(r_if_cond)))
-  if (!is.na(r_in_range)) args = c(args, paste0("r_in_range = ", quote_for_r_literal(r_in_range)))
-
-  if (length(group_vars) > 0) args = c(args, paste0("group_vars = c('", paste(group_vars, collapse="','"), "')"))
-  if (parsed$func_name %in% c("group", "tag", "rowtotal", "rsum", "rowmean", "rmax", "rowmax", "concat")) args = c(args, paste0("args_str = ", quote_for_r_literal(parsed$args_str)))
-  args = c(args, paste0("needs_temp_sort = ", needs_temp_sort), paste0("is_row = ", is_row))
-
-  return(paste0("data = scmd_egen(", paste(args, collapse = ", "), ")"))
-}
-```
-!END_MODIFICATION t_egen.R
+1. **`at()` parsing fix**: The regular expression `\\bat\\s*\\(([^)]+)\\)` incorrectly stopped at the first closing parenthesis `)` when parsing `at(0(10)170)`. I will update this to `\\bat\\s*\\(((?:[^)(]+|\\([^)(]+\\))*)\\)`, which correctly handles one level of nested parentheses (a standard pattern for Stata options like `numlists`).
+2. **`dplyr::group_indices()` fix**: Supplying columns via `...` directly to `group_indices(data, !!!...)` is deprecated. Instead, we first apply `dplyr::group_by()` to the dataframe, and then pass the grouped dataframe to `dplyr::group_indices()` without additional arguments.
 
 !MODIFICATION scmd_egen t_egen.R
 scope = "function"
 file = "R/t_egen.R"
 function_name = "scmd_egen"
-description = "Implement row computations for rsum and rmax"
+description = "Fix group_indices() deprecation warning and cut() at() option parsing."
 ---
 ```r
-scmd_egen = function(data, new_var, func_name, calc_expr, r_if_cond = NA_character_, r_in_range = NA_character_, group_vars = character(0), args_str = NA_character_, needs_temp_sort = FALSE, is_row = FALSE) {
+scmd_egen = function(data, new_var, func_name, calc_expr, r_if_cond = NA_character_, r_in_range = NA_character_, group_vars = character(0), args_str = NA_character_, needs_temp_sort = FALSE, is_row = FALSE, options_str = NA_character_) {
   restore.point("scmd_egen")
 
   group_vars_actual = expand_varlist(paste(group_vars, collapse=" "), names(data))
-  if (func_name %in% c("group", "tag")) {
+
+  if (func_name == "group") {
+    arg_vars = expand_varlist(args_str, names(data))
+    is_missing_opt = fast_coalesce(stringi::stri_detect_regex(options_str, "\\bmissing\\b"), FALSE)
+
+    grouped_data = dplyr::group_by(data, !!!dplyr::syms(arg_vars))
+    res = dplyr::group_indices(grouped_data)
+    
+    if (!is_missing_opt) {
+      # Fast NA check across columns to match Stata missing condition
+      has_na = Reduce(`|`, lapply(data[arg_vars], is.na))
+      res[has_na] = NA_integer_
+      res = dplyr::dense_rank(res)
+    }
+
+    data$.stata_group_res = res
+    calc_expr = "data$.stata_group_res"
+    needs_temp_sort = FALSE
+    group_vars_actual = character(0) # group evaluates across entire dataset
+  } else if (func_name == "cut") {
+    arg_vars = expand_varlist(args_str, names(data))
+    if (length(arg_vars) != 1) stop("scmd_egen: cut requires exactly one variable")
+    var_actual = arg_vars[1]
+
+    at_match = stringi::stri_match_first_regex(options_str, "\\bat\\s*\\(((?:[^)(]+|\\([^)(]+\\))*)\\)")
+    group_match = stringi::stri_match_first_regex(options_str, "\\bgroup\\s*\\((\\d+)\\)")
+    icodes = fast_coalesce(stringi::stri_detect_regex(options_str, "\\bicodes\\b"), FALSE)
+
+    vec = data[[var_actual]]
+
+    if (!is.na(at_match[1,1])) {
+      breaks_str = at_match[1,2]
+      breaks_vals = as.numeric(expand_stata_numlist(breaks_str))
+      breaks_vals = sort(unique(breaks_vals[!is.na(breaks_vals)]))
+
+      if (length(breaks_vals) < 2) {
+         stop(paste0("scmd_egen: cut requires at least two valid breaks, parsed from: ", breaks_str))
+      }
+
+      if (icodes) {
+        cut_res = as.integer(cut(vec, breaks = breaks_vals, right = FALSE, include.lowest = FALSE, labels = FALSE)) - 1L
+      } else {
+        lower_bounds = breaks_vals[-length(breaks_vals)]
+        cut_res = as.numeric(as.character(cut(vec, breaks = breaks_vals, right = FALSE, include.lowest = FALSE, labels = lower_bounds)))
+      }
+    } else if (!is.na(group_match[1,1])) {
+      num_groups = as.numeric(group_match[1,2])
+      probs = seq(0, 1, length.out = num_groups + 1)
+      breaks_vals = stats::quantile(vec, probs, na.rm = TRUE)
+      breaks_vals[1] = breaks_vals[1] - 1e-6 # ensure lowest is included
+      breaks_vals = unique(breaks_vals)
+
+      if (length(breaks_vals) < 2) {
+         stop("scmd_egen: cut could not generate sufficient unique quantiles for groups")
+      }
+
+      if (icodes) {
+        cut_res = as.integer(cut(vec, breaks = breaks_vals, right = TRUE, include.lowest = TRUE, labels = FALSE)) - 1L
+      } else {
+        lower_bounds = breaks_vals[-length(breaks_vals)]
+        cut_res = as.numeric(as.character(cut(vec, breaks = breaks_vals, right = TRUE, include.lowest = TRUE, labels = lower_bounds)))
+      }
+    } else {
+      stop("scmd_egen: cut requires either 'at' or 'group' option")
+    }
+
+    data$.stata_cut_res = cut_res
+    calc_expr = "data$.stata_cut_res"
+  } else if (func_name == "tag") {
     arg_vars = expand_varlist(args_str, names(data))
     group_vars_actual = unique(c(group_vars_actual, arg_vars))
   }
@@ -196,12 +159,14 @@ scmd_egen = function(data, new_var, func_name, calc_expr, r_if_cond = NA_charact
     data = eval(parse(text = paste(pipe_el, collapse = " %>% ")), envir = eval_env)
   }
 
-  # For rank, group, tag, where if_cond/in_range usually creates NA for unselected rows
-  if (func_name %in% c("rank", "group", "tag")) {
+  # For rank, group, tag, cut where if_cond/in_range usually creates NA for unselected rows
+  if (func_name %in% c("rank", "group", "tag", "cut")) {
      data[[new_var]] = dplyr::if_else(data$.stata_temp_mask, data[[new_var]], NA_real_)
   }
 
   data$.stata_temp_mask = NULL
+  data$.stata_group_res = NULL
+  data$.stata_cut_res = NULL
   return(data)
 }
 ```
