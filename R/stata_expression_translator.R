@@ -81,7 +81,7 @@ s2r_stata_expr_returns_logical = function(stata_expr) {
   expr = s2r_strip_outer_parens(as.character(stata_expr[1]))
   if (is.na(expr) || expr == "") return(FALSE)
 
-  if (fast_coalesce(stringi::stri_detect_regex(expr, "^(?:missing|inlist|inrange)\\s*\\("), FALSE)) {
+  if (fast_coalesce(stringi::stri_detect_regex(expr, "^(?:mi|mis|miss|missi|missin|missing|inlist|inrange)\\s*\\("), FALSE)) {
     return(TRUE)
   }
 
@@ -194,7 +194,8 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^,]+),([^)]+)\\)", "sfun_stata_round($1, $2)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^)]+)\\)", "sfun_stata_round($1, 1)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmod\\(([^,]+),([^)]+)\\)", "($1 %% $2)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmissing\\(([^)]+)\\)", "sfun_missing($1)")
+    # ADDED: mi|mis|miss|missi|missin|missing
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\b(?:mi|mis|miss|missi|missin|missing)\\(([^)]+)\\)", "sfun_missing($1)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\blog\\(([^)]+)\\)", "log($1)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsqrt\\(([^)]+)\\)", "sqrt($1)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bint\\(([^)]+)\\)", "trunc($1)")
