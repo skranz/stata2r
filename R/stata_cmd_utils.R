@@ -170,7 +170,7 @@ stata_data_manip_cmds = c(
   "tempfile", "tempvar", "tempname",
   "total",
   "use", "xtile", "xi",
-  "replace", "clear", "scalar", "sc", "carryforward"
+  "replace", "clear", "scalar", "sc", "carryforward", "clonevar"
 )
 
 # Commands that primarily display info or control program flow, and never
