@@ -82,13 +82,26 @@ s2r_eval_cond = function(data, r_cond, envir = parent.frame(),
     "NA_character_" = "",
     "NA" = Inf,
     ".data" = data,
-    "sfun_missing" = function(x) {
-      if (is.numeric(x)) {
-        return(is.na(x) | is.infinite(x))
-      } else if (is.character(x)) {
-        return(is.na(x) | stringi::stri_trim_both(x) == "")
+    "sfun_missing" = function(...) {
+      args = list(...)
+      if (length(args) == 0) return(rep(FALSE, n))
+
+      check_missing = function(x) {
+        if (is.numeric(x)) {
+          return(is.na(x) | is.infinite(x))
+        } else if (is.character(x)) {
+          return(is.na(x) | stringi::stri_trim_both(x) == "")
+        }
+        return(is.na(x))
       }
-      return(is.na(x))
+
+      res = check_missing(args[[1]])
+      if (length(args) > 1) {
+        for (i in 2:length(args)) {
+          res = res | check_missing(args[[i]])
+        }
+      }
+      return(res)
     }
   )
 

@@ -48,15 +48,28 @@ s2r_setup_eval_list = function(data) {
   # and in dplyr data-masked contexts.
   eval_list[[".data"]] = data
 
-  eval_list[["sfun_missing"]] = function(x) {
-    if (inherits(x, "Date")) {
+  eval_list[["sfun_missing"]] = function(...) {
+    args = list(...)
+    if (length(args) == 0) return(FALSE)
+
+    check_missing = function(x) {
+      if (inherits(x, "Date")) {
+        return(is.na(x))
+      } else if (is.numeric(x)) {
+        return(is.na(x) | is.infinite(x))
+      } else if (is.character(x)) {
+        return(is.na(x) | stringi::stri_trim_both(x) == "")
+      }
       return(is.na(x))
-    } else if (is.numeric(x)) {
-      return(is.na(x) | is.infinite(x))
-    } else if (is.character(x)) {
-      return(is.na(x) | stringi::stri_trim_both(x) == "")
     }
-    return(is.na(x))
+
+    res = check_missing(args[[1]])
+    if (length(args) > 1) {
+      for (i in 2:length(args)) {
+        res = res | check_missing(args[[i]])
+      }
+    }
+    return(res)
   }
 
   return(eval_list)

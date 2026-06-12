@@ -36,3 +36,11 @@ do_to_r = function(do_code, return_df = FALSE, timevar = NULL, panelvar = NULL, 
   return(list(r_df=r_df, r_code=r_code))
 }
 
+
+set_stata2r_env = function(...) {
+  args = list(...)
+  list2env(args, envir = stata2r_env)
+  invisible(args)
+}
+
+
