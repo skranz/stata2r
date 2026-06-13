@@ -82,7 +82,7 @@ s2r_make_local_helper_call = function(fun_name, r_args, temp_prefix) {
   }
 
   temp_names = paste0(temp_prefix, seq_along(r_args))
-  bind_code = paste0(temp_names, " <- ", r_args)
+  bind_code = paste0(temp_names, " = ", r_args)
   call_code = paste0(fun_name, "(", paste(temp_names, collapse = ", "), ")")
 
   paste0("local({ ", paste(c(bind_code, call_code), collapse = "; "), " })")

@@ -175,6 +175,9 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   r_expr = stringi::stri_replace_all_regex(r_expr, "\\s*~=\\s*", " != ")
   r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![a-zA-Z0-9_\\.])~", "!")
 
+  # Prevent Stata's `<-` (less than negative) from being parsed as R assignment
+  r_expr = stringi::stri_replace_all_fixed(r_expr, "<-", "< -")
+
   # Step 3: Translate Stata special variables and indexing (Fast Path vs Safe Fallback)
   # 1. Self-reference: var[_n]
   r_expr = stringi::stri_replace_all_regex(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*\\[\\s*_n\\s*\\]", "`$1`")

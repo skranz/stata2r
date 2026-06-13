@@ -100,11 +100,11 @@ scmd_generate = function(data, new_var, r_expr_str, r_if_cond = NA_character_, r
     }
   } else {
     if (is_string) {
-        expr_body = paste0("{ .val <- as.character(", r_expr_str, "); dplyr::if_else(", mask_expr, ", .val, '') }")
+        expr_body = paste0("{ .val = as.character(", r_expr_str, "); dplyr::if_else(", mask_expr, ", .val, '') }")
     } else if (force_integer) {
-        expr_body = paste0("{ .val <- as.integer(", r_expr_str, "); dplyr::if_else(", mask_expr, ", .val, NA_integer_) }")
+        expr_body = paste0("{ .val = as.integer(", r_expr_str, "); dplyr::if_else(", mask_expr, ", .val, NA_integer_) }")
     } else {
-        expr_body = paste0("{ .val <- ", r_expr_str, "; if(is.character(.val)) { dplyr::if_else(", mask_expr, ", .val, '') } else { .val <- as.numeric(.val); dplyr::if_else(", mask_expr, ", .val, NA_real_) } }")
+        expr_body = paste0("{ .val = ", r_expr_str, "; if(is.character(.val)) { dplyr::if_else(", mask_expr, ", .val, '') } else { .val = as.numeric(.val); dplyr::if_else(", mask_expr, ", .val, NA_real_) } }")
     }
   }
 

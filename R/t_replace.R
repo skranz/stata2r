@@ -104,11 +104,11 @@ scmd_replace = function(data, var_to_replace, r_expr_str, r_if_cond = NA_charact
     }
   } else {
     if (is_string) {
-        expr_body = paste0("{ .val <- as.character(", r_expr_str, "); dplyr::if_else(", mask_expr, ", .val, `", var_actual, "`) }")
+        expr_body = paste0("{ .val = as.character(", r_expr_str, "); dplyr::if_else(", mask_expr, ", .val, `", var_actual, "`) }")
     } else if (force_integer) {
-        expr_body = paste0("{ .val <- as.integer(", r_expr_str, "); dplyr::if_else(", mask_expr, ", .val, `", var_actual, "`) }")
+        expr_body = paste0("{ .val = as.integer(", r_expr_str, "); dplyr::if_else(", mask_expr, ", .val, `", var_actual, "`) }")
     } else {
-        expr_body = paste0("{ .val <- ", r_expr_str, "; if(is.character(.val)) { dplyr::if_else(", mask_expr, ", .val, `", var_actual, "`) } else { .val <- as.numeric(.val); dplyr::if_else(", mask_expr, ", .val, `", var_actual, "`) } }")
+        expr_body = paste0("{ .val = ", r_expr_str, "; if(is.character(.val)) { dplyr::if_else(", mask_expr, ", .val, `", var_actual, "`) } else { .val = as.numeric(.val); dplyr::if_else(", mask_expr, ", .val, `", var_actual, "`) } }")
     }
   }
 
