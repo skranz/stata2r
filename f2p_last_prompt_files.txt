@@ -46,6 +46,7 @@ R/stata_xi.R
 R/t_append.R
 R/t_areg.R
 R/t_carryforward.R
+R/t_clonevar.R
 R/t_collapse.R
 R/t_compress.R
 R/t_decode.R
