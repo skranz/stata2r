@@ -83,6 +83,7 @@ R/t_tabulate.R
 R/t_tempfile.R
 R/t_use.R
 R/t_xi.R
+R/t_xtile.R
 R/t_xtreg.R
 R/varlist.R
 README.md
