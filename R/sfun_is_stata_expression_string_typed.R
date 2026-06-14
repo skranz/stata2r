@@ -36,6 +36,7 @@ sfun_is_stata_expression_string_typed = function(stata_expr_original) {
   numeric_producing_functions = c(
     "log", "sqrt", "int", "round", "mod", "runiform", "mdy", "date",
     "year", "month", "day", "qofd", "dow", "missing", "mi", "mis", "miss", "missi", "missin", "inlist", "inrange", "real",
+    "sum",
     # Stata type casting functions that convert to numeric:
     "float", "double", "long", "int", "byte"
   )

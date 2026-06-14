@@ -105,6 +105,11 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     return("NA_real_")
   }
 
+  # Strip accidental outer brackets which users sometimes write instead of parens
+  if (fast_coalesce(stringi::stri_startswith_fixed(stata_expr, "[") && stringi::stri_endswith_fixed(stata_expr, "]"), FALSE)) {
+    stata_expr = stringi::stri_sub(stata_expr, 2, -2)
+  }
+
   stata_expr_original = stata_expr
   is_logical_or_comparison_expr = s2r_stata_expr_returns_logical(stata_expr_original)
 
@@ -179,6 +184,9 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
   r_expr = stringi::stri_replace_all_fixed(r_expr, "<-", "< -")
 
   # Step 3: Translate Stata special variables and indexing (Fast Path vs Safe Fallback)
+  # Fix for users writing [_n] instead of _n
+  r_expr = stringi::stri_replace_all_regex(r_expr, "(?<![a-zA-Z0-9_\\.])\\[\\s*_n\\s*\\](?![a-zA-Z0-9_\\.])", "_n")
+
   # 1. Self-reference: var[_n]
   r_expr = stringi::stri_replace_all_regex(r_expr, "(\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b)\\s*\\[\\s*_n\\s*\\]", "`$1`")
   # 2. Fast Path (Lags/Leads): var[_n - math] -> sfun_shift
@@ -200,6 +208,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     # ADDED: mi|mis|miss|missi|missin|missing
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\b(?:mi|mis|miss|missi|missin|missing)\\(([^)]+)\\)", "sfun_missing($1)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\blog\\(([^)]+)\\)", "log($1)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsum\\(([^)]+)\\)", "sfun_stata_sum($1)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bsqrt\\(([^)]+)\\)", "sqrt($1)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bint\\(([^)]+)\\)", "trunc($1)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\breal\\(([^)]+)\\)", "suppressWarnings(as.numeric($1))")
@@ -248,7 +257,11 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     "sfun_month", "sfun_qofd", "sfun_dow", "sfun_inlist", "sfun_inrange", "sfun_normalize_string_nas", "sfun_strip_stata_attributes",
     "sfun_compress_col_type", "sfun_is_stata_expression_string_typed", "as.logical",
     "sfun_stata_cond", "sfun_year", "sfun_stata_date_single", "e", "sfun_flag", "sfun_fdiff",
-    "s2r_stata_logical", "sfun_index", "sfun_shift",
+    "s2r_stata_logical", "sfun_index", "sfun_shift", "sfun_stata_sum",
+    "dplyr::row_number", "dplyr::n", "dplyr::if_else", "dplyr::mutate", "dplyr::group_by", "dplyr::ungroup", "dplyr::arrange", "dplyr::desc",
+    "stats::runif", "stats::median", "stats::sd",
+    "collapse::fmean", "collapse::fsum", "collapse::fmin", "collapse::fmax", "collapse::fmedian", "collapse::fquantile", "collapse::fsd", "collapse::ffirst", "collapse::flast",
+    "stringi::stri_trim_right", "stringi::stri_trans_tolower", "stringi::stri_trans_toupper", "stringi::stri_sub", "stringi::stri_length", "stringi::stri_paste",
     "NROW", "length", "unique", "sapply", "vapply", "c", "list", "intersect", "setdiff",
     "warning", "stop", "paste0", "grepl", "as.logical", "ifelse", "exists", "rm",
     "is.null", "lapply", "is.na", "is.character", "is.numeric", "is.logical", "is.factor",
