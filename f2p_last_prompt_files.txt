@@ -31,6 +31,7 @@ R/sfun_stata_date.R
 R/sfun_stata_date_single.R
 R/sfun_stata_mdy.R
 R/sfun_stata_round.R
+R/sfun_stata_sum.R
 R/sfun_string.R
 R/sfun_strip_stata_attributes.R
 R/sfun_stritrim.R
@@ -85,5 +86,6 @@ R/t_use.R
 R/t_xi.R
 R/t_xtile.R
 R/t_xtreg.R
+R/t_zscore.R
 R/varlist.R
 README.md
