@@ -56,13 +56,22 @@ t_reshape = function(rest_of_cmd, cmd_obj, cmd_df, line_num) {
 # 3. Runtime Execution Phase
 scmd_reshape = function(data, type, stubs_str, i_vars = NA_character_, j_var = NA_character_, j_is_string = FALSE) {
   restore.point("scmd_reshape")
-  stubs = stringi::stri_split_regex(stubs_str, "\\s+")[[1]]
 
   if (type == "wide") {
+    # In wide reshape, stubs represent existing variable names, so we expand any varlist patterns (e.g. var1-var5)
+    stubs = expand_varlist(stubs_str, names(data))
+    if (length(stubs) == 0) {
+      stop(paste0("scmd_reshape: no variables found matching '", stubs_str, "'"))
+    }
+
     # tidyr::pivot_wider automatically uses all columns not in names_from/values_from as ID columns.
     # This naturally includes Stata's i() variables and preserves other constant variables just like Stata does.
     data = tidyr::pivot_wider(data, names_from = dplyr::all_of(j_var), values_from = dplyr::all_of(stubs), names_sep = "")
   } else if (type == "long") {
+    # In long reshape, stubs act as prefixes for currently wide data columns
+    stubs = stringi::stri_split_regex(stubs_str, "\\s+")[[1]]
+    stubs = stubs[stubs != ""]
+
     if (j_is_string) {
       cols_regex = paste0("^(", paste(stubs, collapse = "|"), ").+$")
       names_pattern = paste0("^(", paste(stubs, collapse = "|"), ")(.+)$")
