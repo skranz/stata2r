@@ -204,7 +204,7 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bcond\\(([^,]+),([^,]+),([^)]+)\\)", "sfun_stata_cond($1, $2, $3)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^,]+),([^)]+)\\)", "sfun_stata_round($1, $2)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\bround\\(([^)]+)\\)", "sfun_stata_round($1, 1)")
-    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmod\\(([^,]+),([^)]+)\\)", "($1 %% $2)")
+    r_expr = stringi::stri_replace_all_regex(r_expr, "\\bmod\\(([^,]+),([^)]+)\\)", "sfun_mod($1, $2)")
     # ADDED: mi|mis|miss|missi|missin|missing
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\b(?:mi|mis|miss|missi|missin|missing)\\(([^)]+)\\)", "sfun_missing($1)")
     r_expr = stringi::stri_replace_all_regex(r_expr, "\\blog\\(([^)]+)\\)", "log($1)")
@@ -257,7 +257,8 @@ translate_stata_expression_to_r = function(stata_expr, context = list(is_by_grou
     "sfun_month", "sfun_qofd", "sfun_dow", "sfun_inlist", "sfun_inrange", "sfun_normalize_string_nas", "sfun_strip_stata_attributes",
     "sfun_compress_col_type", "sfun_is_stata_expression_string_typed", "as.logical",
     "sfun_stata_cond", "sfun_year", "sfun_stata_date_single", "e", "sfun_flag", "sfun_fdiff",
-    "s2r_stata_logical", "sfun_index", "sfun_shift", "sfun_stata_sum",
+    "s2r_stata_logical", "sfun_index", "sfun_shift", "sfun_stata_sum", "sfun_mod",
+    "sfun_rowsd",
     "dplyr::row_number", "dplyr::n", "dplyr::if_else", "dplyr::mutate", "dplyr::group_by", "dplyr::ungroup", "dplyr::arrange", "dplyr::desc",
     "stats::runif", "stats::median", "stats::sd",
     "collapse::fmean", "collapse::fsum", "collapse::fmin", "collapse::fmax", "collapse::fmedian", "collapse::fquantile", "collapse::fsd", "collapse::ffirst", "collapse::flast",
